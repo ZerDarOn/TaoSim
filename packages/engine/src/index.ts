@@ -35,3 +35,6 @@ export { MapGenerator } from './world/map-generator.js';
 export { RecipeRegistry } from './crafting/recipe-registry.js';
 export { AlchemyEngine } from './crafting/alchemy-engine.js';
 export { ForgeEngine } from './crafting/forge-engine.js';
+
+// Equipment (装备管理)
+export { EquipmentManager } from './equipment/equipment-manager.js';
