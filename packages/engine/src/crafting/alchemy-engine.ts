@@ -1,5 +1,7 @@
 import type { Character, Item } from '@taosim/contracts';
 import { RecipeRegistry } from './recipe-registry.js';
+import { QualityCalculator } from './quality-calculator.js';
+import { RESTORE_MULTIPLIER, BREAKTHROUGH_BONUS, LIFESPAN_MULTIPLIER } from './pill-effect-table.js';
 
 export interface CraftResult {
   success: boolean;
@@ -20,20 +22,17 @@ export class AlchemyEngine {
 
     // 2. 消耗材料 + 收集毒性
     let totalPoison = 0;
-    const consumed: { id: string; poison: number }[] = [];
     for (const matId of recipe.requiredMaterials) {
       const stack = character.inventory.find(s => s.item.id === matId)!;
       stack.count--;
-      const poison = stack.item.poisonValence ?? 0;
-      totalPoison += poison;
-      consumed.push({ id: matId, poison });
+      totalPoison += stack.item.poisonValence ?? 0;
     }
     character.inventory = character.inventory.filter(s => s.count > 0);
 
     // 3. 阴阳平衡判定（|totalPoison| > yinYangThreshold → 毒丹）
     const isPoison = Math.abs(totalPoison) > recipe.yinYangThreshold;
 
-    // 4. 成功率：基础成功率 × (1 + 悟性/200)
+    // 4. 成功率：基础成功率 + 悟性加成
     const comprehensionBonus = character.attributes.comprehension / 200;
     const successRate = Math.min(0.95, recipe.baseSuccessRate + comprehensionBonus);
 
@@ -41,17 +40,51 @@ export class AlchemyEngine {
       return { success: false, reason: '炼制失败，材料已消耗' };
     }
 
-    // 5. 产出
+    // 5. 品质 roll（丹药专用分布：C50/R30/E15/L5）
+    const quality = QualityCalculator.rollPillQuality();
+
+    // 6. pillCategory 推断: 0=Restore, 1=Breakthrough, 2=Lifespan
+    let pillCategory = 0;
+    if (recipe.name.includes('筑基') || recipe.name.includes('金元') || recipe.name.includes('凝婴')) pillCategory = 1;
+    else if (recipe.name.includes('延寿')) pillCategory = 2;
+
+    // 7. 产出
     const pillName = isPoison ? `毒${recipe.name}` : recipe.name;
+    const baseEffect = recipe.tier * 50;
     const pillItem: Item = {
       id: `PILL_${Date.now()}`,
+      templateId: recipe.id,
       name: pillName,
       tier: recipe.tier,
       type: isPoison ? 'Poison' : 'Medicine',
-      attributes: isPoison ? { poisonResist: -5 } : { spiritEnergyMax: recipe.tier * 50 },
+      attributes: isPoison
+        ? { poisonResist: -5, pillCategory, effectValue: Math.abs(totalPoison) } as Item['attributes']
+        : { spiritEnergyMax: baseEffect, pillCategory, effectValue: baseEffect } as Item['attributes'],
       poisonValence: isPoison ? Math.abs(totalPoison) : 0,
+      quality,
     };
 
     return { success: true, pill: pillItem };
+  }
+
+  static getPillEffect(pill: Item): number {
+    const attrs = pill.attributes as Record<string, number>;
+    const category = attrs.pillCategory ?? 0;
+    const quality = pill.quality ?? 'Common';
+
+    if (category === 1) {
+      // Breakthrough: 固定百分比加成
+      return BREAKTHROUGH_BONUS[quality];
+    }
+
+    const baseValue = attrs.effectValue ?? 50;
+
+    if (category === 2) {
+      // Lifespan: 基准年 × 倍率
+      return Math.floor(baseValue * LIFESPAN_MULTIPLIER[quality]);
+    }
+
+    // Restore: 基准 × 倍率（Common 因丹毒打折）
+    return Math.floor(baseValue * RESTORE_MULTIPLIER[quality]);
   }
 }
