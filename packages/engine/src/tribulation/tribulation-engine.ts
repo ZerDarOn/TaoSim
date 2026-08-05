@@ -49,12 +49,23 @@ export class TribulationEngine {
     c.realm = config.toRealm as RealmFullPath;
     c.cultivation.currentExp = 0;
     c.cultivation.maxExp = Math.floor(c.cultivation.maxExp * 3);
-    c.lifespan.maxLifespan = 200;
-    c.maxHp = Math.floor(c.maxHp * 2);
+
+    if (config.postBreakthrough) {
+      c.lifespan.maxLifespan = config.postBreakthrough.maxLifespan;
+      c.maxHp = Math.floor(c.maxHp * config.postBreakthrough.hpMultiplier);
+      c.spiritEnergy.max = Math.floor(c.spiritEnergy.max * config.postBreakthrough.spiritEnergyMultiplier);
+      if (config.postBreakthrough.canFly !== undefined) {
+        c.canFly = config.postBreakthrough.canFly;
+      }
+    } else {
+      c.lifespan.maxLifespan = 200;
+      c.maxHp = Math.floor(c.maxHp * 2);
+      c.spiritEnergy.max = Math.floor(c.spiritEnergy.max * 1.5);
+      c.canFly = true;
+    }
+
     c.hp = c.maxHp;
-    c.spiritEnergy.max = Math.floor(c.spiritEnergy.max * 1.5);
     c.spiritEnergy.current = c.spiritEnergy.max;
-    c.canFly = true;
 
     return {
       success: true,
