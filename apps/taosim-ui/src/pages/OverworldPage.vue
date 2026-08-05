@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { usePlayerStore } from '@/stores/player';
 import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge } from '@taosim/engine';
 import type { OverworldNode } from '@taosim/contracts';
 
 const playerStore = usePlayerStore();
+const router = useRouter();
 const currentNodeId = ref('NODE_SECT_QINGYUN');
 const message = ref<string | null>(null);
 const travelEvents = ref<{ type: string; title: string; description: string }[]>([]);
@@ -58,6 +60,12 @@ function goToNode(nodeId: string) {
       <span class="font-semibold text-jade">{{ currentNode?.name ?? '未知' }}</span>
       <span class="text-xs text-muted ml-2">（{{ currentNode?.type }} · {{ currentNode?.tier }}阶）</span>
     </div>
+
+    <button v-if="currentNode?.type === 'Market'"
+      @click="router.push('/market')"
+      class="px-4 py-2 bg-amber-500 text-white rounded-md text-sm font-semibold hover:bg-amber-600 w-fit">
+      进入坊市
+    </button>
 
     <div v-if="message" class="p-3 rounded-md text-sm bg-jade-soft text-jade">{{ message }}</div>
 

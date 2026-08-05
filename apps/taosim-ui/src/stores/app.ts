@@ -71,6 +71,8 @@ export const useAppStore = defineStore('app', {
         factions: {},
         overworldMap: { continents: [] },
         graveyard: [],
+        marketInventories: {},
+        npcTradeOffers: {},
       };
       await adapter.save(payload);
       this.saveHeaders = await adapter.listHeaders();
