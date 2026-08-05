@@ -2,13 +2,69 @@
 import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useWorld } from '@/composables/useWorld';
-import { TribulationEngine, getSpiritRootMultiplier, GRADE_MULTIPLIER } from '@taosim/engine';
-import type { RealmBreakthroughConfig, RealmFullPath } from '@taosim/contracts';
+import { TribulationEngine, getSpiritRootMultiplier, FactionEngine } from '@taosim/engine';
+import type { RealmBreakthroughConfig, RealmFullPath, Faction } from '@taosim/contracts';
 import { formatRealm, formatSpiritRootGrade, formatSpiritElement } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const world = useWorld();
 const resultMessage = ref<string | null>(null);
+const factionMessage = ref<string | null>(null);
+
+// ---- 宗门 ----
+
+const factionName = computed(() => {
+  const id = playerStore.character?.factionId;
+  if (!id) return '无';
+  const names: Record<string, string> = {
+    FACTION_QINGYUN_SECT: '青云宗',
+    FACTION_TIANJIAN_SECT: '天剑宗',
+    FACTION_ANCIENT_CLAN: '世家',
+  };
+  return names[id] ?? id;
+});
+
+const factionRankLabel = computed(() => {
+  const rank = playerStore.character?.factionRank;
+  if (!rank) return '—';
+  const labels: Record<string, string> = {
+    Disciple: '弟子',
+    Deacon: '执事',
+    Elder: '长老',
+    Leader: '宗主',
+  };
+  return labels[rank] ?? rank;
+});
+
+// 简易贡献度跟踪（用灵石累计贡献量）
+const totalContribution = ref(0);
+
+function contribute(amount: number) {
+  if (!playerStore.character || playerStore.character.spiritStones < amount) {
+    factionMessage.value = '灵石不足';
+    return;
+  }
+  playerStore.character.spiritStones -= amount;
+  totalContribution.value += amount;
+  factionMessage.value = `贡献 ${amount} 灵石成功`;
+}
+
+function attemptPromote() {
+  if (!playerStore.character) return;
+  const result = FactionEngine.promote(playerStore.character, totalContribution.value);
+  if (result.success) {
+    factionMessage.value = `晋升成功！当前阶位：${factionRankLabel.value}`;
+  } else {
+    factionMessage.value = result.reason ?? '晋升失败';
+  }
+}
+
+function leaveFaction() {
+  if (!playerStore.character?.factionId) return;
+  playerStore.character.factionId = undefined;
+  playerStore.character.factionRank = undefined;
+  factionMessage.value = '已脱离宗门，遭到通缉';
+}
 
 // ---- 修炼速度面板 ----
 
@@ -248,6 +304,37 @@ async function attemptBreakthrough() {
     <div v-if="resultMessage && resultMessage.includes('突破')"
       :class="['p-3 rounded-lg text-sm', resultMessage.includes('成功') ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300']">
       {{ resultMessage }}
+    </div>
+
+    <!-- 宗门区域 -->
+    <div class="p-4 bg-slate-800 rounded-lg space-y-3">
+      <h3 class="text-sm font-semibold text-slate-300">宗门</h3>
+      <div v-if="playerStore.character?.factionId">
+        <div class="text-xs text-slate-400 mb-2">
+          {{ factionName }} · <span class="text-amber-300">{{ factionRankLabel }}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <button @click="contribute(100)"
+            class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-xs transition disabled:opacity-50"
+            :disabled="(playerStore.character?.spiritStones ?? 0) < 100">
+            贡献 100 灵石
+          </button>
+          <button @click="attemptPromote"
+            class="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-white rounded text-xs font-semibold transition">
+            申请晋升
+          </button>
+        </div>
+        <button @click="leaveFaction"
+          class="w-full mt-2 px-3 py-1.5 bg-red-900/50 hover:bg-red-800 text-red-300 rounded text-xs transition">
+          脱离宗门（将遭通缉）
+        </button>
+      </div>
+      <div v-else class="text-xs text-slate-500">
+        无宗门归属。前往宗门节点可加入修仙门派。
+      </div>
+      <div v-if="factionMessage" class="text-xs mt-1" :class="factionMessage.includes('成功') ? 'text-green-400' : 'text-red-400'">
+        {{ factionMessage }}
+      </div>
     </div>
   </div>
 </template>
