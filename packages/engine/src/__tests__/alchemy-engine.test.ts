@@ -25,14 +25,21 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
 
 describe('AlchemyEngine', () => {
   it('材料足够时成功炼制筑基丹', () => {
-    const player = makePlayer();
-    const result = AlchemyEngine.craftPill(player, '筑基丹');
-    expect(result.success).toBe(true);
-    expect(result.pill).toBeDefined();
-    expect(result.pill!.name).toBe('筑基丹');
-    // 消耗了 3 种材料（灵草、阴露、阳石各 1 个）
-    const grass = player.inventory.find(s => s.item.id === 'MAT_SPIRIT_GRASS');
-    expect(grass!.count).toBe(2); // 3 - 1
+    // 75% 成功率，最多重试 5 次保证不因随机数失败
+    let success = false;
+    for (let i = 0; i < 5; i++) {
+      const player = makePlayer();
+      const result = AlchemyEngine.craftPill(player, '筑基丹');
+      if (result.success) {
+        expect(result.pill).toBeDefined();
+        expect(result.pill!.name).toBe('筑基丹');
+        const grass = player.inventory.find(s => s.item.id === 'MAT_SPIRIT_GRASS');
+        expect(grass!.count).toBe(2);
+        success = true;
+        break;
+      }
+    }
+    expect(success).toBe(true);
   });
 
   it('材料不足时炼制失败', () => {
@@ -43,17 +50,25 @@ describe('AlchemyEngine', () => {
   });
 
   it('高毒性材料导致毒丹转化', () => {
-    const player = makePlayer({
-      inventory: [
-        { item: { id: 'MAT_SPIRIT_GRASS', name: '灵草', tier: 1, type: 'Material', attributes: {}, poisonValence: 0 }, count: 3 },
-        { item: { id: 'MAT_YIN_DEW', name: '阴露', tier: 1, type: 'Material', attributes: {}, poisonValence: 10 }, count: 2 },
-        { item: { id: 'MAT_YANG_STONE', name: '阳石', tier: 1, type: 'Material', attributes: {}, poisonValence: -1 }, count: 2 },
-      ],
-    });
-    const result = AlchemyEngine.craftPill(player, '筑基丹');
-    expect(result.success).toBe(true);
-    expect(result.pill).toBeDefined();
-    expect(result.pill!.name).toContain('毒');
+    let success = false;
+    const invTemplate = [
+      { item: { id: 'MAT_SPIRIT_GRASS', name: '灵草', tier: 1, type: 'Material' as const, attributes: {}, poisonValence: 0 }, count: 3 },
+      { item: { id: 'MAT_YIN_DEW', name: '阴露', tier: 1, type: 'Material' as const, attributes: {}, poisonValence: 10 }, count: 2 },
+      { item: { id: 'MAT_YANG_STONE', name: '阳石', tier: 1, type: 'Material' as const, attributes: {}, poisonValence: -1 }, count: 2 },
+    ];
+    for (let i = 0; i < 5; i++) {
+      const player = makePlayer({
+        inventory: invTemplate.map(s => ({ item: { ...s.item }, count: s.count })),
+      });
+      const result = AlchemyEngine.craftPill(player, '筑基丹');
+      if (result.success) {
+        expect(result.pill).toBeDefined();
+        expect(result.pill!.name).toContain('毒');
+        success = true;
+        break;
+      }
+    }
+    expect(success).toBe(true);
   });
 
   it('悟性影响成功率', () => {

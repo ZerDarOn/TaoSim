@@ -13,7 +13,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     hp: 200, maxHp: 200, ap: 3, canFly: true,
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
-    skills: [], skillCooldowns: {}, traits: [], relations: [], wantedLevels: {},
+    skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     ...overrides,
   } as Character;
 }
@@ -41,7 +41,7 @@ describe('NPCInteractionEngine', () => {
 
   it('交易受好感度影响价格', () => {
     const player = makePlayer({
-      relations: [{ targetId: 'N3', favorability: 100, hatred: 0, jealousy: 0, tags: [] }],
+      relations: { 'N3': { targetId: 'N3', favorability: 100, hatred: 0, jealousy: 0, tags: [] } },
     });
     const mult = NPCInteractionEngine.getPriceMultiplier(player, 'N3');
     expect(mult).toBe(0.5);
