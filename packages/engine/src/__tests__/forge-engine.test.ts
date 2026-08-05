@@ -1,0 +1,57 @@
+import { describe, it, expect } from 'vitest';
+import { ForgeEngine } from '../crafting/forge-engine.js';
+import type { Character } from '@taosim/contracts';
+
+function makePlayer(overrides: Partial<Character> = {}): Character {
+  return {
+    id: 'P', name: '铸剑师', gender: 'Male', realm: 'Foundation_1', soulState: 'Active',
+    cultivation: { currentExp: 0, maxExp: 500 },
+    lifespan: { age: 30, maxLifespan: 200 },
+    spiritEnergy: { current: 100, max: 100 },
+    monthlyActionPoints: { current: 10, max: 10 },
+    attributes: { physique: 10, comprehension: 5, perception: 5, agility: 5, luck: 5 },
+    hp: 200, maxHp: 200, ap: 3, canFly: true,
+    inventory: [
+      { item: { id: 'MAT_IRON_ORE', name: '铁矿石', tier: 1, type: 'Material', attributes: {} }, count: 2 },
+      { item: { id: 'MAT_SPIRIT_STONE', name: '灵石', tier: 2, type: 'Material', attributes: {} }, count: 3 },
+    ],
+    equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
+    skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    ...overrides,
+  } as Character;
+}
+
+describe('ForgeEngine', () => {
+  it('主材足够时成功炼制法宝', () => {
+    const player = makePlayer();
+    const result = ForgeEngine.craft(player, '灵蕴剑');
+    expect(result.success).toBe(true);
+    expect(result.equipment).toBeDefined();
+    expect(result.equipment!.name).toBe('灵蕴剑');
+    expect(result.equipment!.tier).toBe(2);
+  });
+
+  it('主材不足时炼制失败', () => {
+    const player = makePlayer({ inventory: [] });
+    const result = ForgeEngine.craft(player, '灵蕴剑');
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('主材');
+  });
+
+  it('加入辅材提升属性', () => {
+    const player = makePlayer();
+    const result = ForgeEngine.craft(player, '灵蕴剑', ['MAT_SPIRIT_STONE']);
+    expect(result.success).toBe(true);
+    // 加入灵石辅材后，critRate 应提升
+    expect(result.equipment!.attributes.critRate!).toBeGreaterThanOrEqual(5);
+  });
+
+  it('根骨影响炼制成功率', () => {
+    let successes = 0;
+    for (let i = 0; i < 20; i++) {
+      const player = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5 } });
+      if (ForgeEngine.craft(player, '灵蕴剑').success) successes++;
+    }
+    expect(successes).toBeGreaterThanOrEqual(18);
+  });
+});
