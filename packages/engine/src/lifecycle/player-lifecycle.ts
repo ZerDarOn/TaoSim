@@ -1,4 +1,5 @@
 import type { Character, SoulState } from '@taosim/contracts';
+import { getSpiritRootMultiplier } from '../data/spirit-root-table.js';
 
 export interface AdvanceTimeResult {
   updatedPlayer: Character;
@@ -29,8 +30,13 @@ export class PlayerLifecycleService {
     // 1. 老化 (age 按月累加)
     updated.lifespan.age += months / 12;
 
-    // 2. 修为自然增长 (悟性驱动)
-    const expGain = Math.floor(updated.attributes.comprehension * months * COMPREHENSION_EXP_RATIO);
+    // 2. 修为自然增长 (悟性 × 灵根倍率)
+    const rootMult = getSpiritRootMultiplier(
+      updated.spiritRoot.grade,
+      updated.spiritRoot.elements.length,
+      updated.spiritRoot.isVariant
+    );
+    const expGain = Math.floor(updated.attributes.comprehension * months * COMPREHENSION_EXP_RATIO * rootMult);
     updated.cultivation.currentExp += expGain;
 
     // 3. 灵力恢复至满

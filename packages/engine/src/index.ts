@@ -25,6 +25,11 @@ export { FactionEngine } from './faction/faction-engine.js';
 
 // Character Factory (角色创建)
 export { CharacterFactory } from './character/character-factory.js';
+export { SpiritRootRoller } from './character/spirit-root-roller.js';
+
+// Data Registries（数据表）
+export { TRAIT_REGISTRY, getTraitsByQuality, getTraitById, rollTraits } from './data/trait-registry.js';
+export { GRADE_MULTIPLIER, ELEMENT_COUNT_MODIFIER, VARIANT_MULTIPLIER, getSpiritRootMultiplier } from './data/spirit-root-table.js';
 
 // Tribulation Engine (渡劫突破)
 export { TribulationEngine } from './tribulation/tribulation-engine.js';

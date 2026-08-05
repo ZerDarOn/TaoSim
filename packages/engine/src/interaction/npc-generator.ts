@@ -28,6 +28,7 @@ export class NPCGenerator {
       perception: 3 + Math.floor(rand() * 12),
       agility: 3 + Math.floor(rand() * 12),
       luck: 1 + Math.floor(rand() * 10),
+      charm: 3 + Math.floor(rand() * 12),
     };
 
     const baseHp = 100 + tier * 80 + attributes.physique * 5;
@@ -43,6 +44,8 @@ export class NPCGenerator {
       spiritEnergy: { current: 100, max: 100 + tier * 50 },
       monthlyActionPoints: { current: 10, max: 10 },
       attributes,
+      spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+      gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
       hp: baseHp,
       maxHp: baseHp,
       ap: 3,

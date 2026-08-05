@@ -1,4 +1,4 @@
-import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill } from '@taosim/contracts';
+import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill, SpiritRoot, GameMode } from '@taosim/contracts';
 
 function generateId(): string {
   return `CHAR_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -12,6 +12,8 @@ interface CreateCharacterParams {
   background: BackgroundType;
   attributes: Record<string, number>;
   innateTraits: string[];
+  spiritRoot?: SpiritRoot;
+  gameMode?: GameMode;
 }
 
 const TRAIT_TEMPLATES: Record<string, { effects: Record<string, number>; quality: string }> = {
@@ -90,6 +92,8 @@ export class CharacterFactory {
       spiritEnergy: { current: 100, max: 100 },
       monthlyActionPoints: { current: 10, max: 10 },
       attributes: { ...params.attributes } as Character['attributes'],
+      spiritRoot: params.spiritRoot ?? { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+      gameMode: params.gameMode ?? { breakthrough: 'Simple', saveMode: 'Free' },
       hp: baseHp, maxHp: baseHp, ap: 3, canFly: false,
       spiritStones: 0,
       inventory: [],
