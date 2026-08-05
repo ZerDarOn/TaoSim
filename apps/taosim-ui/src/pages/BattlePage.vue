@@ -6,7 +6,8 @@ import { useCombat } from '@/composables/useCombat';
 import HexCanvas from '@/components/HexCanvas.vue';
 import ATBBar from '@/components/ATBBar.vue';
 import SkillPanel from '@/components/SkillPanel.vue';
-import type { HexBattleMap, Character, Skill } from '@taosim/contracts';
+import type { Character, Skill } from '@taosim/contracts';
+import { MapGenerator } from '@taosim/engine';
 
 const router = useRouter();
 const playerStore = usePlayerStore();
@@ -16,25 +17,6 @@ if (!playerStore.character) {
 }
 
 const player = playerStore.character!;
-
-function buildTestMap(): HexBattleMap {
-  const tiles: Record<string, any> = {};
-  const terrains = ['Plain', 'Plain', 'Forest', 'Plain', 'Swamp', 'DeepWater', 'Obstacle'];
-  for (let q = 0; q < 7; q++) {
-    for (let r = 0; r < 7; r++) {
-      const terrain = terrains[(q + r) % terrains.length]!;
-      tiles[`${q},${r}`] = {
-        q, r,
-        terrain,
-        elevation: 0,
-        isBlocked: terrain === 'Obstacle',
-        isWater: terrain === 'DeepWater',
-        isRevealed: true,
-      };
-    }
-  }
-  return { width: 7, height: 7, tiles };
-}
 
 function buildEnemy(): Character {
   return {
@@ -68,7 +50,12 @@ function buildEnemy(): Character {
   } as Character;
 }
 
-const testMap = buildTestMap();
+const testMap = MapGenerator.generate({
+  id: 'forest_cave', name: '密林洞窟', continentId: 'c1',
+  coordinates: { x: 0, y: 0 }, type: 'Dungeon', tier: 2, travelCostDays: 3,
+  battleMapConfig: { baseTerrain: 'Forest', clusterDensity: 0.6, hazardProbability: 0.1 },
+});
+
 const enemy = buildEnemy();
 const { state, tick, movePlayer, selectSkill, attackTarget, endTurn } = useCombat(testMap, player.id, player, [enemy]);
 

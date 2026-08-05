@@ -1,3 +1,5 @@
+import type { TerrainType } from './hex.js';
+
 // ============================================================
 // Overworld 大地图数据模型 — 架构规范 §25
 // ============================================================
@@ -12,7 +14,7 @@ export interface OverworldNode {
   travelCostDays: number;
 
   battleMapConfig: {
-    baseTerrain: 'Swamp' | 'Forest' | 'Volcano' | 'Cave' | 'Snow';
+    baseTerrain: TerrainType;
     clusterDensity: number;
     hazardProbability: number;
   };

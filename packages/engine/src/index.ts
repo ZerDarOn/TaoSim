@@ -24,3 +24,6 @@ export { CharacterFactory } from './character/character-factory.js';
 
 // Tribulation Engine (渡劫突破)
 export { TribulationEngine } from './tribulation/tribulation-engine.js';
+
+// Map Generator (程序化 Hex 地图生成)
+export { MapGenerator } from './world/map-generator.js';
