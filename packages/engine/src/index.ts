@@ -12,6 +12,7 @@ export { NpcAI } from './combat/npc-ai.js';
 
 // Lifecycle Manager (生死轮回)
 export { LifecycleManager } from './lifecycle/lifecycle-manager.js';
+export { PlayerLifecycleService } from './lifecycle/player-lifecycle.js';
 
 // AI Service Facade
 export { AIServiceFacade } from './ai/ai-service-facade.js';
