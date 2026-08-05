@@ -1,3 +1,5 @@
+import { ContentRegistry } from '../content/content-registry.js';
+
 export interface PillRecipe {
   type: 'pill';
   id: string;
@@ -25,7 +27,8 @@ export interface ForgeRecipe {
   unlockedByDefault?: boolean;
 }
 
-const PILL_RECIPES: PillRecipe[] = [
+// ---- 内置基础配方（无法被移除的核心配方） ----
+const BUILTIN_PILL_RECIPES: PillRecipe[] = [
   {
     type: 'pill', id: 'RECIPE_FOUNDATION_PILL', name: '筑基丹', tier: 2,
     requiredMaterials: ['MAT_SPIRIT_GRASS', 'MAT_YIN_DEW', 'MAT_YANG_STONE'],
@@ -44,7 +47,7 @@ const PILL_RECIPES: PillRecipe[] = [
   },
 ];
 
-const FORGE_RECIPES: ForgeRecipe[] = [
+const BUILTIN_FORGE_RECIPES: ForgeRecipe[] = [
   {
     type: 'forge', id: 'RECIPE_SPIRIT_SWORD', name: '灵蕴剑', tier: 2,
     mainMaterialId: 'MAT_IRON_ORE',
@@ -65,35 +68,77 @@ const FORGE_RECIPES: ForgeRecipe[] = [
   },
 ];
 
+/**
+ * 配方注册中心。
+ *
+ * 数据来源：
+ *   1. BUILTIN_*（引擎内置核心配方，不可移除）
+ *   2. ContentRegistry（data/ 目录下通过约定导出注册的扩展配方）
+ *
+ * 新增配方只需在 data/ 目录下创建文件并导出 PILL_RECIPES_EXPANSION / FORGE_RECIPES_EXPANSION。
+ */
 export class RecipeRegistry {
-  static getPillRecipe(name: string): PillRecipe | null {
-    return PILL_RECIPES.find(r => r.name === name) ?? null;
+  /** 获取所有丹方（内置 + 注册） */
+  static getAllPillRecipes(): PillRecipe[] {
+    return [...BUILTIN_PILL_RECIPES, ...ContentRegistry.pillRecipes];
   }
 
-  static getForgeRecipe(name: string): ForgeRecipe | null {
-    return FORGE_RECIPES.find(r => r.name === name) ?? null;
+  static getAllForgeRecipes(): ForgeRecipe[] {
+    return [...BUILTIN_FORGE_RECIPES, ...ContentRegistry.forgeRecipes];
+  }
+
+  /**
+   * 按 id 查找丹方。
+   * 兼容：如果传入的不是 id，会自动尝试按 name 查找。
+   */
+  static getPillRecipe(idOrName: string): PillRecipe | null {
+    return this.getAllPillRecipes().find(r => r.id === idOrName)
+      ?? this.getAllPillRecipes().find(r => r.name === idOrName)
+      ?? null;
+  }
+
+  /**
+   * 按 id 查找炼器配方。
+   * 兼容：如果传入的不是 id，会自动尝试按 name 查找。
+   */
+  static getForgeRecipe(idOrName: string): ForgeRecipe | null {
+    return this.getAllForgeRecipes().find(r => r.id === idOrName)
+      ?? this.getAllForgeRecipes().find(r => r.name === idOrName)
+      ?? null;
+  }
+
+  /** 旧 API 兼容：按 name 查找 */
+  static getPillRecipeByName(name: string): PillRecipe | null {
+    return this.getAllPillRecipes().find(r => r.name === name) ?? null;
+  }
+
+  static getForgeRecipeByName(name: string): ForgeRecipe | null {
+    return this.getAllForgeRecipes().find(r => r.name === name) ?? null;
   }
 
   static listPillRecipes(): PillRecipe[] {
-    return [...PILL_RECIPES];
+    return this.getAllPillRecipes();
   }
 
   static listForgeRecipes(): ForgeRecipe[] {
-    return [...FORGE_RECIPES];
+    return this.getAllForgeRecipes();
   }
 
   static getUnlockedRecipes(unlockedIds: string[]): { pills: PillRecipe[]; forges: ForgeRecipe[] } {
+    const allPills = this.getAllPillRecipes();
+    const allForges = this.getAllForgeRecipes();
     return {
-      pills: PILL_RECIPES.filter(r => r.unlockedByDefault || unlockedIds.includes(r.id)),
-      forges: FORGE_RECIPES.filter(r => r.unlockedByDefault || unlockedIds.includes(r.id)),
+      pills: allPills.filter(r => r.unlockedByDefault || unlockedIds.includes(r.id)),
+      forges: allForges.filter(r => r.unlockedByDefault || unlockedIds.includes(r.id)),
     };
   }
 
-  // 获取所有锁定的配方 id（供 NPC 授予配方时随机选）
   static getLockedRecipeIds(unlockedIds: string[]): string[] {
+    const allPills = this.getAllPillRecipes();
+    const allForges = this.getAllForgeRecipes();
     return [
-      ...PILL_RECIPES.filter(r => !r.unlockedByDefault && !unlockedIds.includes(r.id)).map(r => r.id),
-      ...FORGE_RECIPES.filter(r => !r.unlockedByDefault && !unlockedIds.includes(r.id)).map(r => r.id),
+      ...allPills.filter(r => !r.unlockedByDefault && !unlockedIds.includes(r.id)).map(r => r.id),
+      ...allForges.filter(r => !r.unlockedByDefault && !unlockedIds.includes(r.id)).map(r => r.id),
     ];
   }
 }

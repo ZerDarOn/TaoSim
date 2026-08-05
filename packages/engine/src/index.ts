@@ -68,3 +68,15 @@ export { MarketTransaction } from './market/market-transaction.js';
 // Quality & Upgrade (品质锻造与升品)
 export { QualityCalculator } from './crafting/quality-calculator.js';
 export { UpgradeEngine } from './crafting/upgrade-engine.js';
+
+// Content Registry (内容注册中心 — 自动收集 data/ 目录数据)
+import { ContentRegistry } from './content/content-registry.js';
+export { ContentRegistry } from './content/content-registry.js';
+export { AdventureEngine } from './content/adventure-engine.js';
+export type { AdventureEvent, AdventureChoice, AdventureOutcome } from './content/content-registry.js';
+export type { AdventureResult } from './content/adventure-engine.js';
+export type { NpcPersonality, NpcDialogue } from './content/content-registry.js';
+export type { ChildhoodEvent } from './content/content-registry.js';
+
+// 启动时自动加载所有内置数据
+ContentRegistry.loadAll();

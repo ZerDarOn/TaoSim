@@ -2,9 +2,11 @@
 import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
-import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge, NPCGenerator } from '@taosim/engine';
+import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge, NPCGenerator, AdventureEngine } from '@taosim/engine';
 import type { OverworldNode, TravelEvent, Character } from '@taosim/contracts';
+import type { AdventureEvent } from '@taosim/engine';
 import { formatRealm } from '@/utils/i18n-game';
+import AdventureEventCard from './AdventureEventCard.vue';
 
 const playerStore = usePlayerStore();
 const uiStore = useUiStore();
@@ -13,6 +15,7 @@ const message = ref<string | null>(null);
 const recentEvents = ref<TravelEvent[]>([]);
 const pendingNpcEvent = ref<TravelEvent | null>(null);
 const pendingBattleEvent = ref<TravelEvent | null>(null);
+const pendingAdventureEvent = ref<AdventureEvent | null>(null);
 
 const continent = computed(() => PRESET_MAP.continents[0]!);
 
@@ -78,6 +81,17 @@ function handleTravel(targetNodeId: string) {
     const battleEvent = result.events.find(e => e.type === 'battle');
     if (battleEvent) {
       pendingBattleEvent.value = battleEvent;
+    }
+
+    // 奇遇事件 roll（30% 概率，且不与 NPC/战斗同时触发）
+    if (!pendingNpcEvent.value && !pendingBattleEvent.value && playerStore.character) {
+      const adventureEvent = AdventureEngine.rollEvent(
+        playerStore.character,
+        currentNode.value?.type,
+      );
+      if (adventureEvent) {
+        pendingAdventureEvent.value = adventureEvent;
+      }
     }
 
     // 如果到的是 Market 节点，提示可访问坊市
@@ -195,6 +209,13 @@ function goToMarket() {
         </button>
       </div>
     </div>
+
+    <!-- 奇遇事件卡片 -->
+    <AdventureEventCard
+      v-if="pendingAdventureEvent"
+      :event="pendingAdventureEvent"
+      @close="pendingAdventureEvent = null"
+    />
 
     <!-- 旅行事件列表 -->
     <div v-if="recentEvents.length" class="space-y-2">

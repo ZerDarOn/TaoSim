@@ -2,8 +2,9 @@
 import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
-import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES } from '@taosim/engine';
+import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES, ContentRegistry } from '@taosim/engine';
 import type { NPCTradeOffer, MarketItem, ItemStack } from '@taosim/contracts';
+import type { NpcPersonality, NpcDialogue } from '@taosim/engine';
 import { formatRealm, formatGender, formatItemType, formatQuality } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
@@ -17,6 +18,28 @@ const showTradeDenied = ref(false);
 const npcOffer = ref<NPCTradeOffer | null>(null);
 
 const npc = computed(() => playerStore.currentNPC);
+
+// ---- NPC 性格系统（确定性映射：按 NPC id 哈希选性格） ----
+
+const npcPersonality = computed<NpcPersonality | null>(() => {
+  if (!npc.value) return null;
+  const pool = ContentRegistry.npcPersonalities;
+  if (pool.length === 0) return null;
+  // 用 NPC id 字符串哈希确定性地选一个性格
+  let hash = 0;
+  for (const ch of npc.value.id) {
+    hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  }
+  const idx = Math.abs(hash) % pool.length;
+  return pool[idx]!;
+});
+
+const npcGreeting = computed<NpcDialogue | null>(() => {
+  if (!npcPersonality.value) return null;
+  return ContentRegistry.npcDialogues.find(
+    d => d.personalityId === npcPersonality.value!.id && d.occasion === 'first_meet',
+  ) ?? null;
+});
 
 const favorability = computed(() => {
   if (!playerStore.character || !npc.value) return 0;
@@ -119,6 +142,10 @@ function handleLeave() {
         <div class="bg-slate-800 rounded p-4 space-y-2 text-sm">
           <div class="font-semibold text-lg text-amber-200">{{ npc.name }}</div>
           <div class="text-slate-400">{{ formatRealm(npc.realm) }} · {{ formatGender(npc.gender) }}</div>
+          <div v-if="npcPersonality" class="flex items-center gap-2">
+            <span class="text-xs px-2 py-0.5 rounded bg-indigo-900/50 text-indigo-300">{{ npcPersonality.name }}</span>
+            <span class="text-xs text-slate-500">{{ npcPersonality.description }}</span>
+          </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-slate-400">好感度</span>
             <div class="flex-1 bg-slate-700 h-2 rounded-full max-w-[120px]">
@@ -128,7 +155,7 @@ function handleLeave() {
             </div>
             <span class="text-xs text-slate-300">{{ favorability }}</span>
           </div>
-          <div class="text-xs italic text-slate-500 pt-1">"道友有何贵干？"</div>
+          <div class="text-xs italic text-slate-500 pt-1">"{{ npcGreeting?.text ?? '道友有何贵干？' }}"</div>
         </div>
 
         <div v-if="showTradeDenied" class="p-3 rounded text-sm bg-red-900/50 text-red-300">
