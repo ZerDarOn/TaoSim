@@ -1,5 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { CharacterFactory } from '@taosim/engine';
+import { usePlayerStore } from '@/stores/player';
+import { useAppStore } from '@/stores/app';
+import type { AttributeKey } from '@taosim/contracts';
+
+const router = useRouter();
+const playerStore = usePlayerStore();
+const appStore = useAppStore();
 
 // 创角步骤
 type Step = 'background' | 'attributes' | 'luck' | 'confirm';
@@ -57,6 +66,32 @@ function rerollTraits() {
   innateTraits.value = innateTraits.value.map((_, i) =>
     lockTrait.value[i] ? innateTraits.value[i]! : pool[Math.floor(Math.random() * pool.length)]!
   );
+}
+
+function confirmCreate() {
+  if (!playerName.value) return;
+
+  const attributeRecord: Partial<Record<AttributeKey, number>> = {
+    physique: attributes.value.physique,
+    comprehension: attributes.value.comprehension,
+    perception: attributes.value.perception,
+    agility: attributes.value.agility,
+    luck: attributes.value.luck,
+  };
+
+  const lockedTraits = innateTraits.value.filter((_, i) => lockTrait.value[i]);
+
+  const character = CharacterFactory.create({
+    name: playerName.value,
+    gender: 'Male',
+    background: selectedBackground.value!.id as 'orphan' | 'small-clan' | 'ancient-clan',
+    attributes: attributeRecord,
+    innateTraits: lockedTraits,
+  });
+
+  playerStore.setPlayer(character);
+  appStore.initialize(character.id);
+  router.push('/world');
 }
 </script>
 
@@ -173,8 +208,12 @@ function rerollTraits() {
       </div>
       <div class="pt-4 flex gap-3">
         <button @click="currentStep = 'luck'" class="px-6 py-2 border border-line rounded-md">返回</button>
-        <button class="px-6 py-2 bg-gold text-white rounded-md font-semibold" disabled>
-          降临大千世界（待接入引擎）
+        <button
+          @click="confirmCreate"
+          :disabled="!playerName"
+          class="px-6 py-2 bg-gold text-white rounded-md font-semibold disabled:opacity-50"
+        >
+          降临大千世界
         </button>
       </div>
     </div>
