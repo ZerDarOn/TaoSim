@@ -83,4 +83,22 @@ export class CombatEngine {
     // 简化预览：待 DamagePipeline 实现
     return { minDamage: 10, maxDamage: 20, armorPenetrationPercent: 30 };
   }
+
+  /** 将角色放置到初始位置 */
+  public placeCharacter(characterId: string, q: number, r: number): void {
+    const key = hexKey(q, r);
+    if (this.map.tiles[key]) {
+      this.map.tiles[key]!.occupantId = characterId;
+    }
+  }
+
+  /** 查找角色所在位置 */
+  public findCharacterPosition(characterId: string): { q: number; r: number } | null {
+    for (const tile of Object.values(this.map.tiles)) {
+      if (tile.occupantId === characterId) {
+        return { q: tile.q, r: tile.r };
+      }
+    }
+    return null;
+  }
 }
