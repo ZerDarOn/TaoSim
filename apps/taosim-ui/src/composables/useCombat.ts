@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import type { Character, HexBattleMap, Skill } from '@taosim/contracts';
 import { hexKey, hexDistance } from '@taosim/contracts';
-import { CombatEngine, DamagePipeline } from '@taosim/engine';
+import { CombatEngine, DamagePipeline, NpcAI } from '@taosim/engine';
 
 interface CombatState {
   engine: CombatEngine | null;
@@ -12,7 +12,7 @@ interface CombatState {
   log: string[];
 }
 
-export function useCombat(map: HexBattleMap, player: Character, enemies: Character[]) {
+export function useCombat(map: HexBattleMap, playerId: string, player: Character, enemies: Character[]) {
   const allChars = [player, ...enemies];
   const charMap = Object.fromEntries(allChars.map(c => [c.id, reactive(c)])) as Record<string, Character>;
 
@@ -30,7 +30,11 @@ export function useCombat(map: HexBattleMap, player: Character, enemies: Charact
     state.engine!.tickATB(state.characters);
     const ready = state.engine!.getReadyUnits();
     if (ready.length > 0) {
-      state.currentTurn = ready[0]!.characterId;
+      const unit = ready[0]!;
+      state.currentTurn = unit.characterId;
+      if (unit.characterId !== playerId) {
+        executeNpcTurn(unit.characterId);
+      }
     }
   }
 
@@ -77,11 +81,32 @@ export function useCombat(map: HexBattleMap, player: Character, enemies: Charact
     tick();
   }
 
+  async function executeNpcTurn(npcId: string) {
+    const npc = state.characters[npcId];
+    const playerChar = state.characters[playerId];
+    if (!npc || !playerChar || !state.engine) return;
+
+    await new Promise(r => setTimeout(r, 500));
+
+    const action = NpcAI.decide(npc, playerChar, state.engine as any, state.characters);
+
+    if (action.type === 'attack' && action.targetId && action.skill) {
+      state.selectedSkill = action.skill;
+      attackTarget(action.targetId);
+    } else if (action.type === 'move' && action.toQ !== undefined && action.toR !== undefined) {
+      state.engine.moveCharacter(npcId, action.toQ, action.toR);
+      state.log.push(`${npc.name} 移动到 (${action.toQ}, ${action.toR})`);
+      endTurn();
+    } else {
+      endTurn();
+    }
+  }
+
   function endTurn() {
     state.currentTurn = null;
     state.phase = 'idle';
     tick();
   }
 
-  return { state, tick, movePlayer, selectSkill, attackTarget, endTurn };
+  return { state, tick, movePlayer, selectSkill, attackTarget, endTurn, executeNpcTurn };
 }

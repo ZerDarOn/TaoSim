@@ -70,7 +70,7 @@ function buildEnemy(): Character {
 
 const testMap = buildTestMap();
 const enemy = buildEnemy();
-const { state, tick, movePlayer, selectSkill, attackTarget, endTurn } = useCombat(testMap, player, [enemy]);
+const { state, tick, movePlayer, selectSkill, attackTarget, endTurn } = useCombat(testMap, player.id, player, [enemy]);
 
 state.engine!.placeCharacter(player.id, 1, 1);
 state.engine!.placeCharacter(enemy.id, 4, 4);
