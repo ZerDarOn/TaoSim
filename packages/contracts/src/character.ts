@@ -99,5 +99,6 @@ export interface Character {
   factionId?: string;
   factionRank?: FactionRank;
   relations: Record<string, CharacterRelation>;
+  spiritStones: number;
   wantedLevels: Record<string, number>;          // continentId → level (0~5)
 }
