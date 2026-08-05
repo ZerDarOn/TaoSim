@@ -79,8 +79,11 @@ const { state, advanceMonth, fastForward } = useWorld();
       <router-link to="/battle" class="px-4 py-2 border border-line rounded-md text-sm text-ink-soft">
         战棋测试
       </router-link>
-      <router-link to="/tribulation" class="px-4 py-2 border border-line rounded-md text-sm text-ink-soft">
-        渡劫突破
+      <router-link to="/crafting" class="px-4 py-2 border border-line rounded-md text-sm text-ink-soft">
+        百艺坊
+      </router-link>
+      <router-link to="/inventory" class="px-4 py-2 border border-line rounded-md text-sm text-ink-soft">
+        行囊
       </router-link>
     </div>
   </div>

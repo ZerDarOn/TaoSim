@@ -79,4 +79,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../pages/UpgradePage.vue'),
     meta: { title: '装备升品' },
   },
+  {
+    path: '/game-over',
+    name: 'game-over',
+    component: () => import('../pages/GameOverPage.vue'),
+    meta: { title: '道消身殒' },
+  },
 ];

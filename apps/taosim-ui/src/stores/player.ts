@@ -43,6 +43,13 @@ export const usePlayerStore = defineStore('player', () => {
     character.value = null;
   }
 
+  function consumeAp(amount: number = 1): boolean {
+    if (!character.value) return false;
+    if (character.value.monthlyActionPoints.current < amount) return false;
+    character.value.monthlyActionPoints.current -= amount;
+    return true;
+  }
+
   return {
     character,
     currentNPC,
@@ -52,6 +59,7 @@ export const usePlayerStore = defineStore('player', () => {
     updateSpiritEnergy,
     addSkill,
     addItem,
+    consumeAp,
     reset,
   };
 });

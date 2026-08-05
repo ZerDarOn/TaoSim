@@ -14,6 +14,10 @@ const forgeRecipes = RecipeRegistry.listForgeRecipes();
 
 function craftPill(recipeName: string) {
   if (!playerStore.character) return;
+  if (!playerStore.consumeAp(1)) {
+    result.value = '行动点不足（次月恢复）';
+    return;
+  }
   const r = AlchemyEngine.craftPill(playerStore.character, recipeName);
   result.value = r.success
     ? `炼制成功：${r.pill!.name}（${r.pill!.tier} 阶 · ${r.pill!.quality ?? 'Common'}品质）`
@@ -22,6 +26,10 @@ function craftPill(recipeName: string) {
 
 function forgeEquipment(recipeName: string) {
   if (!playerStore.character) return;
+  if (!playerStore.consumeAp(1)) {
+    result.value = '行动点不足（次月恢复）';
+    return;
+  }
   const r = ForgeEngine.craft(playerStore.character, recipeName);
   result.value = r.success
     ? `炼制成功：${r.equipment!.name}（${r.equipment!.tier} 阶 · ${r.equipment!.quality ?? 'Common'}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
@@ -30,6 +38,10 @@ function forgeEquipment(recipeName: string) {
 
 function forgeMaster(recipeName: string) {
   if (!playerStore.character) return;
+  if (!playerStore.consumeAp(1)) {
+    result.value = '行动点不足（次月恢复）';
+    return;
+  }
   const r = ForgeEngine.craftMaster(playerStore.character, recipeName);
   result.value = r.success
     ? `大师锻造成功：${r.equipment!.name}（${r.equipment!.quality}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`

@@ -33,6 +33,11 @@ function handleUpgrade() {
     return;
   }
 
+  if (!playerStore.consumeAp(1)) {
+    message.value = '行动点不足（次月恢复）';
+    return;
+  }
+
   // 找到背包中的实际物品引用
   const stack = playerStore.character.inventory.find(s => s.item.id === selectedItem.value!.id);
   if (!stack) {
