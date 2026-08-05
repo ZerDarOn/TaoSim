@@ -7,6 +7,7 @@ import type { RealmType } from './character.js';
 import type { Faction } from './faction.js';
 import type { OverworldMap } from './overworld.js';
 import type { WorldState } from './world-state.js';
+import type { MarketInventory, NPCTradeOffer } from './market.js';
 
 export interface SaveHeader {
   saveId: string;
@@ -38,6 +39,8 @@ export interface SavePayload {
   activeNPCs: Record<string, Character>;
   factions: Record<string, Faction>;
   overworldMap: OverworldMap;
+  marketInventories: Record<string, MarketInventory>;
+  npcTradeOffers: Record<string, NPCTradeOffer>;
   graveyard: GraveMarker[];
 }
 

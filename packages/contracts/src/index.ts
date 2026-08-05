@@ -18,3 +18,5 @@ export * from './event-log.js';
 export * from './battle-preview.js';
 export * from './log-filter.js';
 export * from './skill-creation.js';
+export * from './market.js';
+export * from './item-template.js';
