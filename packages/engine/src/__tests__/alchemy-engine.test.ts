@@ -12,6 +12,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     monthlyActionPoints: { current: 10, max: 10 },
     attributes: { physique: 5, comprehension: 10, perception: 8, agility: 5, luck: 5 },
     hp: 200, maxHp: 200, ap: 3, canFly: true,
+    spiritStones: 0,
     inventory: [
       { item: { id: 'MAT_SPIRIT_GRASS', name: '灵草', tier: 1, type: 'Material', attributes: {}, poisonValence: 0 }, count: 3 },
       { item: { id: 'MAT_YIN_DEW', name: '阴露', tier: 1, type: 'Material', attributes: {}, poisonValence: 2 }, count: 2 },

@@ -156,6 +156,7 @@ export class WorldEngine {
       },
       hp: 100, maxHp: 100, ap: 3,
       canFly: typeof realm === 'string' && realm.startsWith('Foundation'),
+      spiritStones: 0,
       inventory: [],
       equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
       skills: [],

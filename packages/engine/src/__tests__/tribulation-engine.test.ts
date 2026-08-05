@@ -19,6 +19,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     monthlyActionPoints: { current: 10, max: 10 },
     attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5 },
     hp: 300, maxHp: 300, ap: 3, canFly: false,
+    spiritStones: 0,
     inventory: [{ item: { id: 'FoundationPill', name: '筑基丹', tier: 2, type: 'Medicine', attributes: {} }, count: 1 }],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},

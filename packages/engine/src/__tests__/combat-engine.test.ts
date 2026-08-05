@@ -22,6 +22,7 @@ function makeChar(id: string, overrides: Partial<Character> = {}): Character {
     monthlyActionPoints: { current: 10, max: 10 },
     attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5 },
     hp: 100, maxHp: 100, ap: 3, canFly: false,
+    spiritStones: 0,
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},

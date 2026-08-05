@@ -47,6 +47,7 @@ export class NPCGenerator {
       maxHp: baseHp,
       ap: 3,
       canFly: tier >= 2,
+      spiritStones: 0,
       inventory: [],
       equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
       skills: [],

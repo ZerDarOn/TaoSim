@@ -91,6 +91,7 @@ export class CharacterFactory {
       monthlyActionPoints: { current: 10, max: 10 },
       attributes: { ...params.attributes } as Character['attributes'],
       hp: baseHp, maxHp: baseHp, ap: 3, canFly: false,
+      spiritStones: 0,
       inventory: [],
       equipmentSlots: { weapon, armor: undefined, treasures: [] },
       skills: starterSkills, skillCooldowns: {}, traits,

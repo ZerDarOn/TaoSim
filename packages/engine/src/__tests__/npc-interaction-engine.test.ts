@@ -11,6 +11,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     monthlyActionPoints: { current: 10, max: 10 },
     attributes: { physique: 10, comprehension: 10, perception: 5, agility: 5, luck: 5 },
     hp: 200, maxHp: 200, ap: 3, canFly: true,
+    spiritStones: 0,
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
