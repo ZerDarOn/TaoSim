@@ -4,6 +4,7 @@ import type { Character, Skill, Item } from '@taosim/contracts';
 
 export const usePlayerStore = defineStore('player', () => {
   const character = ref<Character | null>(null);
+  const currentNPC = ref<Character | null>(null);
   const isCreated = computed(() => character.value !== null);
 
   function setPlayer(c: Character) {
@@ -44,6 +45,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     character,
+    currentNPC,
     isCreated,
     setPlayer,
     updateHp,

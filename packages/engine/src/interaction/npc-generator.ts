@@ -52,7 +52,7 @@ export class NPCGenerator {
       skills: [],
       skillCooldowns: {},
       traits: [],
-      relations: [],
+      relations: {},
       wantedLevels: {},
     } as Character;
   }

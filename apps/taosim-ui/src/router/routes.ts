@@ -55,4 +55,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../pages/OverworldPage.vue'),
     meta: { title: '大世界' },
   },
+  {
+    path: '/npc-interaction',
+    name: 'npc-interaction',
+    component: () => import('../pages/NPCInteractionPage.vue'),
+    meta: { title: '偶遇' },
+  },
 ];

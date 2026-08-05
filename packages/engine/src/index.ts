@@ -43,3 +43,7 @@ export { EquipmentManager } from './equipment/equipment-manager.js';
 export { OverworldEngine } from './overworld/overworld-engine.js';
 export { OverworldMapGenerator } from './overworld/overworld-map-generator.js';
 export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';
+
+// Interaction (NPC 交互)
+export { NPCGenerator } from './interaction/npc-generator.js';
+export { NPCInteractionEngine } from './interaction/npc-interaction-engine.js';

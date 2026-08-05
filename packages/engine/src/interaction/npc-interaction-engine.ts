@@ -35,18 +35,17 @@ export class NPCInteractionEngine {
   }
 
   static getPriceMultiplier(player: Character, npcId: string): number {
-    const relation = player.relations.find(r => r.targetId === npcId);
+    const relation = player.relations[npcId];
     if (!relation) return 1.0;
     const mult = 1.0 - relation.favorability / 200;
     return Math.max(0.3, Math.min(1.5, mult));
   }
 
   static adjustFavorability(player: Character, npcId: string, delta: number): void {
-    let relation = player.relations.find(r => r.targetId === npcId);
-    if (!relation) {
-      relation = { targetId: npcId, favorability: 0, hatred: 0, jealousy: 0, tags: [] };
-      player.relations.push(relation);
+    if (!player.relations[npcId]) {
+      player.relations[npcId] = { targetId: npcId, favorability: 0, hatred: 0, jealousy: 0, tags: [] };
     }
+    const relation = player.relations[npcId]!;
     relation.favorability = Math.max(-100, Math.min(100, relation.favorability + delta));
   }
 }
