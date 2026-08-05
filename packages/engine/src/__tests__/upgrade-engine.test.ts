@@ -15,6 +15,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     inventory: [
       { item: { id: 'MAT_IRON_ORE', templateId: 'MAT_IRON_ORE', name: '铁矿石', tier: 1, type: 'Material', attributes: {} }, count: 10 },
       { item: { id: 'MAT_METEORITE', templateId: 'MAT_METEORITE', name: '陨铁', tier: 3, type: 'Material', attributes: {} }, count: 10 },
+      { item: { id: 'MAT_JADE', templateId: 'MAT_JADE', name: '灵玉', tier: 2, type: 'Material', attributes: {} }, count: 5 },
       { item: { id: 'MAT_DRAGON_BLOOD', templateId: 'MAT_DRAGON_BLOOD', name: '龙血', tier: 3, type: 'Material', attributes: {} }, count: 10 },
       { item: { id: 'MAT_STARLIGHT', templateId: 'MAT_STARLIGHT', name: '星光粉', tier: 3, type: 'Material', attributes: {} }, count: 5 },
       { item: { id: 'MAT_SKY_GOLD_SAND', templateId: 'MAT_SKY_GOLD_SAND', name: '天金砂', tier: 4, type: 'Material', attributes: {} }, count: 5 },

@@ -48,10 +48,15 @@ describe('ForgeEngine', () => {
   });
 
   it('加入辅材提升属性', () => {
+    // 固定随机数避免 flaky: craft 成功率判定用 random()[0]，品质 roll 用 random()[1]
+    const origRandom = Math.random;
+    let calls = 0;
+    Math.random = () => { calls++; return calls === 1 ? 0.0 : 0.5; }; // 第一次强制成功, 后续 Common 品质
     const player = makePlayer();
     const result = ForgeEngine.craft(player, '灵蕴剑', ['MAT_SPIRIT_STONE']);
+    Math.random = origRandom;
     expect(result.success).toBe(true);
-    // 加入灵石辅材后，critRate 应提升
+    // 基础 critRate=5, Common 品质 ×1.0, 断言保留
     expect(result.equipment!.attributes.critRate!).toBeGreaterThanOrEqual(5);
   });
 

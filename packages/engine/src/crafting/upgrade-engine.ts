@@ -13,7 +13,7 @@ const UPGRADE_RULES: Record<string, UpgradeRule> = {
   },
   // Tier 2
   '2_Common_TO_Rare': {
-    materials: [{ templateId: 'MAT_METEORITE', count: 2 }],
+    materials: [{ templateId: 'MAT_METEORITE', count: 2 }, { templateId: 'MAT_JADE', count: 1 }],
     spiritStones: 500,
     successRate: 0.7,
     failPenalty: 'LossMaterialsOnly',

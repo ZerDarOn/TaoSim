@@ -55,3 +55,7 @@ export { DEFAULT_ITEM_TEMPLATES } from './market/default-templates.js';
 export { MarketEngine } from './market/market-engine.js';
 export { NPCTradeEngine } from './market/npc-trade-engine.js';
 export { MarketTransaction } from './market/market-transaction.js';
+
+// Quality & Upgrade (品质锻造与升品)
+export { QualityCalculator } from './crafting/quality-calculator.js';
+export { UpgradeEngine } from './crafting/upgrade-engine.js';
