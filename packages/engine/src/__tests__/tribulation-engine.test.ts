@@ -17,10 +17,12 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 40, maxLifespan: 100 },
     spiritEnergy: { current: 200, max: 200 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5 },
+    attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5, charm: 5 },
     hp: 300, maxHp: 300, ap: 3, canFly: false,
     spiritStones: 0,
     inventory: [{ item: { id: 'FoundationPill', name: '筑基丹', tier: 2, type: 'Medicine', attributes: {} }, count: 1 }],
+    spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     ...overrides,
@@ -49,7 +51,7 @@ describe('TribulationEngine', () => {
   it('渡劫成功后境界提升，寿元增加', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const c = makeChar({
-      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100 },
+      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100, charm: 5 },
     });
     const oldLifespan = c.lifespan.maxLifespan;
     const result = TribulationEngine.attempt(c, TIER1_CONFIG);
@@ -63,7 +65,7 @@ describe('TribulationEngine', () => {
   it('渡劫失败不提升境界', () => {
     vi.spyOn(Math, 'random').mockReturnValue(1);
     const c = makeChar({
-      attributes: { physique: 1, comprehension: 1, perception: 1, agility: 1, luck: 1 },
+      attributes: { physique: 1, comprehension: 1, perception: 1, agility: 1, luck: 1, charm: 5 },
     });
     const result = TribulationEngine.attempt(c, TIER1_CONFIG);
     expect(result.success).toBe(false);
@@ -72,7 +74,7 @@ describe('TribulationEngine', () => {
   it('渡劫成功消耗筑基丹', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const c = makeChar({
-      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100 },
+      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100, charm: 5 },
     });
     expect(c.inventory.find(s => s.item.id === 'FoundationPill')!.count).toBe(1);
     const result = TribulationEngine.attempt(c, TIER1_CONFIG);
@@ -85,7 +87,7 @@ describe('TribulationEngine', () => {
   it('渡劫成功后 canFly 变为 true (筑基可飞行)', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const c = makeChar({
-      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100 },
+      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100, charm: 5 },
     });
     const result = TribulationEngine.attempt(c, TIER1_CONFIG);
     if (result.updatedCharacter) {
@@ -102,7 +104,7 @@ describe('TribulationEngine', () => {
       lifespan: { age: 50, maxLifespan: 200 },
       hp: 600, maxHp: 600,
       inventory: [{ item: { id: 'GoldenCorePill', name: '金元丹', tier: 3, type: 'Medicine', attributes: {} }, count: 1 }],
-      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100 },
+      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100, charm: 5 },
     });
     const result = TribulationEngine.attempt(c, {
       fromRealm: 'Foundation_3', toRealm: 'GoldenCore_1', tier: 2,
@@ -156,7 +158,7 @@ describe('TribulationEngine', () => {
       lifespan: { age: 200, maxLifespan: 400 },
       hp: 1200, maxHp: 1200,
       inventory: [{ item: { id: 'NascentSoulPill', name: '凝婴丹', tier: 4, type: 'Medicine', attributes: {} }, count: 1 }],
-      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100 },
+      attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 100, charm: 5 },
     });
     const result = TribulationEngine.attempt(c, {
       fromRealm: 'GoldenCore_3', toRealm: 'NascentSoul_1', tier: 3,
@@ -176,7 +178,7 @@ describe('TribulationEngine', () => {
       cultivation: { currentExp: 25000, maxExp: 25000 },
       hp: 1200, maxHp: 1200,
       inventory: [{ item: { id: 'NascentSoulPill', name: '凝婴丹', tier: 4, type: 'Medicine', attributes: {} }, count: 1 }],
-      attributes: { physique: 1, comprehension: 1, perception: 1, agility: 1, luck: 1 },
+      attributes: { physique: 1, comprehension: 1, perception: 1, agility: 1, luck: 1, charm: 5 },
     });
     const result = TribulationEngine.attempt(c, {
       fromRealm: 'GoldenCore_3', toRealm: 'NascentSoul_1', tier: 3,

@@ -9,8 +9,10 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 18, maxLifespan: 100 },
     spiritEnergy: { current: 50, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 10, comprehension: 10, perception: 5, agility: 5, luck: 5 },
+    attributes: { physique: 10, comprehension: 10, perception: 5, agility: 5, luck: 5, charm: 5 },
     hp: 100, maxHp: 100, ap: 3, canFly: false, spiritStones: 0,
+    spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     inventory: [], equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     ...overrides,
@@ -25,7 +27,7 @@ describe('PlayerLifecycleService', () => {
   });
 
   it('advanceTime 修为按悟性增长', () => {
-    const player = makePlayer({ attributes: { physique: 10, comprehension: 20, perception: 5, agility: 5, luck: 5 } });
+    const player = makePlayer({ attributes: { physique: 10, comprehension: 20, perception: 5, agility: 5, luck: 5, charm: 5 } });
     const result = PlayerLifecycleService.advanceTime(player, 12);
     // comprehension=20, 12 个月: 20 * 12 * 0.5 = 120
     expect(result.updatedPlayer.cultivation.currentExp).toBeGreaterThanOrEqual(100);

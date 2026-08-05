@@ -9,13 +9,15 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 30, maxLifespan: 200 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 10, comprehension: 5, perception: 5, agility: 5, luck: 5 },
+    attributes: { physique: 10, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
     hp: 200, maxHp: 200, ap: 3, canFly: true,
     spiritStones: 0,
     inventory: [
       { item: { id: 'MAT_IRON_ORE', name: '铁矿石', tier: 1, type: 'Material', attributes: {} }, count: 2 },
       { item: { id: 'MAT_SPIRIT_STONE', name: '灵石', tier: 2, type: 'Material', attributes: {} }, count: 3 },
     ],
+    spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     ...overrides,
@@ -63,7 +65,7 @@ describe('ForgeEngine', () => {
   it('根骨影响炼制成功率', () => {
     let successes = 0;
     for (let i = 0; i < 20; i++) {
-      const player = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5 } });
+      const player = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 } });
       if (ForgeEngine.craft(player, '灵蕴剑').success) successes++;
     }
     expect(successes).toBeGreaterThanOrEqual(18);

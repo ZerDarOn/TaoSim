@@ -10,10 +10,12 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 25, maxLifespan: 200 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5 },
+    attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5, charm: 5 },
     hp: 500, maxHp: 500, ap: 3, canFly: false,
     spiritStones: 0,
     inventory: [],
+    spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     equipmentSlots: { weapon: { id: 'sword', name: '剑', tier: 1, type: 'Equipment', attributes: { attack: 20 } }, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     ...overrides,
@@ -27,7 +29,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
 describe('DamagePipeline', () => {
   it('基础伤害 = (攻击力 - 防御力) * 技能系数', () => {
     const attacker = makeChar({ equipmentSlots: { weapon: { id: 'sword', name: '剑', tier: 1, type: 'Equipment', attributes: { attack: 30 } }, armor: undefined, treasures: [] } });
-    const defender = makeChar({ attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5 } });
+    const defender = makeChar({ attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5, charm: 5 } });
     const result = DamagePipeline.calculate(attacker, defender, makeSkill(), false);
     expect(result.finalDamage).toBe(35);
     expect(result.blockedByBarrier).toBe(false);
@@ -60,7 +62,7 @@ describe('DamagePipeline', () => {
 
   it('伤害不低于 0', () => {
     const attacker = makeChar({ equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] } });
-    const defender = makeChar({ attributes: { physique: 100, comprehension: 10, perception: 10, agility: 10, luck: 5 } });
+    const defender = makeChar({ attributes: { physique: 100, comprehension: 10, perception: 10, agility: 10, luck: 5, charm: 5 } });
     expect(DamagePipeline.calculate(attacker, defender, makeSkill(), false).finalDamage).toBe(0);
   });
 

@@ -20,10 +20,12 @@ function makeChar(id: string, overrides: Partial<Character> = {}): Character {
     lifespan: { age: 20, maxLifespan: 100 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5 },
+    attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
     hp: 100, maxHp: 100, ap: 3, canFly: false,
     spiritStones: 0,
     inventory: [],
+    spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     ...overrides,
@@ -54,8 +56,8 @@ describe('CombatEngine', () => {
   });
 
   it('ATB tick 让行动值随敏捷增长', () => {
-    const fast = makeChar('FAST', { attributes: { physique: 5, comprehension: 5, perception: 5, agility: 20, luck: 5 } });
-    const slow = makeChar('SLOW', { attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5 } });
+    const fast = makeChar('FAST', { attributes: { physique: 5, comprehension: 5, perception: 5, agility: 20, luck: 5, charm: 5 } });
+    const slow = makeChar('SLOW', { attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 } });
     const chars = { FAST: fast, SLOW: slow };
     const engine = new CombatEngine(map, [fast, slow]);
     // FAST: 每 tick 10+40=50, 2 tick 到 100; SLOW: 每 tick 10+10=20, 需 5 tick
