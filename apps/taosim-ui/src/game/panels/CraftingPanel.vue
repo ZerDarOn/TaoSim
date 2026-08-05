@@ -159,6 +159,14 @@ function qualityColor(quality?: string): string {
 
     <!-- ============ 炼制子视图 ============ -->
     <div v-if="subView === 'craft'" class="space-y-4">
+      <!-- 无任何配方时的提示 -->
+      <div v-if="pillRecipes.length === 0 && forgeRecipes.length === 0" class="p-8 text-center space-y-2">
+        <p class="text-slate-400 text-sm">你尚未习得任何炼丹炼器之术。</p>
+        <p class="text-slate-500 text-xs">通过 NPC 论道、探索奇遇或宗门传授可以获得丹方和锻造配方。</p>
+      </div>
+
+      <!-- 有配方时显示炼制界面 -->
+      <template v-else>
       <!-- pill / forge 切换 -->
       <div class="flex gap-2">
         <button @click="activeTab = 'pill'; result = null"
@@ -234,6 +242,7 @@ function qualityColor(quality?: string): string {
           </div>
         </div>
       </div>
+      </template><!-- end v-else (有配方) -->
     </div>
 
     <!-- ============ 升品子视图 ============ -->

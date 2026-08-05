@@ -1,24 +1,56 @@
 <script setup lang="ts">
+import { computed, watch } from 'vue';
 import { useUiStore, type GameTab } from '@/stores/ui';
+import { usePlayerStore } from '@/stores/player';
+import { PRESET_MAP } from '@taosim/engine';
 
 const uiStore = useUiStore();
+const playerStore = usePlayerStore();
 
-const tabs: Array<{ key: GameTab; label: string }> = [
-  { key: 'map',    label: '大地图' },
-  { key: 'cult',   label: '修炼' },
-  { key: 'craft',  label: '百艺' },
-  { key: 'market', label: '坊市' },
-  { key: 'npc',    label: '人际' },
-  { key: 'inv',    label: '背包' },
-];
+const visibleTabs = computed<Array<{ key: GameTab; label: string }>>(() => {
+  const tabs: Array<{ key: GameTab; label: string }> = [
+    { key: 'map',    label: '大地图' },
+    { key: 'cult',   label: '修炼' },
+  ];
+
+  const c = playerStore.character;
+  const hasRecipes = c && c.unlockedRecipes.length > 0;
+  const hasSkills = c && c.skills.length > 0;
+  if (hasRecipes || hasSkills) {
+    tabs.push({ key: 'craft', label: '百艺' });
+  }
+
+  const currentNode = PRESET_MAP.continents[0]?.nodes[playerStore.currentNodeId];
+  const canAccessMarket = currentNode?.type === 'Market' || currentNode?.type === 'City';
+  if (canAccessMarket) {
+    tabs.push({ key: 'market', label: '坊市' });
+  }
+
+  if (playerStore.currentNPC) {
+    tabs.push({ key: 'npc', label: '人际' });
+  }
+
+  tabs.push({ key: 'inv', label: '背包' });
+
+  return tabs;
+});
+
+const visibleKeys = computed(() => new Set(visibleTabs.value.map(t => t.key)));
+
+// 当前 tab 不可见时自动切回 map
+watch(visibleKeys, (keys) => {
+  if (!keys.has(uiStore.activeTab)) {
+    uiStore.setTab('map');
+  }
+});
 </script>
 
 <template>
   <nav class="h-12 flex items-center bg-slate-800 border-t border-slate-700">
     <button
-      v-for="tab in tabs"
+      v-for="tab in visibleTabs"
       :key="tab.key"
-      class="flex-1 h-full text-sm transition"
+      class="flex-1 h-full text-sm transition min-w-0"
       :class="uiStore.activeTab === tab.key
         ? 'bg-amber-700 text-amber-100 font-semibold'
         : 'text-slate-300 hover:bg-slate-700'"
