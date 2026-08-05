@@ -29,8 +29,11 @@ function buildEnemy(): Character {
     lifespan: { age: 32, maxLifespan: 100 },
     spiritEnergy: { current: 80, max: 80 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 6, comprehension: 4, perception: 5, agility: 7, luck: 3 },
+    attributes: { physique: 6, comprehension: 4, perception: 5, agility: 7, luck: 3, charm: 5 },
+    spiritRoot: { grade: 'Yellow', elements: ['Metal'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     hp: 120, maxHp: 120, ap: 3, canFly: false,
+    spiritStones: 50,
     inventory: [],
     equipmentSlots: {
       weapon: { id: 'w_enemy', name: '铁剑', tier: 1, type: 'Equipment', attributes: { attack: 12 } },
