@@ -23,12 +23,20 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
 
 describe('ForgeEngine', () => {
   it('主材足够时成功炼制法宝', () => {
-    const player = makePlayer();
-    const result = ForgeEngine.craft(player, '灵蕴剑');
-    expect(result.success).toBe(true);
-    expect(result.equipment).toBeDefined();
-    expect(result.equipment!.name).toBe('灵蕴剑');
-    expect(result.equipment!.tier).toBe(2);
+    // 75% 成功率，最多重试 5 次保证不因随机数失败
+    let success = false;
+    for (let i = 0; i < 5; i++) {
+      const player = makePlayer();
+      const result = ForgeEngine.craft(player, '灵蕴剑');
+      if (result.success) {
+        expect(result.equipment).toBeDefined();
+        expect(result.equipment!.name).toBe('灵蕴剑');
+        expect(result.equipment!.tier).toBe(2);
+        success = true;
+        break;
+      }
+    }
+    expect(success).toBe(true);
   });
 
   it('主材不足时炼制失败', () => {

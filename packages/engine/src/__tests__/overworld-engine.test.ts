@@ -36,7 +36,7 @@ const testMap: OverworldMap = {
       'N3': {
         id: 'N3', name: '孤岛', continentId: 'C1', coordinates: { x: 500, y: 500 },
         type: 'Dungeon', tier: 5, travelCostDays: 0,
-        battleMapConfig: { baseTerrain: 'Cave', clusterDensity: 0.8, hazardProbability: 0.5 },
+        battleMapConfig: { baseTerrain: 'Void', clusterDensity: 0.8, hazardProbability: 0.5 },
       },
     },
     edges: [
