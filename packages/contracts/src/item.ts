@@ -20,6 +20,14 @@ export type AttributeMap = Partial<Record<AttributeKey, number>>;
 
 export type ItemQuality = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
+export type SpecialEffectType =
+  | 'SOUL_GUARD'
+  | 'BLOOD_THIRST'
+  | 'MANA_SHIELD'
+  | 'QUICK_STRIKE'
+  | 'PHOENIX_REBIRTH'
+  | 'VITALITY_SIPHON';
+
 export interface Item {
   id: string;
   name: string;
@@ -29,6 +37,9 @@ export interface Item {
   poisonValence?: number;   // 毒性值 (炼丹/毒功)
   templateId?: string;    // 物品模板静态 ID
   quality?: ItemQuality;  // 可选品质
+  specialEffect?: SpecialEffectType;
+  durability?: import('./durability.js').DurabilityState;
+  isBroken?: boolean;
 }
 
 export interface ItemStack {

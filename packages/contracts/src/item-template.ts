@@ -11,4 +11,5 @@ export interface ItemTemplate {
   type: ItemType;
   baseAttributes: AttributeMap;
   poisonValence?: number;
+  maxDurability?: number;
 }

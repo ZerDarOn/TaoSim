@@ -20,3 +20,5 @@ export * from './log-filter.js';
 export * from './skill-creation.js';
 export * from './market.js';
 export * from './item-template.js';
+export * from './durability.js';
+export * from './forge.js';
