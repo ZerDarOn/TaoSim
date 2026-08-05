@@ -38,6 +38,21 @@ const availableConfig = computed<RealmBreakthroughConfig | null>(() => {
 
 async function attemptBreakthrough() {
   if (!playerStore.character || !availableConfig.value) return;
+
+  // 传统突破模式：检查秘境材料
+  if (playerStore.character.gameMode?.breakthrough === 'Traditional') {
+    const requiredItems = availableConfig.value.requirements.requiredItems ?? [];
+    for (const itemId of requiredItems) {
+      const has = playerStore.character.inventory.some(
+        s => (s.item.templateId === itemId || s.item.id === itemId) && s.count > 0
+      );
+      if (!has) {
+        resultMessage.value = `传统突破需要秘境材料：${itemId}（当前缺失）`;
+        return;
+      }
+    }
+  }
+
   const result = TribulationEngine.attempt(playerStore.character, availableConfig.value);
   if (result.success && result.updatedCharacter) {
     playerStore.character = result.updatedCharacter;

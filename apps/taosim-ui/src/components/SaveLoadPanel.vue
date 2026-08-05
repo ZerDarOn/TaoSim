@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
@@ -10,6 +10,11 @@ const playerStore = usePlayerStore();
 
 const saving = ref(false);
 const loading = ref(false);
+
+// 铁人模式：禁用手动保存
+const isIronman = computed(() =>
+  playerStore.character?.gameMode?.saveMode === 'Ironman'
+);
 
 onMounted(async () => {
   await appStore.loadSaveHeaders();
@@ -43,12 +48,14 @@ function formatTime(ts: number): string {
     <div class="flex justify-between items-center">
       <h3 class="text-sm font-semibold text-ink-soft">存档管理</h3>
       <button
+        v-if="!isIronman"
         @click="handleSave"
         :disabled="saving || !playerStore.isCreated"
         class="px-3 py-1 bg-jade text-white rounded text-xs font-semibold disabled:opacity-50"
       >
         {{ saving ? '保存中...' : '保存当前进度' }}
       </button>
+      <span v-else class="text-xs text-danger">铁人模式 · 月度自动存档</span>
     </div>
 
     <div v-if="appStore.saveHeaders.length === 0" class="text-xs text-muted">尚无存档</div>

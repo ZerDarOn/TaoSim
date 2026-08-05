@@ -58,6 +58,12 @@ export function useWorld() {
     if (!playerStore.character) return;
     const result = PlayerLifecycleService.advanceTime(playerStore.character, months);
     playerStore.character = result.updatedPlayer;
+
+    // 铁人模式：月度自动存档
+    if (playerStore.character.gameMode?.saveMode === 'Ironman') {
+      appStore.saveGame().catch(() => {});
+    }
+
     if (result.died) {
       state.deathMessage = result.causeOfDeath ?? '寿元耗尽';
       router.push('/game-over');
