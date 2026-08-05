@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES } from '@taosim/engine';
 import type { NPCTradeOffer, MarketItem, ItemStack } from '@taosim/contracts';
+import { formatRealm, formatGender, formatItemType, formatQuality } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const subView = ref<'interact' | 'trade'>('interact');
@@ -40,6 +41,9 @@ function handleDuel() {
   if (!playerStore.character || !npc.value) return;
   const result = NPCInteractionEngine.duel(playerStore.character, npc.value, true);
   message.value = result.message;
+  if (result.unlockedRecipe) {
+    playerStore.unlockRecipe(result.unlockedRecipe);
+  }
   interactionDone.value = true;
 }
 
@@ -48,6 +52,9 @@ function handleDiscuss() {
   const result = NPCInteractionEngine.discuss(playerStore.character, npc.value);
   playerStore.character.cultivation.currentExp += result.expGained;
   message.value = result.message;
+  if (result.unlockedRecipe) {
+    playerStore.unlockRecipe(result.unlockedRecipe);
+  }
   interactionDone.value = true;
 }
 
@@ -106,7 +113,7 @@ function handleLeave() {
       <div v-if="subView === 'interact'" class="space-y-4">
         <div class="bg-slate-800 rounded p-4 space-y-2 text-sm">
           <div class="font-semibold text-lg text-amber-200">{{ npc.name }}</div>
-          <div class="text-slate-400">{{ npc.realm }} · {{ npc.gender === 'Male' ? '男' : '女' }}</div>
+          <div class="text-slate-400">{{ formatRealm(npc.realm) }} · {{ formatGender(npc.gender) }}</div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-slate-400">好感度</span>
             <div class="flex-1 bg-slate-700 h-2 rounded-full max-w-[120px]">
@@ -153,7 +160,7 @@ function handleLeave() {
           <span class="text-sm text-slate-400">灵石: {{ playerStore.character?.spiritStones ?? 0 }}</span>
         </div>
         <div class="text-xs text-slate-500 flex gap-4">
-          <span>对方修为: {{ npc.realm }}</span>
+          <span>对方修为: {{ formatRealm(npc.realm) }}</span>
           <span>对方预算: {{ npcOffer?.budget ?? 0 }} 灵石</span>
         </div>
 
@@ -168,8 +175,8 @@ function handleLeave() {
               class="bg-slate-800 rounded p-3 space-y-1">
               <div class="font-medium text-sm text-slate-100">{{ mi.item.name }}</div>
               <div class="text-xs text-slate-400">
-                {{ mi.item.type }} · {{ mi.item.tier }}阶
-                <span v-if="mi.item.quality" class="ml-1 text-amber-400">{{ mi.item.quality }}</span>
+                {{ formatItemType(mi.item.type) }} · {{ mi.item.tier }}阶
+                <span v-if="mi.item.quality" class="ml-1 text-amber-400">{{ formatQuality(mi.item.quality) }}</span>
               </div>
               <div class="flex justify-between items-center">
                 <span class="text-sm text-amber-300">{{ mi.basePrice }} 灵石</span>

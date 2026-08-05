@@ -169,6 +169,7 @@ export class WorldEngine {
       factionRank: undefined,
       relations: {},
       wantedLevels: {},
+      unlockedRecipes: [],
     };
   }
 }

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { RecipeRegistry, AlchemyEngine, ForgeEngine, UpgradeEngine } from '@taosim/engine';
 import type { Item, ItemQuality } from '@taosim/contracts';
+import { formatQuality } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 
@@ -13,8 +14,18 @@ const subView = ref<'craft' | 'upgrade'>('craft');
 const activeTab = ref<'pill' | 'forge'>('pill');
 const result = ref<string | null>(null);
 
-const pillRecipes = RecipeRegistry.listPillRecipes();
-const forgeRecipes = RecipeRegistry.listForgeRecipes();
+const unlockedIds = computed(() => playerStore.character?.unlockedRecipes ?? ['RECIPE_QI_PILL']);
+const unlockedRecipes = computed(() => RecipeRegistry.getUnlockedRecipes(unlockedIds.value));
+
+const pillRecipes = computed(() => unlockedRecipes.value.pills);
+const forgeRecipes = computed(() => unlockedRecipes.value.forges);
+
+const lockedPillRecipes = computed(() =>
+  RecipeRegistry.listPillRecipes().filter(r => !unlockedIds.value.includes(r.id) && !r.unlockedByDefault)
+);
+const lockedForgeRecipes = computed(() =>
+  RecipeRegistry.listForgeRecipes().filter(r => !unlockedIds.value.includes(r.id) && !r.unlockedByDefault)
+);
 
 function craftPill(recipeName: string) {
   if (!playerStore.character) return;
@@ -24,7 +35,7 @@ function craftPill(recipeName: string) {
   }
   const r = AlchemyEngine.craftPill(playerStore.character, recipeName);
   result.value = r.success
-    ? `炼制成功：${r.pill!.name}（${r.pill!.tier} 阶 · ${r.pill!.quality ?? 'Common'}品质）`
+    ? `炼制成功：${r.pill!.name}（${r.pill!.tier} 阶 · ${formatQuality(r.pill!.quality)}品质）`
     : `炼制失败：${r.reason}`;
 }
 
@@ -36,7 +47,7 @@ function forgeEquipment(recipeName: string) {
   }
   const r = ForgeEngine.craft(playerStore.character, recipeName);
   result.value = r.success
-    ? `炼制成功：${r.equipment!.name}（${r.equipment!.tier} 阶 · ${r.equipment!.quality ?? 'Common'}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
+    ? `炼制成功：${r.equipment!.name}（${r.equipment!.tier} 阶 · ${formatQuality(r.equipment!.quality)}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
     : `炼制失败：${r.reason}`;
 }
 
@@ -48,7 +59,7 @@ function forgeMaster(recipeName: string) {
   }
   const r = ForgeEngine.craftMaster(playerStore.character, recipeName);
   result.value = r.success
-    ? `大师锻造成功：${r.equipment!.name}（${r.equipment!.quality}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
+    ? `大师锻造成功：${r.equipment!.name}（${formatQuality(r.equipment!.quality)}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
     : `大师锻造失败：${r.reason}`;
 }
 
@@ -179,6 +190,18 @@ function qualityColor(quality?: string): string {
         </div>
       </div>
 
+      <!-- 未解锁的丹方 -->
+      <div v-if="activeTab === 'pill' && lockedPillRecipes.length > 0" class="mt-4">
+        <div class="text-xs text-slate-500 mb-2">未习得丹方</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div v-for="recipe in lockedPillRecipes" :key="recipe.id"
+            class="p-3 bg-slate-800/50 rounded space-y-2 opacity-50 cursor-not-allowed">
+            <div class="font-semibold text-slate-500">???</div>
+            <div class="text-xs text-slate-600">需从 NPC 处习得</div>
+          </div>
+        </div>
+      </div>
+
       <!-- 炼器配方 -->
       <div v-if="activeTab === 'forge'" class="grid grid-cols-2 gap-3">
         <div v-for="recipe in forgeRecipes" :key="recipe.id"
@@ -199,6 +222,18 @@ function qualityColor(quality?: string): string {
           </button>
         </div>
       </div>
+
+      <!-- 未解锁的器谱 -->
+      <div v-if="activeTab === 'forge' && lockedForgeRecipes.length > 0" class="mt-4">
+        <div class="text-xs text-slate-500 mb-2">未习得器谱</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div v-for="recipe in lockedForgeRecipes" :key="recipe.id"
+            class="p-3 bg-slate-800/50 rounded space-y-2 opacity-50 cursor-not-allowed">
+            <div class="font-semibold text-slate-500">???</div>
+            <div class="text-xs text-slate-600">需从 NPC 处习得</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ============ 升品子视图 ============ -->
@@ -214,7 +249,7 @@ function qualityColor(quality?: string): string {
               selectedItem?.id === s.item.id ? 'ring-1 ring-amber-500' : '']">
             <div class="text-sm font-medium text-slate-100">{{ s.item.name }}</div>
             <div class="text-xs" :class="qualityColor(s.item.quality)">
-              {{ s.item.quality ?? 'Common' }}品质 · Tier {{ s.item.tier }}
+              {{ formatQuality(s.item.quality) }}品质 · Tier {{ s.item.tier }}
             </div>
             <div v-if="s.item.specialEffect" class="text-xs text-amber-300">特效: {{ s.item.specialEffect }}</div>
           </button>
@@ -225,7 +260,7 @@ function qualityColor(quality?: string): string {
       <section v-if="selectedItem" class="p-4 bg-slate-800 rounded space-y-3">
         <div class="flex justify-between items-center">
           <span class="font-medium text-slate-100">{{ selectedItem.name }}</span>
-          <span :class="qualityColor(selectedItem.quality)">{{ selectedItem.quality ?? 'Common' }}</span>
+          <span :class="qualityColor(selectedItem.quality)">{{ formatQuality(selectedItem.quality) }}</span>
         </div>
         <div class="text-xs text-slate-500">
           属性: {{ JSON.stringify(selectedItem.attributes) }}
@@ -237,7 +272,7 @@ function qualityColor(quality?: string): string {
 
         <div v-if="getNextQuality(selectedItem)" class="pt-2 border-t border-slate-700 space-y-2">
           <div class="text-sm text-slate-200">
-            目标品质: <span :class="qualityColor(getNextQuality(selectedItem)!)">{{ getNextQuality(selectedItem) }}</span>
+            目标品质: <span :class="qualityColor(getNextQuality(selectedItem)!)">{{ formatQuality(getNextQuality(selectedItem)!) }}</span>
           </div>
           <div class="text-xs text-red-400">
             ⚠️ 升品有风险：失败可能消耗材料、降低耐久或品质倒退

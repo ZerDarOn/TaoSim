@@ -50,6 +50,39 @@ export const usePlayerStore = defineStore('player', () => {
     return true;
   }
 
+  const currentNodeId = ref<string>('NODE_SECT_QINGYUN');
+
+  function setCurrentNode(id: string) {
+    currentNodeId.value = id;
+  }
+
+  function setCurrentNPC(npc: Character | null) {
+    currentNPC.value = npc;
+  }
+
+  function addExp(amount: number) {
+    if (!character.value) return;
+    character.value.cultivation.currentExp += amount;
+  }
+
+  function addSpiritStones(amount: number) {
+    if (!character.value) return;
+    character.value.spiritStones = Math.max(0, character.value.spiritStones + amount);
+  }
+
+  function unlockRecipe(recipeId: string) {
+    if (!character.value) return;
+    if (!character.value.unlockedRecipes.includes(recipeId)) {
+      character.value.unlockedRecipes.push(recipeId);
+    }
+  }
+
+  function advanceTime(days: number) {
+    if (!character.value) return;
+    // 粗略换算：30 天 = 1 月，12 月 = 1 年。这里按天推进年龄
+    character.value.lifespan.age += days / 365;
+  }
+
   return {
     character,
     currentNPC,
@@ -61,5 +94,12 @@ export const usePlayerStore = defineStore('player', () => {
     addItem,
     consumeAp,
     reset,
+    currentNodeId,
+    setCurrentNode,
+    setCurrentNPC,
+    addExp,
+    addSpiritStones,
+    unlockRecipe,
+    advanceTime,
   };
 });

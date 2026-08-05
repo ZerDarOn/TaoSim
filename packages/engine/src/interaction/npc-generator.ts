@@ -58,6 +58,7 @@ export class NPCGenerator {
       traits: [],
       relations: {},
       wantedLevels: {},
+      unlockedRecipes: [],
     } as Character;
   }
 }

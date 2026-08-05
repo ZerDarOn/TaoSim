@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { MarketEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES } from '@taosim/engine';
 import type { MarketInventory, MarketItem, ItemStack } from '@taosim/contracts';
+import { formatItemType, formatQuality } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const marketInv = ref<MarketInventory | null>(null);
@@ -64,8 +65,8 @@ function handleSell(stack: ItemStack) {
           class="bg-slate-800 rounded p-3 space-y-1">
           <div class="font-medium text-sm text-slate-100">{{ mi.item.name }}</div>
           <div class="text-xs text-slate-400">
-            {{ mi.item.type }} · {{ mi.item.tier }}阶
-            <span v-if="mi.item.quality" class="ml-1 text-amber-400">{{ mi.item.quality }}</span>
+            {{ formatItemType(mi.item.type) }} · {{ mi.item.tier }}阶
+            <span v-if="mi.item.quality" class="ml-1 text-amber-400">{{ formatQuality(mi.item.quality) }}</span>
           </div>
           <div class="text-xs text-slate-500">库存: {{ mi.count }}/{{ mi.maxCount }}</div>
           <div class="flex justify-between items-center">

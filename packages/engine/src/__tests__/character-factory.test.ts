@@ -97,3 +97,65 @@ describe('CharacterFactory Phase 10 — registry 接入 + 初始灵石', () => {
     expect(c.traits.length).toBe(0);
   });
 });
+
+describe('CharacterFactory arrival modes', () => {
+  it('诞生模式 age = 6', () => {
+    const c = CharacterFactory.create({
+      name: '测试', gender: 'Male', background: 'orphan',
+      attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
+      innateTraits: [], arrivalMode: 'birth',
+    });
+    expect(c.lifespan.age).toBe(6);
+  });
+
+  it('穿越模式 age = startAge', () => {
+    const c = CharacterFactory.create({
+      name: '测试', gender: 'Male', background: 'orphan',
+      attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
+      innateTraits: [], arrivalMode: 'transmigration', startAge: 25,
+    });
+    expect(c.lifespan.age).toBe(25);
+  });
+
+  it('穿越模式白板开局（无灵石/装备/宗门）', () => {
+    const c = CharacterFactory.create({
+      name: '测试', gender: 'Male', background: 'ancient-clan',
+      attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
+      innateTraits: [], arrivalMode: 'transmigration', startAge: 20,
+    });
+    expect(c.spiritStones).toBe(0);
+    expect(c.equipmentSlots.weapon).toBeUndefined();
+    expect(c.factionId).toBeUndefined();
+    expect(c.skills.length).toBe(0);
+  });
+
+  it('穿越模式悟性 +5', () => {
+    const c = CharacterFactory.create({
+      name: '测试', gender: 'Male', background: 'orphan',
+      attributes: { physique: 5, comprehension: 10, perception: 5, agility: 5, luck: 5, charm: 5 },
+      innateTraits: [], arrivalMode: 'transmigration', startAge: 20,
+    });
+    expect(c.attributes.comprehension).toBe(15);
+  });
+
+  it('诞生模式 ancient-clan 保留家世加成', () => {
+    const c = CharacterFactory.create({
+      name: '测试', gender: 'Male', background: 'ancient-clan',
+      attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
+      innateTraits: [], arrivalMode: 'birth',
+    });
+    expect(c.lifespan.age).toBe(6);
+    expect(c.spiritStones).toBe(2000);
+    expect(c.equipmentSlots.weapon).toBeDefined();
+    expect(c.factionId).toBe('FACTION_ANCIENT_CLAN');
+  });
+
+  it('默认 unlockedRecipes 含聚气丹', () => {
+    const c = CharacterFactory.create({
+      name: '测试', gender: 'Male', background: 'orphan',
+      attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
+      innateTraits: [],
+    });
+    expect(c.unlockedRecipes).toContain('RECIPE_QI_PILL');
+  });
+});

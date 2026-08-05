@@ -18,6 +18,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     equipmentSlots: { weapon: { id: 'sword', name: '剑', tier: 1, type: 'Equipment', attributes: { attack: 20 } }, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }

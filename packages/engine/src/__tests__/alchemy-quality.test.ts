@@ -9,7 +9,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 30, maxLifespan: 200 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 5, comprehension: 20, perception: 8, agility: 5, luck: 5 },
+    attributes: { physique: 5, comprehension: 20, perception: 8, agility: 5, luck: 5, charm: 5 },
     hp: 200, maxHp: 200, ap: 3, canFly: true,
     spiritStones: 0,
     inventory: [
@@ -19,6 +19,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     ],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }

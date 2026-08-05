@@ -9,12 +9,13 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 30, maxLifespan: 200 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 10, comprehension: 10, perception: 5, agility: 5, luck: 5 },
+    attributes: { physique: 10, comprehension: 10, perception: 5, agility: 5, luck: 5, charm: 5 },
     hp: 200, maxHp: 200, ap: 3, canFly: true,
     spiritStones: 0,
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }
@@ -52,5 +53,55 @@ describe('NPCInteractionEngine', () => {
     const player = makePlayer();
     const mult = NPCInteractionEngine.getPriceMultiplier(player, 'N_UNKNOWN');
     expect(mult).toBe(1.0);
+  });
+});
+
+describe('NPCInteractionEngine recipe unlock', () => {
+  it('论道有概率解锁配方（模拟多次必触发）', () => {
+    let unlocked = false;
+    for (let i = 0; i < 100; i++) {
+      const player = makePlayer();
+      const npc = makeNPC('N1');
+      const result = NPCInteractionEngine.discuss(player, npc);
+      if (result.unlockedRecipe) {
+        unlocked = true;
+        expect(typeof result.unlockedRecipe).toBe('string');
+        break;
+      }
+    }
+    // 100 次 20% 概率，几乎不可能不触发
+    expect(unlocked).toBe(true);
+  });
+
+  it('切磋胜利有概率解锁配方', () => {
+    let unlocked = false;
+    for (let i = 0; i < 100; i++) {
+      const player = makePlayer();
+      const npc = makeNPC('N2');
+      const result = NPCInteractionEngine.duel(player, npc, true);
+      if (result.unlockedRecipe) {
+        unlocked = true;
+        break;
+      }
+    }
+    expect(unlocked).toBe(true);
+  });
+
+  it('切磋失败不解锁配方', () => {
+    for (let i = 0; i < 50; i++) {
+      const player = makePlayer();
+      const npc = makeNPC('N3');
+      const result = NPCInteractionEngine.duel(player, npc, false);
+      expect(result.unlockedRecipe).toBeUndefined();
+    }
+  });
+
+  it('已解锁全部配方时不再授予', () => {
+    for (let i = 0; i < 50; i++) {
+      const player = makePlayer({ unlockedRecipes: ['RECIPE_FOUNDATION_PILL', 'RECIPE_QI_PILL', 'RECIPE_LONGEVITY_PILL', 'RECIPE_SPIRIT_SWORD', 'RECIPE_SPIRIT_ARMOR', 'RECIPE_STAR_SWORD'] });
+      const npc = makeNPC('N4');
+      const result = NPCInteractionEngine.discuss(player, npc);
+      expect(result.unlockedRecipe).toBeUndefined();
+    }
   });
 });

@@ -3,7 +3,8 @@ import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useWorld } from '@/composables/useWorld';
 import { TribulationEngine } from '@taosim/engine';
-import type { RealmBreakthroughConfig } from '@taosim/contracts';
+import type { RealmBreakthroughConfig, RealmFullPath } from '@taosim/contracts';
+import { formatRealm } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const world = useWorld();
@@ -56,7 +57,7 @@ async function attemptBreakthrough() {
   const result = TribulationEngine.attempt(playerStore.character, availableConfig.value);
   if (result.success && result.updatedCharacter) {
     playerStore.character = result.updatedCharacter;
-    resultMessage.value = `突破成功！已踏入 ${result.newRealm}`;
+    resultMessage.value = `突破成功！已踏入 ${formatRealm(result.newRealm!)}`;
   } else {
     resultMessage.value = result.reason ?? '突破失败';
     if (result.updatedCharacter) {
@@ -69,7 +70,7 @@ async function attemptBreakthrough() {
 <template>
   <div class="space-y-4">
     <div v-if="playerStore.character" class="p-4 bg-slate-800 rounded space-y-2 text-sm">
-      <div><span class="text-slate-400">当前境界：</span><span class="font-semibold text-amber-300">{{ playerStore.character.realm }}</span></div>
+      <div><span class="text-slate-400">当前境界：</span><span class="font-semibold text-amber-300">{{ formatRealm(playerStore.character.realm) }}</span></div>
       <div><span class="text-slate-400">修为：</span>{{ playerStore.character.cultivation.currentExp }} / {{ playerStore.character.cultivation.maxExp }}</div>
       <div><span class="text-slate-400">寿元：</span>{{ Math.floor(playerStore.character.lifespan.age) }} / {{ playerStore.character.lifespan.maxLifespan }}</div>
     </div>
@@ -87,13 +88,13 @@ async function attemptBreakthrough() {
     <div v-if="availableConfig" class="p-4 bg-slate-800 rounded border border-amber-600 space-y-2">
       <h3 class="text-sm font-semibold text-amber-400">可突破</h3>
       <div class="text-xs text-slate-300">
-        目标：{{ availableConfig.toRealm }} ·
+        目标：{{ formatRealm(availableConfig.toRealm as RealmFullPath) }} ·
         需修为 {{ availableConfig.requirements.expThreshold }} ·
         需材料 {{ availableConfig.requirements.requiredItems?.join(', ') ?? '无' }}
       </div>
       <button @click="attemptBreakthrough"
         class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded text-sm font-semibold">
-        冲击 {{ availableConfig.toRealm }}
+        冲击 {{ formatRealm(availableConfig.toRealm as RealmFullPath) }}
       </button>
     </div>
     <div v-else class="text-sm text-slate-500 p-4 bg-slate-800 rounded">

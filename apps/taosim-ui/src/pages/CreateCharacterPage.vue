@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { CharacterFactory, SpiritRootRoller, rollTraits } from '@taosim/engine';
+import { CharacterFactory, SpiritRootRoller, rollTraits, BIRTH_STORIES, TRANSMIGRATION_STORY } from '@taosim/engine';
+import type { ArrivalMode } from '@taosim/engine';
 import { usePlayerStore } from '@/stores/player';
 import { useAppStore } from '@/stores/app';
 import { useGameFlowStore } from '@/stores/game-flow';
@@ -10,11 +11,11 @@ const playerStore = usePlayerStore();
 const appStore = useAppStore();
 const gameFlow = useGameFlowStore();
 
-type Step = 'mode' | 'background' | 'attributes' | 'spiritRoot' | 'traits' | 'confirm';
+type Step = 'mode' | 'arrival' | 'background' | 'attributes' | 'spiritRoot' | 'traits' | 'confirm';
 const currentStep = ref<Step>('mode');
 
 const stepLabels: Record<Step, string> = {
-  mode: '模式', background: '出身', attributes: '属性',
+  mode: '模式', arrival: '降临', background: '出身', attributes: '属性',
   spiritRoot: '灵根', traits: '天赋', confirm: '确认',
 };
 

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useGameFlowStore } from '@/stores/game-flow';
 import { usePlayerStore } from '@/stores/player';
 import { useAppStore } from '@/stores/app';
+import { formatRealm } from '@/utils/i18n-game';
 
 const gameFlow = useGameFlowStore();
 const playerStore = usePlayerStore();
@@ -13,7 +14,7 @@ const epitaph = computed(() => {
   if (!c) return null;
   return {
     name: c.name,
-    realm: c.realm,
+    realm: formatRealm(c.realm),
     age: Math.floor(c.lifespan.age),
     maxLifespan: c.lifespan.maxLifespan,
     soulState: c.soulState,

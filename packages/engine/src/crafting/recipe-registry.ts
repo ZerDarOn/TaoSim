@@ -6,6 +6,7 @@ export interface PillRecipe {
   requiredMaterials: string[];       // item IDs
   yinYangThreshold: number;          // 阴阳平衡安全区间上限
   baseSuccessRate: number;
+  unlockedByDefault?: boolean;
 }
 
 export interface ForgeRecipe {
@@ -21,6 +22,7 @@ export interface ForgeRecipe {
     type: 'Equipment';
     attributes: Record<string, number>;
   };
+  unlockedByDefault?: boolean;
 }
 
 const PILL_RECIPES: PillRecipe[] = [
@@ -33,6 +35,7 @@ const PILL_RECIPES: PillRecipe[] = [
     type: 'pill', id: 'RECIPE_QI_PILL', name: '聚气丹', tier: 1,
     requiredMaterials: ['MAT_SPIRIT_GRASS', 'MAT_BLOOD_FLOWER'],
     yinYangThreshold: 0.6, baseSuccessRate: 0.9,
+    unlockedByDefault: true,
   },
   {
     type: 'pill', id: 'RECIPE_LONGEVITY_PILL', name: '延寿丹', tier: 3,
@@ -77,5 +80,20 @@ export class RecipeRegistry {
 
   static listForgeRecipes(): ForgeRecipe[] {
     return [...FORGE_RECIPES];
+  }
+
+  static getUnlockedRecipes(unlockedIds: string[]): { pills: PillRecipe[]; forges: ForgeRecipe[] } {
+    return {
+      pills: PILL_RECIPES.filter(r => r.unlockedByDefault || unlockedIds.includes(r.id)),
+      forges: FORGE_RECIPES.filter(r => r.unlockedByDefault || unlockedIds.includes(r.id)),
+    };
+  }
+
+  // 获取所有锁定的配方 id（供 NPC 授予配方时随机选）
+  static getLockedRecipeIds(unlockedIds: string[]): string[] {
+    return [
+      ...PILL_RECIPES.filter(r => !r.unlockedByDefault && !unlockedIds.includes(r.id)).map(r => r.id),
+      ...FORGE_RECIPES.filter(r => !r.unlockedByDefault && !unlockedIds.includes(r.id)).map(r => r.id),
+    ];
   }
 }

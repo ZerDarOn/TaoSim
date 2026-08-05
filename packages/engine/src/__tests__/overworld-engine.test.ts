@@ -9,13 +9,16 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     lifespan: { age: 30, maxLifespan: 200 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 10, comprehension: 5, perception: 5, agility: 5, luck: 5 },
+    attributes: { physique: 10, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
+    spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     hp: 200, maxHp: 200, ap: 3, canFly: true,
     spiritStones: 0,
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
     factionId: undefined, factionRank: undefined,
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }

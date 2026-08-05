@@ -19,6 +19,7 @@ function makePlayer(overrides: Partial<Character> = {}): Character {
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }

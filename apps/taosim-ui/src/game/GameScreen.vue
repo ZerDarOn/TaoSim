@@ -4,6 +4,7 @@ import LeftSidebar from './LeftSidebar.vue';
 import EventLog from './EventLog.vue';
 import BottomNav from './BottomNav.vue';
 import MainContent from './MainContent.vue';
+import CharacterDetailModal from './CharacterDetailModal.vue';
 import { usePlayerStore } from '@/stores/player';
 import { useGameFlowStore } from '@/stores/game-flow';
 
@@ -25,5 +26,6 @@ if (!playerStore.character) {
       <EventLog />
     </div>
     <BottomNav />
+    <CharacterDetailModal />
   </div>
 </template>

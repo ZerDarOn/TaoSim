@@ -25,6 +25,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
     gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }

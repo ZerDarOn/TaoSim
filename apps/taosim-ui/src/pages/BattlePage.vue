@@ -50,6 +50,7 @@ function buildEnemy(): Character {
     traits: [],
     relations: {},
     wantedLevels: {},
+    unlockedRecipes: [],
   } as Character;
 }
 

@@ -128,4 +128,5 @@ export interface Character {
   relations: Record<string, CharacterRelation>;
   spiritStones: number;
   wantedLevels: Record<string, number>;          // continentId → level (0~5)
+  unlockedRecipes: string[];            // Phase 11: 已解锁配方 id 列表（默认 ['RECIPE_QI_PILL']）
 }

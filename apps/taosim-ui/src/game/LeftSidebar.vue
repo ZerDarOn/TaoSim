@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
+import { formatRealm, formatSpiritRootGrade, formatSpiritElement } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const uiStore = useUiStore();
@@ -16,9 +17,8 @@ const lifespanWarning = computed(() => lifespanPct.value >= 80);
 const spiritRootText = computed(() => {
   if (!c.value) return '';
   const root = c.value.spiritRoot;
-  const gradeMap = { Heaven: '天', Earth: '地', Profound: '玄', Yellow: '黄' };
-  const grade = gradeMap[root.grade];
-  const elements = root.elements.join('/');
+  const grade = formatSpiritRootGrade(root.grade);
+  const elements = root.elements.map(formatSpiritElement).join('/');
   return `${grade}灵根 · ${elements}${root.isVariant ? '（变异）' : ''}`;
 });
 </script>
@@ -27,7 +27,7 @@ const spiritRootText = computed(() => {
   <aside v-if="c" class="w-56 flex-shrink-0 bg-slate-800 border-r border-slate-700 p-4 overflow-y-auto">
     <div class="mb-3">
       <div class="text-lg font-semibold text-amber-200">{{ c.name }}</div>
-      <div class="text-xs text-slate-400">{{ c.realm }}</div>
+      <div class="text-xs text-slate-400">{{ formatRealm(c.realm) }}</div>
     </div>
 
     <div class="space-y-2 text-sm mb-3">

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { EquipmentManager } from '@taosim/engine';
 import type { Item } from '@taosim/contracts';
+import { formatItemType } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const message = ref<string | null>(null);
@@ -101,7 +102,7 @@ function formatAttrs(attrs: Record<string, number>): string {
             <span class="text-xs text-slate-400">×{{ stack.count }}</span>
           </div>
           <div class="text-xs text-slate-400">
-            {{ stack.item.type }} · {{ stack.item.tier }}阶
+            {{ formatItemType(stack.item.type) }} · {{ stack.item.tier }}阶
             <span v-if="Object.keys(stack.item.attributes).length">
               · {{ formatAttrs(stack.item.attributes) }}
             </span>

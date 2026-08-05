@@ -26,3 +26,35 @@ describe('RecipeRegistry', () => {
     expect(all.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('RecipeRegistry unlock system', () => {
+  it('getUnlockedRecipes 返回默认解锁的配方', () => {
+    const { pills, forges } = RecipeRegistry.getUnlockedRecipes([]);
+    // 聚气丹默认解锁
+    expect(pills.some(r => r.id === 'RECIPE_QI_PILL')).toBe(true);
+    // 筑基丹不默认解锁
+    expect(pills.some(r => r.id === 'RECIPE_FOUNDATION_PILL')).toBe(false);
+    // 锻造配方默认全锁
+    expect(forges.length).toBe(0);
+  });
+
+  it('getUnlockedRecipes 返回额外解锁的配方', () => {
+    const { pills, forges } = RecipeRegistry.getUnlockedRecipes(['RECIPE_FOUNDATION_PILL', 'RECIPE_SPIRIT_SWORD']);
+    expect(pills.some(r => r.id === 'RECIPE_QI_PILL')).toBe(true);       // 默认
+    expect(pills.some(r => r.id === 'RECIPE_FOUNDATION_PILL')).toBe(true); // 额外解锁
+    expect(forges.some(r => r.id === 'RECIPE_SPIRIT_SWORD')).toBe(true);
+  });
+
+  it('getLockedRecipeIds 返回未解锁的配方 id', () => {
+    const locked = RecipeRegistry.getLockedRecipeIds([]);
+    expect(locked).toContain('RECIPE_FOUNDATION_PILL');
+    expect(locked).toContain('RECIPE_LONGEVITY_PILL');
+    expect(locked).toContain('RECIPE_SPIRIT_SWORD');
+    expect(locked).not.toContain('RECIPE_QI_PILL');  // 默认解锁
+  });
+
+  it('getLockedRecipeIds 排除已解锁的', () => {
+    const locked = RecipeRegistry.getLockedRecipeIds(['RECIPE_FOUNDATION_PILL']);
+    expect(locked).not.toContain('RECIPE_FOUNDATION_PILL');
+  });
+});

@@ -1,4 +1,5 @@
-import type { Character, OverworldMap } from '@taosim/contracts';
+import type { Character, OverworldMap, TravelEvent } from '@taosim/contracts';
+import { NPCGenerator } from '../interaction/npc-generator.js';
 
 export interface TravelResult {
   success: boolean;
@@ -6,14 +7,6 @@ export interface TravelResult {
   currentNodeId?: string;
   daysPassed: number;
   events: TravelEvent[];
-}
-
-export interface TravelEvent {
-  type: 'encounter' | 'battle' | 'npc_meet' | 'material_found';
-  title: string;
-  description: string;
-  nodeId?: string;
-  materials?: { itemId: string; itemName: string }[];
 }
 
 const MATERIAL_POOL: Record<number, { id: string; name: string }[]> = {
@@ -75,13 +68,13 @@ export class OverworldEngine {
           nodeId: toNodeId,
         });
       } else {
-        const npcNames = ['云游散修', '外出历练的弟子', '神秘商人'];
-        const npcName = npcNames[Math.floor(Math.random() * npcNames.length)]!;
+        const npc = NPCGenerator.generate(toNode.tier, Date.now() + Math.floor(Math.random() * 100000));
         events.push({
           type: 'npc_meet',
           title: '偶遇修士',
-          description: `在${toNode.name}附近遇到了${npcName}`,
+          description: `在${toNode.name}附近遇到了${npc.name}`,
           nodeId: toNodeId,
+          npc,
         });
       }
     }

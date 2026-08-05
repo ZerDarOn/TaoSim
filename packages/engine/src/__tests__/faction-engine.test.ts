@@ -19,12 +19,13 @@ function makeChar(id: string, overrides: Partial<Character> = {}): Character {
     lifespan: { age: 25, maxLifespan: 100 },
     spiritEnergy: { current: 100, max: 100 },
     monthlyActionPoints: { current: 10, max: 10 },
-    attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5 },
+    attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
     hp: 150, maxHp: 150, ap: 3, canFly: false,
     spiritStones: 0,
     inventory: [],
     equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     skills: [], skillCooldowns: {}, traits: [], relations: {}, wantedLevels: {},
+    unlockedRecipes: [],
     ...overrides,
   } as Character;
 }

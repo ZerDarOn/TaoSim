@@ -24,7 +24,8 @@ export { EconomyEngine } from './economy/economy-engine.js';
 export { FactionEngine } from './faction/faction-engine.js';
 
 // Character Factory (角色创建)
-export { CharacterFactory } from './character/character-factory.js';
+export { CharacterFactory, BIRTH_STORIES, TRANSMIGRATION_STORY } from './character/character-factory.js';
+export type { ArrivalMode } from './character/character-factory.js';
 export { SpiritRootRoller } from './character/spirit-root-roller.js';
 
 // Data Registries（数据表）
