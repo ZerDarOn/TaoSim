@@ -1,14 +1,14 @@
 import { reactive } from 'vue';
-import { useRouter } from 'vue-router';
 import { WorldEngine, PlayerLifecycleService } from '@taosim/engine';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
+import { useGameFlowStore } from '@/stores/game-flow';
 import type { BigEventLog } from '@taosim/contracts';
 
 export function useWorld() {
   const appStore = useAppStore();
   const playerStore = usePlayerStore();
-  const router = useRouter();
+  const gameFlow = useGameFlowStore();
   const state = reactive({
     recentEvents: [] as BigEventLog[],
     advancing: false,
@@ -46,7 +46,7 @@ export function useWorld() {
         died = true;
         state.deathMessage = playerResult.causeOfDeath ?? '寿元耗尽';
         state.advancing = false;
-        router.push('/game-over');
+        gameFlow.enterGameOver(state.deathMessage ?? undefined);
         return;
       }
       await new Promise(r => setTimeout(r, 50));
@@ -66,7 +66,7 @@ export function useWorld() {
 
     if (result.died) {
       state.deathMessage = result.causeOfDeath ?? '寿元耗尽';
-      router.push('/game-over');
+      gameFlow.enterGameOver(state.deathMessage ?? undefined);
     }
   }
 

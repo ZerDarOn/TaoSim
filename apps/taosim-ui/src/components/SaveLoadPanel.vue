@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
+import { useGameFlowStore } from '@/stores/game-flow';
 
-const router = useRouter();
 const appStore = useAppStore();
 const playerStore = usePlayerStore();
+const gameFlow = useGameFlowStore();
 
 const saving = ref(false);
 const loading = ref(false);
@@ -30,7 +30,7 @@ async function handleLoad(saveId: string) {
   loading.value = true;
   try {
     await appStore.loadGame(saveId);
-    router.push('/world');
+    gameFlow.enterPlaying();
   } finally { loading.value = false; }
 }
 
