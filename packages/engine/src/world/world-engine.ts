@@ -1,4 +1,5 @@
-import type { WorldState, BigEventLog } from '@taosim/contracts';
+import type { WorldState, BigEventLog, Character, RealmFullPath } from '@taosim/contracts';
+import { LifecycleManager } from '../lifecycle/lifecycle-manager.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
@@ -12,6 +13,8 @@ export interface MonthlyTickResult {
  */
 export class WorldEngine {
   private state: WorldState;
+  private activeNPCs: Map<string, Character> = new Map();
+  private npcCounter = 0;
 
   constructor(initialState: WorldState) {
     this.state = { ...initialState };
@@ -20,13 +23,59 @@ export class WorldEngine {
   /** 推进一个月，返回更新后的状态与事件列表 */
   public step(): MonthlyTickResult {
     this.advanceCalendar();
-    // TODO: NPC 月度 AI + 宗门行动 + 灵石产出
+
     const events: BigEventLog[] = [];
-    return {
-      updatedState: this.getState(),
-      events,
-      npcPopulationChanged: false,
-    };
+    let npcPopulationChanged = false;
+
+    // 1. NPC 寿元检查
+    for (const [id, npc] of this.activeNPCs) {
+      const lifespanResult = LifecycleManager.checkLifespan(npc);
+      if (lifespanResult.willDie) {
+        const deathResult = LifecycleManager.handleDeath(npc, '寿元耗尽');
+        npcPopulationChanged = true;
+        events.push({
+          id: this.generateEventId(),
+          year: this.state.currentYear,
+          month: this.state.currentMonth,
+          isMajorEvent: false,
+          title: `${npc.name} 坐化`,
+          description: `${npc.name} 寿元耗尽，${deathResult.newSoulState === 'PrimordialSoul' ? '元神出窍' : '残魂消散'}`,
+          involvedCharacterIds: [id],
+        });
+        npc.soulState = deathResult.newSoulState;
+      } else {
+        npc.lifespan.age += 1 / 12;
+      }
+    }
+
+    // 2. 清理已湮灭的 NPC
+    for (const [id, npc] of this.activeNPCs) {
+      if (npc.soulState === 'Oblivion') {
+        this.activeNPCs.delete(id);
+        npcPopulationChanged = true;
+      }
+    }
+
+    // 3. NPC 人口补充（低于 800 则生成散修）
+    if (this.activeNPCs.size < 800) {
+      const count = Math.min(10, 800 - this.activeNPCs.size);
+      for (let i = 0; i < count; i++) {
+        const npc = this.generateWildCultivator();
+        this.activeNPCs.set(npc.id, npc);
+        npcPopulationChanged = true;
+        events.push({
+          id: this.generateEventId(),
+          year: this.state.currentYear,
+          month: this.state.currentMonth,
+          isMajorEvent: false,
+          title: `散修 ${npc.name} 出世`,
+          description: `${npc.name} 踏入修仙之路`,
+          involvedCharacterIds: [npc.id],
+        });
+      }
+    }
+
+    return { updatedState: this.getState(), events, npcPopulationChanged };
   }
 
   /** 快速推进 N 个月（闭关），返回摘要 */
@@ -52,5 +101,47 @@ export class WorldEngine {
     if (this.state.catastropheCountdownMonths > 0) {
       this.state.catastropheCountdownMonths--;
     }
+  }
+
+  private generateEventId(): string {
+    return `EVT_${this.state.currentYear}_${this.state.currentMonth}_${Math.random().toString(36).slice(2, 6)}`;
+  }
+
+  private generateWildCultivator(): Character {
+    this.npcCounter++;
+    const id = `NPC_${this.state.currentYear}_${this.state.currentMonth}_${this.npcCounter}`;
+    const realms: RealmFullPath[] = ['QiRefinement_1', 'QiRefinement_3', 'QiRefinement_5', 'QiRefinement_7', 'QiRefinement_9', 'Foundation_1'];
+    const names = ['散修·李四', '散修·王五', '散修·赵六', '散修·陈七', '散修·刘八', '散修·周九'];
+    const realm = realms[Math.floor(Math.random() * realms.length)]!;
+    const age = 20 + Math.floor(Math.random() * 60);
+
+    return {
+      id, name: names[Math.floor(Math.random() * names.length)]!,
+      gender: 'Male',
+      realm,
+      soulState: 'Active',
+      cultivation: { currentExp: Math.floor(Math.random() * 500), maxExp: 500 },
+      lifespan: { age, maxLifespan: 100 },
+      spiritEnergy: { current: 100, max: 100 },
+      monthlyActionPoints: { current: 10, max: 10 },
+      attributes: {
+        physique: 1 + Math.floor(Math.random() * 10),
+        comprehension: 1 + Math.floor(Math.random() * 10),
+        perception: 1 + Math.floor(Math.random() * 10),
+        agility: 1 + Math.floor(Math.random() * 10),
+        luck: 1 + Math.floor(Math.random() * 10),
+      },
+      hp: 100, maxHp: 100, ap: 3,
+      canFly: typeof realm === 'string' && realm.startsWith('Foundation'),
+      inventory: [],
+      equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
+      skills: [],
+      skillCooldowns: {},
+      traits: [],
+      factionId: undefined,
+      factionRank: undefined,
+      relations: {},
+      wantedLevels: {},
+    };
   }
 }
