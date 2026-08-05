@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { Application, Graphics, Container, Text } from 'pixi.js';
-import type { HexBattleMap, HexTile, TerrainType } from '@taosim/contracts';
+import type { HexBattleMap, HexTile, TerrainType, Character } from '@taosim/contracts';
 
 const props = defineProps<{
   map: HexBattleMap;
   playerId?: string;
   viewRadius?: number;
+  characters?: Record<string, Character>;
 }>();
 
 const emit = defineEmits<{
@@ -51,6 +52,14 @@ function isVisible(q: number, r: number): boolean {
   return dist <= (props.viewRadius ?? 3);
 }
 
+// 查找某个格子上的角色
+function getCharacterOnTile(q: number, r: number): Character | null {
+  if (!props.characters) return null;
+  const tile = props.map.tiles[`${q},${r}`];
+  if (!tile?.occupantId) return null;
+  return props.characters[tile.occupantId] ?? null;
+}
+
 function drawHex(tile: HexTile, g: Graphics, container: Container, offsetX: number, offsetY: number) {
   const { x, y } = hexToPixel(tile.q, tile.r);
   const cx = x + offsetX; const cy = y + offsetY;
@@ -67,13 +76,57 @@ function drawHex(tile: HexTile, g: Graphics, container: Container, offsetX: numb
     g.drawPolygon(points); g.lineStyle(0);
 
     const label = new Text(TERRAIN_LABELS[tile.terrain] ?? '?', {
-      fontSize: 10, fill: 0xffffff, fontFamily: 'sans-serif',
+      fontSize: 8, fill: 0xffffff, fontFamily: 'sans-serif',
     });
-    label.anchor.set(0.5); label.position.set(cx, cy);
+    label.anchor.set(0.5); label.position.set(cx, cy - 12);
     container.addChild(label);
   } else {
     g.beginFill(0x111111, 0.8);
     g.drawPolygon(points); g.endFill();
+  }
+
+  // ---- 画角色棋子 ----
+  const char = getCharacterOnTile(tile.q, tile.r);
+  if (char && tile.isRevealed) {
+    const isPlayer = char.id === props.playerId;
+    const charColor = isPlayer ? 0xfbbf24 : 0xf87171;
+    const nameColor = isPlayer ? 0xfbbf24 : 0xfca5a5;
+
+    // 棋子底座（圆形）
+    const tokenG = new Graphics();
+    tokenG.beginFill(charColor, 0.9);
+    tokenG.drawCircle(cx, cy + 2, 10);
+    tokenG.endFill();
+    tokenG.beginFill(0x1a1a2e, 0.8);
+    tokenG.drawCircle(cx, cy + 2, 8);
+    tokenG.endFill();
+    container.addChild(tokenG);
+
+    // 角色名字首字
+    const charLabel = new Text(char.name.charAt(0), {
+      fontSize: 10, fill: nameColor, fontFamily: 'sans-serif', fontWeight: 'bold',
+    });
+    charLabel.anchor.set(0.5); charLabel.position.set(cx, cy + 3);
+    container.addChild(charLabel);
+
+    // HP 条
+    const hpRatio = Math.max(0, char.hp / char.maxHp);
+    const barW = 22;
+    const hpBg = new Graphics();
+    hpBg.beginFill(0x333333, 0.8);
+    hpBg.drawRect(cx - barW / 2, cy - 16, barW, 4);
+    hpBg.endFill();
+    hpBg.beginFill(hpRatio > 0.5 ? 0x22c55e : hpRatio > 0.25 ? 0xf59e0b : 0xef4444);
+    hpBg.drawRect(cx - barW / 2, cy - 16, barW * hpRatio, 4);
+    hpBg.endFill();
+    container.addChild(hpBg);
+
+    // HP 数值
+    const hpText = new Text(`${Math.max(0, Math.ceil(char.hp))}`, {
+      fontSize: 7, fill: 0xffffff, fontFamily: 'sans-serif',
+    });
+    hpText.anchor.set(0.5); hpText.position.set(cx, cy - 22);
+    container.addChild(hpText);
   }
 
   g.interactive = true; g.cursor = 'pointer';
@@ -112,7 +165,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => { if (app) { app.destroy(true); app = null; } });
-watch(() => props.map, () => { if (app) render(); }, { deep: true });
+watch(() => [props.map, props.characters], () => { if (app) render(); }, { deep: true });
 </script>
 
 <template>

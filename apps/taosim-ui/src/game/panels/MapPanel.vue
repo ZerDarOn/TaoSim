@@ -276,6 +276,18 @@ const isSelectedReachable = computed(() => {
             font-size="10" font-weight="500"
             class="pointer-events-none select-none">{{ node.name }}</text>
 
+          <!-- 玩家角色标记（仅在当前位置画"我"） -->
+          <g v-if="node.id === playerStore.currentNodeId && playerStore.character"
+            class="pointer-events-none select-none">
+            <!-- 角色头像圆 -->
+            <circle cy="-28" r="8" fill="#fbbf24" stroke="#fef3c7" stroke-width="1.5" />
+            <text y="-24" text-anchor="middle" fill="#0f172a" font-size="9" font-weight="bold">我</text>
+            <!-- 道号 -->
+            <text y="-42" text-anchor="middle" fill="#fde68a" font-size="8" font-weight="600">
+              {{ playerStore.character.name }}
+            </text>
+          </g>
+
           <!-- tier 标示（秘境/危险区域） -->
           <text v-if="node.tier >= 3" y="-18" text-anchor="middle"
             :fill="node.tier >= 4 ? '#f87171' : '#fbbf24'" font-size="8"

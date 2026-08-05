@@ -188,6 +188,7 @@ watch(() => state.currentTurn, (newTurn) => {
           :map="battleMap"
           :player-id="player.id"
           :view-radius="player.attributes.perception"
+          :characters="state.characters"
           @tile-click="onTileClick"
         />
         <div class="text-xs text-slate-500 mt-2 text-center">
