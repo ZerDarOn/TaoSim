@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import type { WorldState, SaveHeader } from '@taosim/contracts';
+import { WorldEngine } from '@taosim/engine';
 
 interface AppState {
   isInitialized: boolean;
@@ -20,8 +21,16 @@ export const useAppStore = defineStore('app', {
   },
 
   actions: {
-    async initialize() {
-      // TODO: 加载存档列表，初始化世界状态
+    async initialize(_playerId: string) {
+      const initialState: WorldState = {
+        currentYear: 1,
+        currentMonth: 1,
+        catastropheCountdownMonths: 600,
+        activeContinentIds: ['CONTINENT_CANGZHOU'],
+        globalFlags: {},
+      };
+      const engine = new WorldEngine(initialState);
+      this.currentWorldState = engine.getState();
       this.isInitialized = true;
     },
   },
