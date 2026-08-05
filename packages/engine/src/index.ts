@@ -20,3 +20,6 @@ export { EconomyEngine } from './economy/economy-engine.js';
 
 // Character Factory (角色创建)
 export { CharacterFactory } from './character/character-factory.js';
+
+// Tribulation Engine (渡劫突破)
+export { TribulationEngine } from './tribulation/tribulation-engine.js';
