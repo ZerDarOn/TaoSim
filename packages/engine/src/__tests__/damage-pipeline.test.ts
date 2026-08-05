@@ -28,7 +28,7 @@ describe('DamagePipeline', () => {
     const attacker = makeChar({ equipmentSlots: { weapon: { id: 'sword', name: '剑', tier: 1, type: 'Equipment', attributes: { attack: 30 } }, armor: undefined, treasures: [] } });
     const defender = makeChar({ attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 5 } });
     const result = DamagePipeline.calculate(attacker, defender, makeSkill(), false);
-    expect(result.finalDamage).toBe(25);
+    expect(result.finalDamage).toBe(35);
     expect(result.blockedByBarrier).toBe(false);
   });
 
@@ -54,7 +54,7 @@ describe('DamagePipeline', () => {
     const attacker = makeChar();
     const defender = makeChar({ equipmentSlots: { weapon: undefined, armor: { id: 'armor', name: '甲', tier: 1, type: 'Equipment', attributes: { defense: 10 } }, treasures: [] } });
     const result = DamagePipeline.calculate(attacker, defender, makeSkill(), false);
-    expect(result.finalDamage).toBe(5);
+    expect(result.finalDamage).toBe(15);
   });
 
   it('伤害不低于 0', () => {

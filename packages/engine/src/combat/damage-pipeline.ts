@@ -1,4 +1,5 @@
 import type { Character, Skill, BackfireEffect } from '@taosim/contracts';
+import { EquipmentManager } from '../equipment/equipment-manager.js';
 
 export interface DamageResult {
   finalDamage: number;
@@ -28,7 +29,9 @@ export class DamagePipeline {
     skill: Skill,
     hasArmorBreak: boolean,
   ): DamageResult {
-    const attackPower = attacker.equipmentSlots.weapon?.attributes.attack ?? 10;
+    const attackerBonuses = EquipmentManager.getCombatBonuses(attacker);
+    const defenderBonuses = EquipmentManager.getCombatBonuses(defender);
+    const attackPower = attackerBonuses.attack + 10;
     const baseDefense = defender.attributes.physique * 0.5;
 
     // 境界壁垒检测
@@ -42,7 +45,7 @@ export class DamagePipeline {
 
     // 基础物理系数（技能原子由具体原子组合决定，此处保留接口）
     const skillCoefficient = 1.0;
-    const flatReduction = defender.equipmentSlots.armor?.attributes.defense ?? 0;
+    const flatReduction = defenderBonuses.defense;
 
     let damage = (attackPower - baseDefense) * skillCoefficient - flatReduction;
     damage = Math.max(0, damage);
