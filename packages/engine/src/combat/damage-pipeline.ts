@@ -65,7 +65,7 @@ export class DamagePipeline {
     };
   }
 
-  private static getRealmTier(realm: string): number {
+  public static getRealmTier(realm: string): number {
     if (realm.startsWith('SoulFormation')) return 5;
     if (realm.startsWith('NascentSoul')) return 4;
     if (realm.startsWith('GoldenCore')) return 3;
