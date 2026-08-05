@@ -1,0 +1,27 @@
+{
+  "name": "taosim",
+  "version": "0.0.0",
+  "private": true,
+  "description": "《大千修仙界》— 高自由度沙盒文字RPG + 六边形战棋",
+  "type": "module",
+  "packageManager": "npm@11.6.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @taosim/taosim-ui",
+    "build": "npm run build -w @taosim/contracts -w @taosim/engine -w @taosim/persistence && npm run build -w @taosim/taosim-ui",
+    "check": "npm run typecheck && npm test",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

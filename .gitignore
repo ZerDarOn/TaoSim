@@ -1,0 +1,30 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.log
+
+# Tauri
+src-tauri/target/
+
+# Game data
+storage/
+*.db
+*.sqlite
+*.sqlite3
+saves/
+
+# Design docs (local only)
+《大千修仙界》*.md
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
