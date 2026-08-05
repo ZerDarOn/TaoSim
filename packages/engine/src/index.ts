@@ -8,6 +8,7 @@ export { WorldEngine } from './world/world-engine.js';
 // Combat Engine (Hex 战棋)
 export { CombatEngine } from './combat/combat-engine.js';
 export { DamagePipeline } from './combat/damage-pipeline.js';
+export { NpcAI } from './combat/npc-ai.js';
 
 // Lifecycle Manager (生死轮回)
 export { LifecycleManager } from './lifecycle/lifecycle-manager.js';
