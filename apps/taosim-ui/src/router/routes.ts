@@ -31,4 +31,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../pages/CultivationPage.vue'),
     meta: { title: '闭关修炼' },
   },
+  {
+    path: '/crafting',
+    name: 'crafting',
+    component: () => import('../pages/CraftingPage.vue'),
+    meta: { title: '百艺' },
+  },
 ];

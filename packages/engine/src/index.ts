@@ -27,3 +27,8 @@ export { TribulationEngine } from './tribulation/tribulation-engine.js';
 
 // Map Generator (程序化 Hex 地图生成)
 export { MapGenerator } from './world/map-generator.js';
+
+// Crafting (炼丹炼器)
+export { RecipeRegistry } from './crafting/recipe-registry.js';
+export { AlchemyEngine } from './crafting/alchemy-engine.js';
+export { ForgeEngine } from './crafting/forge-engine.js';
