@@ -73,4 +73,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../pages/MarketPage.vue'),
     meta: { title: '坊市' },
   },
+  {
+    path: '/upgrade',
+    name: 'upgrade',
+    component: () => import('../pages/UpgradePage.vue'),
+    meta: { title: '装备升品' },
+  },
 ];
