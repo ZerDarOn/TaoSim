@@ -1,4 +1,5 @@
 import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill, SpiritRoot, GameMode } from '@taosim/contracts';
+import { getTraitById } from '../data/trait-registry.js';
 
 function generateId(): string {
   return `CHAR_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -16,17 +17,11 @@ interface CreateCharacterParams {
   gameMode?: GameMode;
 }
 
-const TRAIT_TEMPLATES: Record<string, { effects: Record<string, number>; quality: string }> = {
-  '剑道奇才': { effects: { attack: 5, comprehension: 2 }, quality: 'Red' },
-  '重瞳': { effects: { perception: 3, luck: 2 }, quality: 'Red' },
-  '先天道体': { effects: { physique: 2, comprehension: 2, spiritEnergyMax: 50 }, quality: 'Orange' },
-  '天生神力': { effects: { attack: 8, physique: 3 }, quality: 'Orange' },
-  '丹道天才': { effects: { comprehension: 3, luck: 1 }, quality: 'Purple' },
-  '阵道奇才': { effects: { perception: 3 }, quality: 'Purple' },
-  '天煞孤星': { effects: { attack: 5, luck: -3 }, quality: 'Red' },
-  '五行灵体': { effects: { spiritEnergyMax: 100, comprehension: 1 }, quality: 'Orange' },
-  '瞳术天才': { effects: { perception: 4, critRate: 5 }, quality: 'Purple' },
-  '万法归宗': { effects: { comprehension: 4, spiritEnergyMax: 80 }, quality: 'Red' },
+// 背景 → 初始灵石映射（Phase 10 §5.1）
+const INITIAL_STONES: Record<BackgroundType, number> = {
+  'orphan': 100,
+  'small-clan': 500,
+  'ancient-clan': 2000,
 };
 
 const STARTER_WEAPON: Item = {
@@ -56,18 +51,10 @@ export class CharacterFactory {
     const realm: RealmFullPath = 'QiRefinement_1';
     const baseHp = 100;
 
+    // 从 TRAIT_REGISTRY 查词条（Phase 10：统一到 registry 体系）
     const traits = params.innateTraits
-      .filter(name => TRAIT_TEMPLATES[name])
-      .map(name => {
-        const tpl = TRAIT_TEMPLATES[name]!;
-        return {
-          id: `TRAIT_${name}`,
-          name,
-          quality: tpl.quality as Character['traits'][number]['quality'],
-          description: `先天气运：${name}`,
-          effects: tpl.effects,
-        };
-      });
+      .map(id => getTraitById(id))
+      .filter((t): t is NonNullable<typeof t> => t !== undefined);
 
     let weapon: Item | undefined;
     let starterSkills: Skill[] = [];
@@ -95,7 +82,7 @@ export class CharacterFactory {
       spiritRoot: params.spiritRoot ?? { grade: 'Yellow', elements: ['Earth'], isVariant: false },
       gameMode: params.gameMode ?? { breakthrough: 'Simple', saveMode: 'Free' },
       hp: baseHp, maxHp: baseHp, ap: 3, canFly: false,
-      spiritStones: 0,
+      spiritStones: INITIAL_STONES[params.background],
       inventory: [],
       equipmentSlots: { weapon, armor: undefined, treasures: [] },
       skills: starterSkills, skillCooldowns: {}, traits,
