@@ -19,6 +19,9 @@ export { AIServiceFacade } from './ai/ai-service-facade.js';
 // Economy Engine (灵石经济)
 export { EconomyEngine } from './economy/economy-engine.js';
 
+// Faction Engine (宗门管理)
+export { FactionEngine } from './faction/faction-engine.js';
+
 // Character Factory (角色创建)
 export { CharacterFactory } from './character/character-factory.js';
 

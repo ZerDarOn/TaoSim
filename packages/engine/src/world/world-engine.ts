@@ -1,5 +1,6 @@
-import type { WorldState, BigEventLog, Character, RealmFullPath } from '@taosim/contracts';
+import type { WorldState, BigEventLog, Character, RealmFullPath, Faction } from '@taosim/contracts';
 import { LifecycleManager } from '../lifecycle/lifecycle-manager.js';
+import { EconomyEngine } from '../economy/economy-engine.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
@@ -15,6 +16,7 @@ export class WorldEngine {
   private state: WorldState;
   private activeNPCs: Map<string, Character> = new Map();
   private npcCounter = 0;
+  private factions: Map<string, Faction> = new Map();
 
   constructor(initialState: WorldState) {
     this.state = { ...initialState };
@@ -72,6 +74,27 @@ export class WorldEngine {
           description: `${npc.name} 踏入修仙之路`,
           involvedCharacterIds: [npc.id],
         });
+      }
+    }
+
+    // 4. 宗门月度维护
+    for (const [, faction] of this.factions) {
+      const maintenance = EconomyEngine.spiritVeinMaintenanceCost(faction.spiritVeinLevel);
+      faction.treasurySpiritStones -= maintenance;
+      if (faction.treasurySpiritStones < 0) {
+        faction.treasurySpiritStones = 0;
+        // 灵石枯竭降级灵脉
+        if (faction.spiritVeinLevel > 1) {
+          faction.spiritVeinLevel--;
+          events.push({
+            id: this.generateEventId(),
+            year: this.state.currentYear, month: this.state.currentMonth,
+            isMajorEvent: true,
+            title: `${faction.name} 灵脉降级`,
+            description: `${faction.name} 灵石耗尽，灵脉降至 ${faction.spiritVeinLevel} 阶`,
+            involvedCharacterIds: [],
+          });
+        }
       }
     }
 
