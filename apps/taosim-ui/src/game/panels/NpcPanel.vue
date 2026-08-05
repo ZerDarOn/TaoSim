@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
+import { useUiStore } from '@/stores/ui';
 import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES } from '@taosim/engine';
 import type { NPCTradeOffer, MarketItem, ItemStack } from '@taosim/contracts';
 import { formatRealm, formatGender, formatItemType, formatQuality } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
+const uiStore = useUiStore();
 const subView = ref<'interact' | 'trade'>('interact');
 const message = ref<string | null>(null);
 const interactionDone = ref(false);
@@ -39,11 +41,14 @@ const playerUnsellable = computed(() => {
 
 function handleDuel() {
   if (!playerStore.character || !npc.value) return;
-  const result = NPCInteractionEngine.duel(playerStore.character, npc.value, true);
-  message.value = result.message;
-  if (result.unlockedRecipe) {
-    playerStore.unlockRecipe(result.unlockedRecipe);
-  }
+  // 触发实际战斗覆盖层，不再硬编码胜利
+  uiStore.startBattle({
+    enemy: { ...npc.value },
+    type: 'duel',
+    title: `切磋 · ${npc.value.name}`,
+    description: '点到即止的修士比试，败者保留一息生机',
+  });
+  // NPCInteractionEngine 仍用于记录好感度变化（在战斗结果中结算）
   interactionDone.value = true;
 }
 

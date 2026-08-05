@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { PlayerLifecycleService } from '@taosim/engine';
 import type { Character, Skill, Item } from '@taosim/contracts';
 
 export const usePlayerStore = defineStore('player', () => {
@@ -79,8 +80,15 @@ export const usePlayerStore = defineStore('player', () => {
 
   function advanceTime(days: number) {
     if (!character.value) return;
-    // 粗略换算：30 天 = 1 月，12 月 = 1 年。这里按天推进年龄
-    character.value.lifespan.age += days / 365;
+    // 统一时间推进：天数 → 月数（30 天 = 1 月），使用 PlayerLifecycleService 统一逻辑
+    const months = days / 30;
+    const result = PlayerLifecycleService.advanceTime(character.value, months);
+    if (result.died) {
+      // 寿元耗尽由调用方处理（通常 gameFlow 已监听）
+      character.value = result.updatedPlayer;
+    } else {
+      character.value = result.updatedPlayer;
+    }
   }
 
   return {

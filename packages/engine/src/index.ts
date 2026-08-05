@@ -9,6 +9,8 @@ export { WorldEngine } from './world/world-engine.js';
 export { CombatEngine } from './combat/combat-engine.js';
 export { DamagePipeline } from './combat/damage-pipeline.js';
 export { NpcAI } from './combat/npc-ai.js';
+export { resolveBattleOutcome } from './combat/battle-resolver.js';
+export type { BattleOutcome, BattleType } from './combat/battle-resolver.js';
 
 // Lifecycle Manager (生死轮回)
 export { LifecycleManager } from './lifecycle/lifecycle-manager.js';

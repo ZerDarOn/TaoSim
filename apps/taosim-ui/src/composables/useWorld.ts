@@ -26,11 +26,21 @@ export function useWorld() {
     applyPlayerTime(1);
   }
 
-  async function fastForward(months: number) {
-    if (!appStore.currentWorldState || !playerStore.character) return;
+  interface CultivationResult {
+    months: number;
+    expGained: number;
+    died: boolean;
+    causeOfDeath?: string;
+  }
+
+  async function fastForward(months: number): Promise<CultivationResult> {
+    if (!appStore.currentWorldState || !playerStore.character) {
+      return { months: 0, expGained: 0, died: false };
+    }
     state.advancing = true;
     const engine = new WorldEngine(appStore.currentWorldState);
     let died = false;
+    let expBefore = playerStore.character.cultivation.currentExp;
 
     const batchSize = 12;
     for (let i = 0; i < months && !died; i += batchSize) {
@@ -47,11 +57,21 @@ export function useWorld() {
         state.deathMessage = playerResult.causeOfDeath ?? '寿元耗尽';
         state.advancing = false;
         gameFlow.enterGameOver(state.deathMessage ?? undefined);
-        return;
+        return {
+          months: i + batch,
+          expGained: playerStore.character.cultivation.currentExp - expBefore,
+          died: true,
+          causeOfDeath: playerResult.causeOfDeath,
+        };
       }
       await new Promise(r => setTimeout(r, 50));
     }
     state.advancing = false;
+    return {
+      months,
+      expGained: playerStore.character.cultivation.currentExp - expBefore,
+      died: false,
+    };
   }
 
   function applyPlayerTime(months: number) {

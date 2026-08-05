@@ -2,8 +2,8 @@
 import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
-import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge } from '@taosim/engine';
-import type { OverworldNode, TravelEvent } from '@taosim/contracts';
+import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge, NPCGenerator } from '@taosim/engine';
+import type { OverworldNode, TravelEvent, Character } from '@taosim/contracts';
 import { formatRealm } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
@@ -11,7 +11,8 @@ const uiStore = useUiStore();
 
 const message = ref<string | null>(null);
 const recentEvents = ref<TravelEvent[]>([]);
-const pendingNpcEvent = ref<TravelEvent | null>(null);  // 待处理的 NPC 偶遇
+const pendingNpcEvent = ref<TravelEvent | null>(null);
+const pendingBattleEvent = ref<TravelEvent | null>(null);
 
 const continent = computed(() => PRESET_MAP.continents[0]!);
 
@@ -73,6 +74,12 @@ function handleTravel(targetNodeId: string) {
       pendingNpcEvent.value = npcEvent;
     }
 
+    // 检查是否有遭遇战事件
+    const battleEvent = result.events.find(e => e.type === 'battle');
+    if (battleEvent) {
+      pendingBattleEvent.value = battleEvent;
+    }
+
     // 如果到的是 Market 节点，提示可访问坊市
     const arrivedNode = continent.value?.nodes[targetNodeId];
     if (arrivedNode?.type === 'Market' || arrivedNode?.type === 'City') {
@@ -92,6 +99,33 @@ function acceptNpcMeet() {
 
 function declineNpcMeet() {
   pendingNpcEvent.value = null;
+}
+
+function acceptBattle() {
+  if (!pendingBattleEvent.value || !playerStore.character) return;
+  // 根据当前节点 tier 生成敌人
+  const tier = currentNode.value?.tier ?? 1;
+  const enemy = NPCGenerator.generate(tier, Date.now());
+  // 覆盖名字为妖兽风格
+  enemy.name = ['赤眼狼妖', '石魔傀儡', '腐毒蛇君', '幽影鬼面'][Math.floor(Math.random() * 4)] ?? '妖兽';
+
+  uiStore.startBattle({
+    enemy,
+    type: 'encounter',
+    title: `遭遇 · ${enemy.name}`,
+    description: pendingBattleEvent.value.description,
+  });
+  pendingBattleEvent.value = null;
+}
+
+function declineBattle() {
+  // 逃跑：消耗少量 HP
+  if (playerStore.character) {
+    const fleeCost = Math.round(playerStore.character.maxHp * 0.05);
+    playerStore.character.hp = Math.max(1, playerStore.character.hp - fleeCost);
+    message.value = `仓皇逃离，损失 ${fleeCost} 点气血`;
+  }
+  pendingBattleEvent.value = null;
 }
 
 function goToMarket() {
@@ -139,6 +173,25 @@ function goToMarket() {
         <button @click="declineNpcMeet"
           class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm rounded-md font-medium transition">
           无视离开
+        </button>
+      </div>
+    </div>
+
+    <!-- 遭遇战提示卡片 -->
+    <div v-if="pendingBattleEvent" class="p-4 bg-red-900/30 rounded-lg border border-red-600/50">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-red-300 text-base font-semibold">遭遇危险</h3>
+        <span class="text-xs text-slate-400">{{ pendingBattleEvent.title }}</span>
+      </div>
+      <p class="text-sm text-slate-300 mb-3">{{ pendingBattleEvent.description }}</p>
+      <div class="flex gap-2">
+        <button @click="acceptBattle"
+          class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded-md font-medium transition">
+          迎战
+        </button>
+        <button @click="declineBattle"
+          class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm rounded-md font-medium transition">
+          逃跑（-5% 气血）
         </button>
       </div>
     </div>

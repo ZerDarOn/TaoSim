@@ -22,7 +22,7 @@ export interface TribulationPrimitive {
 export interface RealmBreakthroughConfig {
   fromRealm: string;
   toRealm: string;
-  tier: 0 | 1 | 2 | 3;
+  tier: 0 | 1 | 2 | 3 | 4;
 
   requirements: {
     expThreshold: number;
@@ -62,5 +62,11 @@ export const BREAKTHROUGH_CONFIGS: RealmBreakthroughConfig[] = [
     requirements: { expThreshold: 20000, requiredItems: ['NascentSoulPill'] },
     simpleModeSuccessRate: 0.55,
     postBreakthrough: { maxLifespan: 800, hpMultiplier: 2, spiritEnergyMultiplier: 2 },
+  },
+  {
+    fromRealm: 'NascentSoul_3', toRealm: 'SoulFormation_1', tier: 4,
+    requirements: { expThreshold: 80000, requiredItems: ['SoulFormationPill'] },
+    simpleModeSuccessRate: 0.40,
+    postBreakthrough: { maxLifespan: 1500, hpMultiplier: 2.5, spiritEnergyMultiplier: 2.5 },
   },
 ];

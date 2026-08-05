@@ -5,11 +5,14 @@ import EventLog from './EventLog.vue';
 import BottomNav from './BottomNav.vue';
 import MainContent from './MainContent.vue';
 import CharacterDetailModal from './CharacterDetailModal.vue';
+import BattleOverlay from './BattleOverlay.vue';
 import { usePlayerStore } from '@/stores/player';
 import { useGameFlowStore } from '@/stores/game-flow';
+import { useUiStore } from '@/stores/ui';
 
 const playerStore = usePlayerStore();
 const gameFlow = useGameFlowStore();
+const uiStore = useUiStore();
 
 // 守卫：若无角色（不应发生），退回主菜单
 if (!playerStore.character) {
@@ -27,5 +30,7 @@ if (!playerStore.character) {
     </div>
     <BottomNav />
     <CharacterDetailModal />
+    <!-- 战斗覆盖层：uiStore.battleConfig 存在时全屏显示 -->
+    <BattleOverlay v-if="uiStore.battleConfig" />
   </div>
 </template>
