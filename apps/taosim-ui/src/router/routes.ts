@@ -61,4 +61,16 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../pages/NPCInteractionPage.vue'),
     meta: { title: '偶遇' },
   },
+  {
+    path: '/npc-trade',
+    name: 'npc-trade',
+    component: () => import('../pages/NPCTradePage.vue'),
+    meta: { title: '交易' },
+  },
+  {
+    path: '/market',
+    name: 'market',
+    component: () => import('../pages/MarketPage.vue'),
+    meta: { title: '坊市' },
+  },
 ];
