@@ -47,3 +47,11 @@ export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';
 // Interaction (NPC 交互)
 export { NPCGenerator } from './interaction/npc-generator.js';
 export { NPCInteractionEngine } from './interaction/npc-interaction-engine.js';
+
+// Market (坊市交易)
+export { MarketPricing } from './market/market-pricing.js';
+export { ItemFactory } from './market/item-factory.js';
+export { DEFAULT_ITEM_TEMPLATES } from './market/default-templates.js';
+export { MarketEngine } from './market/market-engine.js';
+export { NPCTradeEngine } from './market/npc-trade-engine.js';
+export { MarketTransaction } from './market/market-transaction.js';
