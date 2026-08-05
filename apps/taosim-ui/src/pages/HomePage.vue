@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SaveLoadPanel from '@/components/SaveLoadPanel.vue';
 </script>
 
 <template>
@@ -22,6 +23,9 @@
           继续游戏（暂无存档）
         </button>
       </div>
+    </div>
+    <div class="max-w-md mx-auto pt-6">
+      <SaveLoadPanel />
     </div>
   </div>
 </template>
