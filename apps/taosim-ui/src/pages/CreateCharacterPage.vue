@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
 import { CharacterFactory, SpiritRootRoller, rollTraits } from '@taosim/engine';
 import { usePlayerStore } from '@/stores/player';
 import { useAppStore } from '@/stores/app';
+import { useGameFlowStore } from '@/stores/game-flow';
 import type { SpiritRoot, GameMode, Gender, Trait } from '@taosim/contracts';
 
-const router = useRouter();
 const playerStore = usePlayerStore();
 const appStore = useAppStore();
+const gameFlow = useGameFlowStore();
 
 type Step = 'mode' | 'background' | 'attributes' | 'spiritRoot' | 'traits' | 'confirm';
 const currentStep = ref<Step>('mode');
@@ -149,7 +149,7 @@ function confirmCreate() {
 
   const lockedTraitIds = rolledTraits.value
     .filter((_, i) => lockTrait.value[i])
-    .map(t => t.name);
+    .map(t => t.id);
 
   const character = CharacterFactory.create({
     name: playerName.value,
@@ -163,7 +163,7 @@ function confirmCreate() {
 
   playerStore.setPlayer(character);
   appStore.initialize(character.id);
-  router.push('/world');
+  gameFlow.enterPlaying();
 }
 
 function canProceed(): boolean {
