@@ -89,6 +89,11 @@ export const useAppStore = defineStore('app', {
       this.isInitialized = true;
     },
 
+    clearWorldState() {
+      this.currentWorldState = null;
+      this.isInitialized = false;
+    },
+
     async loadSaveHeaders() {
       const adapter = await getStorage();
       this.saveHeaders = await adapter.listHeaders();
