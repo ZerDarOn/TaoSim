@@ -1,9 +1,9 @@
-import type { OverworldMap, OverworldNode } from '@taosim/contracts';
+import type { OverworldMap, OverworldNode, TerrainType } from '@taosim/contracts';
 
 function makeNode(
   id: string, name: string, type: OverworldNode['type'], tier: number,
   x: number, y: number, travelCostDays: number,
-  baseTerrain: 'Forest' | 'Swamp' | 'Volcano' | 'Cave' | 'Snow' = 'Forest',
+  baseTerrain: TerrainType = 'Forest',
 ): OverworldNode {
   return {
     id, name, continentId: 'CONT_EAST', coordinates: { x, y },
@@ -25,15 +25,15 @@ export const PRESET_MAP: OverworldMap = {
         'NODE_SECT_QINGYUN': makeNode('NODE_SECT_QINGYUN', '青云宗', 'Sect', 2, 400, 250, 0),
         'NODE_CITY_TIANJI': makeNode('NODE_CITY_TIANJI', '天机城', 'City', 3, 550, 200, 3),
         'NODE_MARKET': makeNode('NODE_MARKET', '坊市', 'Market', 2, 650, 350, 2),
-        'NODE_DUNGEON_HEIFENG': makeNode('NODE_DUNGEON_HEIFENG', '黑风洞', 'Dungeon', 3, 700, 150, 4, 'Cave'),
+        'NODE_DUNGEON_HEIFENG': makeNode('NODE_DUNGEON_HEIFENG', '黑风洞', 'Dungeon', 3, 700, 150, 4, 'Void'),
         'NODE_WILD_EAST': makeNode('NODE_WILD_EAST', '落霞荒野东', 'Wilderness', 1, 500, 350, 2, 'Swamp'),
         'NODE_WILD_NORTH': makeNode('NODE_WILD_NORTH', '落霞荒野北', 'Wilderness', 2, 350, 150, 2),
         'NODE_WILD_SOUTH': makeNode('NODE_WILD_SOUTH', '落霞荒野南', 'Wilderness', 2, 350, 450, 3, 'Swamp'),
-        'NODE_DUNGEON_MINE': makeNode('NODE_DUNGEON_MINE', '灵脉矿洞', 'Dungeon', 2, 200, 300, 3, 'Cave'),
+        'NODE_DUNGEON_MINE': makeNode('NODE_DUNGEON_MINE', '灵脉矿洞', 'Dungeon', 2, 200, 300, 3, 'Void'),
         'NODE_SECT_TIANJIAN': makeNode('NODE_SECT_TIANJIAN', '天剑宗', 'Sect', 2, 80, 300, 3),
         'NODE_WILD_SWAMP': makeNode('NODE_WILD_SWAMP', '幽冥沼泽', 'Wilderness', 3, 80, 450, 4, 'Swamp'),
-        'NODE_DUNGEON_STAR': makeNode('NODE_DUNGEON_STAR', '陨星谷', 'Dungeon', 4, 200, 550, 5, 'Volcano'),
-        'NODE_DUNGEON_ANCIENT': makeNode('NODE_DUNGEON_ANCIENT', '荒古战场', 'Dungeon', 5, 350, 600, 6, 'Volcano'),
+        'NODE_DUNGEON_STAR': makeNode('NODE_DUNGEON_STAR', '陨星谷', 'Dungeon', 4, 200, 550, 5, 'Lava'),
+        'NODE_DUNGEON_ANCIENT': makeNode('NODE_DUNGEON_ANCIENT', '荒古战场', 'Dungeon', 5, 350, 600, 6, 'Lava'),
       },
       edges: [
         { fromNodeId: 'NODE_SECT_QINGYUN', toNodeId: 'NODE_WILD_EAST', distanceDays: 2 },

@@ -14,7 +14,7 @@ function seededRandom(seed: number): () => number {
 }
 
 const NODE_TYPES: OverworldNode['type'][] = ['Wilderness', 'Wilderness', 'Wilderness', 'Dungeon', 'Dungeon', 'Market', 'City', 'Sect'];
-const TERRAINS: TerrainType[] = ['Forest', 'Swamp', 'Volcano', 'Cave', 'Snow'];
+const TERRAINS: TerrainType[] = ['Forest', 'Swamp', 'Lava', 'Void', 'Plain'];
 
 export class OverworldMapGenerator {
   static generate(config: GeneratorConfig): OverworldMap {

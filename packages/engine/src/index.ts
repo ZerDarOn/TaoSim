@@ -38,3 +38,8 @@ export { ForgeEngine } from './crafting/forge-engine.js';
 
 // Equipment (装备管理)
 export { EquipmentManager } from './equipment/equipment-manager.js';
+
+// Overworld (大世界旅行)
+export { OverworldEngine } from './overworld/overworld-engine.js';
+export { OverworldMapGenerator } from './overworld/overworld-map-generator.js';
+export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';

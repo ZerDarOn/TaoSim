@@ -49,4 +49,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('../pages/InventoryPage.vue'),
     meta: { title: '背包' },
   },
+  {
+    path: '/overworld',
+    name: 'overworld',
+    component: () => import('../pages/OverworldPage.vue'),
+    meta: { title: '大世界' },
+  },
 ];
