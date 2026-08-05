@@ -53,6 +53,11 @@ export { OverworldEngine } from './overworld/overworld-engine.js';
 export { OverworldMapGenerator } from './overworld/overworld-map-generator.js';
 export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';
 
+// Hex Overworld (六边形世界网格)
+export { generateWorldGrid, moveOneStep, autoTravel, findPath, findLandmarkPos, hexDistance, getHexNeighbors } from './overworld/hex-overworld-engine.js';
+export type { WorldHexGrid, WorldHex, HexTerrain, HexMoveResult, HexMoveEvent } from './overworld/hex-overworld-engine.js';
+export { TERRAIN_INFO } from './overworld/hex-overworld-engine.js';
+
 // Interaction (NPC 交互)
 export { NPCGenerator } from './interaction/npc-generator.js';
 export { NPCInteractionEngine } from './interaction/npc-interaction-engine.js';
