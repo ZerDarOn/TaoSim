@@ -10,11 +10,14 @@ export type AttributeKey =
   | 'perception'
   | 'agility'
   | 'luck'
+  | 'charm'
   | 'attack'
   | 'defense'
   | 'critRate'
   | 'spiritEnergyMax'
-  | 'poisonResist';
+  | 'poisonResist'
+  | 'lifespanBonus'    // 寿元加成（词条专用）
+  | 'initialStones';   // 初始灵石（词条专用，创角生效）
 
 export type AttributeMap = Partial<Record<AttributeKey, number>>;
 

@@ -20,6 +20,26 @@ export type Gender = 'Male' | 'Female' | 'Other';
 
 export type FactionRank = 'Disciple' | 'Deacon' | 'Elder' | 'Leader';
 
+// ---- 灵根系统 ----
+export type SpiritRootGrade = 'Heaven' | 'Earth' | 'Profound' | 'Yellow'; // 天/地/玄/黄
+
+// 五行 + 变异灵根
+export type SpiritElementType =
+  | 'Metal' | 'Wood' | 'Water' | 'Fire' | 'Earth'      // 五行：金木水火土
+  | 'Thunder' | 'Ice' | 'Wind' | 'Dark';                // 变异：雷/冰/风/暗
+
+export interface SpiritRoot {
+  grade: SpiritRootGrade;
+  elements: SpiritElementType[];   // 1-3 个；变异灵根只能是单属性
+  isVariant: boolean;              // 是否为变异灵根
+}
+
+// ---- 游戏模式 ----
+export interface GameMode {
+  breakthrough: 'Traditional' | 'Simple';  // 传统：渡劫需秘境材料 / 简单：纯修为+丹药
+  saveMode: 'Ironman' | 'Free';            // 铁人：月度自动存档 / 自由：手动存读档
+}
+
 // ---- 工具函数 ----
 export function parseRealm(fullPath: RealmFullPath): { realmType: RealmType; subLevel: number } {
   const [realmStr, levelStr] = fullPath.split('_') as [string, string];
@@ -76,7 +96,14 @@ export interface Character {
     perception: number;      // 神识
     agility: number;         // 身法
     luck: number;            // 气运
+    charm: number;           // 仙姿（社交/好感/交易）
   };
+
+  // 灵根
+  spiritRoot: SpiritRoot;
+
+  // 游戏模式
+  gameMode: GameMode;
 
   // 战棋状态
   hp: number;
