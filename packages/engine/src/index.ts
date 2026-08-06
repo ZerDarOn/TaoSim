@@ -54,9 +54,20 @@ export { OverworldMapGenerator } from './overworld/overworld-map-generator.js';
 export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';
 
 // Hex Overworld (六边形世界网格)
-export { generateWorldGrid, moveOneStep, autoTravel, findPath, findLandmarkPos, hexDistance, getHexNeighbors } from './overworld/hex-overworld-engine.js';
+export { generateWorldGrid, moveOneStep, autoTravel, findPath, findLandmarkPos, hexDistance, getHexNeighbors, applyExploredCache, collectExplored } from './overworld/hex-overworld-engine.js';
 export type { WorldHexGrid, WorldHex, HexTerrain, HexMoveResult, HexMoveEvent } from './overworld/hex-overworld-engine.js';
 export { TERRAIN_INFO } from './overworld/hex-overworld-engine.js';
+
+// Multi-layer Map Catalog (多层地图)
+export { COSMOS_CATALOG, CONTINENT_CATALOG, TELEPORT_GRAPH, VENUE_CATALOG, getCosmos, getContinent, getContinentIdsByCosmos, getTeleportNode, getTeleportNodeAt, getVenuesByNode, getVenue, createInitialMapState } from './overworld/map-catalog.js';
+export { TravelService } from './overworld/travel-service.js';
+export { VenueService, VENUE_TYPE_LABEL, VENUE_TYPE_ICON } from './overworld/venue-service.js';
+
+// Time System (季节 + 灵气浓度 + 统一时间推进 + 节气事件)
+export { getSeason, getSeasonPhase, getSpiritDensityMultiplier, getSeasonDescription } from './time/season-system.js';
+export { TimeAdvanceService } from './time/time-advance-service.js';
+export type { TimeAdvanceResult } from './time/time-advance-service.js';
+export { CALENDAR_EVENTS, rollCalendarEvent, getExpectedCalendarEvent } from './time/calendar-event-scheduler.js';
 
 // Interaction (NPC 交互)
 export { NPCGenerator } from './interaction/npc-generator.js';

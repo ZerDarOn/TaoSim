@@ -9,6 +9,7 @@
 import { PRESET_MAP } from '../overworld/preset-map.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import type { Character } from '@taosim/contracts';
+import { getContinent } from '../overworld/map-catalog.js';
 
 // ---- 六边形网格类型 ----
 
@@ -91,7 +92,9 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-export function generateWorldGrid(seed: number = 42): WorldHexGrid {
+export function generateWorldGrid(continentId: string = 'CONT_EAST'): WorldHexGrid {
+  const meta = getContinent(continentId);
+  const seed = meta?.gridSeed ?? 42;
   const hexes = new Map<string, WorldHex>();
   const rng = seededRandom(seed);
 
@@ -112,26 +115,52 @@ export function generateWorldGrid(seed: number = 42): WorldHexGrid {
     }
   }
 
-  // 嵌入 PRESET_MAP 节点作为地标
-  const continent = PRESET_MAP.continents[0]!;
-  for (const node of Object.values(continent.nodes)) {
-    if (!node) continue;
-    const { q, r } = nodeToGrid(node.coordinates.x, node.coordinates.y);
-    const key = `${q},${r}`;
-    const hex = hexes.get(key);
-    if (hex) {
-      hex.terrain = node.type === 'City' || node.type === 'Market' ? 'town'
-        : node.type === 'Sect' ? 'spirit_vein'
-        : node.type === 'Dungeon' ? 'mountain'
-        : 'wilderness';
-      hex.landmarkId = node.id;
-      hex.landmarkName = node.name;
-      hex.landmarkType = node.type;
-      hex.landmarkTier = node.tier;
+  // 嵌入 PRESET_MAP 节点作为地标（仅 CONT_EAST 有预设节点）
+  const continent = PRESET_MAP.continents.find(c => c.id === continentId);
+  if (continent) {
+    for (const node of Object.values(continent.nodes)) {
+      if (!node) continue;
+      const { q, r } = nodeToGrid(node.coordinates.x, node.coordinates.y);
+      const key = `${q},${r}`;
+      const hex = hexes.get(key);
+      if (hex) {
+        hex.terrain = node.type === 'City' || node.type === 'Market' ? 'town'
+          : node.type === 'Sect' ? 'spirit_vein'
+          : node.type === 'Dungeon' ? 'mountain'
+          : 'wilderness';
+        hex.landmarkId = node.id;
+        hex.landmarkName = node.name;
+        hex.landmarkType = node.type;
+        hex.landmarkTier = node.tier;
+      }
     }
   }
 
   return { hexes, width: GRID_SIZE, height: GRID_SIZE };
+}
+
+/**
+ * 将缓存的已探索坐标应用到新生成的网格上。
+ * 用于组件重新挂载时恢复"战争迷雾"状态。
+ */
+export function applyExploredCache(
+  grid: WorldHexGrid,
+  exploredKeys: Set<string>,
+): void {
+  for (const hex of grid.hexes.values()) {
+    if (exploredKeys.has(`${hex.q},${hex.r}`)) {
+      hex.explored = true;
+    }
+  }
+}
+
+/** 收集网格中所有已探索格子坐标（用于持久化） */
+export function collectExplored(grid: WorldHexGrid): Array<{ q: number; r: number }> {
+  const result: Array<{ q: number; r: number }> = [];
+  for (const hex of grid.hexes.values()) {
+    if (hex.explored) result.push({ q: hex.q, r: hex.r });
+  }
+  return result;
 }
 
 // ---- 六边形数学 ----

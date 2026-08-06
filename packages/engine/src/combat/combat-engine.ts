@@ -31,22 +31,36 @@ export class CombatEngine {
     }));
   }
 
-  /** ATB Tick：各角色根据身法累加行动值 */
+  /** ATB Tick：各角色根据身法累加行动值（已就绪者等待行动，不再累加） */
   public tickATB(characters: Record<string, Character>): void {
     for (const unit of this.atbQueue) {
       const character = characters[unit.characterId];
       if (!character || character.hp <= 0) continue;
-      unit.gauge += 10 + character.attributes.agility * 2;
+      if (unit.actionReady) continue;
+      unit.gauge = Math.min(100, unit.gauge + 10 + character.attributes.agility * 2);
       if (unit.gauge >= 100) {
-        unit.gauge = 0;
         unit.actionReady = true;
       }
+    }
+  }
+
+  /** 行动完毕后消耗回合：清除就绪标记并重置行动条 */
+  public consumeTurn(characterId: string): void {
+    const unit = this.atbQueue.find(u => u.characterId === characterId);
+    if (unit) {
+      unit.actionReady = false;
+      unit.gauge = 0;
     }
   }
 
   /** 获取当前可行动的角色列表 */
   public getReadyUnits(): ATBUnit[] {
     return this.atbQueue.filter(u => u.actionReady);
+  }
+
+  /** 获取 ATB 行动条全量状态（供 UI 展示行动值进度） */
+  public getAtbQueue(): ATBUnit[] {
+    return this.atbQueue;
   }
 
   /** 获取 Hex 地图快照 */

@@ -25,7 +25,8 @@ export class PlayerLifecycleService {
    * 不可变：返回新对象，不修改入参。
    */
   static advanceTime(player: Character, months: number): AdvanceTimeResult {
-    const updated: Character = structuredClone(player);
+    // 使用 JSON 深拷贝代替 structuredClone，避免 Vue reactive proxy 克隆失败
+    const updated: Character = JSON.parse(JSON.stringify(player));
 
     // 1. 老化 (age 按月累加)
     updated.lifespan.age += months / 12;

@@ -42,11 +42,12 @@ describe('TribulationEngine', () => {
     expect(result.reason).toContain('修为不足');
   });
 
-  it('缺少筑基丹时无法渡劫', () => {
+  it('缺少筑基丹时仍可尝试渡劫（成功率降低）', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1); // 必定失败
     const c = makeChar({ inventory: [] });
     const result = TribulationEngine.attempt(c, TIER1_CONFIG);
     expect(result.success).toBe(false);
-    expect(result.reason).toContain('缺少');
+    expect(result.reason).toContain('成功率');
   });
 
   it('渡劫成功后境界提升，寿元增加', () => {
@@ -134,7 +135,8 @@ describe('TribulationEngine', () => {
     expect(result.reason).toContain('修为不足');
   });
 
-  it('Tier2 缺少金元丹无法突破', () => {
+  it('Tier2 缺少金元丹仍可尝试（成功率降低）', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1); // 必定失败
     const c = makeChar({
       realm: 'Foundation_3',
       cultivation: { currentExp: 6000, maxExp: 6000 },
@@ -147,7 +149,7 @@ describe('TribulationEngine', () => {
       postBreakthrough: { maxLifespan: 400, hpMultiplier: 2, spiritEnergyMultiplier: 1.5 },
     });
     expect(result.success).toBe(false);
-    expect(result.reason).toContain('缺少');
+    expect(result.reason).toContain('成功率');
   });
 
   // ---- Tier 3: 金丹 → 元婴 ----
