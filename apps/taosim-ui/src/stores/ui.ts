@@ -3,7 +3,10 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { Character } from '@taosim/contracts';
 
-export type GameTab = 'map' | 'cult' | 'craft' | 'market' | 'npc' | 'inv';
+export type GameTab = 'map' | 'character' | 'market' | 'npc';
+
+// 角色 tab 内部子页签（CharacterPanel.vue 消费）
+export type CharacterSubTab = 'overview' | 'cultivation' | 'skills' | 'crafting' | 'inventory';
 
 export interface BattleConfig {
   enemy: Character;
@@ -16,9 +19,15 @@ export const useUiStore = defineStore('ui', () => {
   const activeTab = ref<GameTab>('map');
   const charDetailOpen = ref(false);
   const battleConfig = ref<BattleConfig | null>(null);
+  // 角色 tab 当前子页签（外部跳转时可预设，如练功场 → 'cultivation'）
+  const charSubTab = ref<CharacterSubTab>('overview');
 
   function setTab(tab: GameTab) {
     activeTab.value = tab;
+  }
+
+  function setCharSubTab(sub: CharacterSubTab) {
+    charSubTab.value = sub;
   }
 
   function openCharDetail() {
@@ -37,5 +46,5 @@ export const useUiStore = defineStore('ui', () => {
     battleConfig.value = null;
   }
 
-  return { activeTab, charDetailOpen, battleConfig, setTab, openCharDetail, closeCharDetail, startBattle, endBattle };
+  return { activeTab, charDetailOpen, battleConfig, charSubTab, setTab, setCharSubTab, openCharDetail, closeCharDetail, startBattle, endBattle };
 });

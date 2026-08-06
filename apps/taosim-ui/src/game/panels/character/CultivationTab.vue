@@ -1,28 +1,25 @@
 <script setup lang="ts">
+/**
+ * CultivationTab — 角色「修炼」子页签
+ * 内容源自原 CultivationPanel，去掉「返回场所」按钮逻辑（场所退出改由大地图完成）
+ */
 import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useWorld } from '@/composables/useWorld';
+import { useEventLogStore } from '@/stores/event-log';
 import { TribulationEngine, getSpiritRootMultiplier, FactionEngine } from '@taosim/engine';
-import type { RealmBreakthroughConfig, RealmFullPath, Faction } from '@taosim/contracts';
-import { formatRealm, formatSpiritRootGrade, formatSpiritElement } from '@/utils/i18n-game';
+import type { RealmBreakthroughConfig, RealmFullPath } from '@taosim/contracts';
+import { formatRealm, formatSpiritRootGrade, formatSpiritElement, formatItemId, formatFactionName } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const world = useWorld();
+const eventLog = useEventLogStore();
 const resultMessage = ref<string | null>(null);
 const factionMessage = ref<string | null>(null);
 
 // ---- 宗门 ----
 
-const factionName = computed(() => {
-  const id = playerStore.character?.factionId;
-  if (!id) return '无';
-  const names: Record<string, string> = {
-    FACTION_QINGYUN_SECT: '青云宗',
-    FACTION_TIANJIAN_SECT: '天剑宗',
-    FACTION_ANCIENT_CLAN: '世家',
-  };
-  return names[id] ?? id;
-});
+const factionName = computed(() => formatFactionName(playerStore.character?.factionId));
 
 const factionRankLabel = computed(() => {
   const rank = playerStore.character?.factionRank;
@@ -47,6 +44,7 @@ function contribute(amount: number) {
   playerStore.character.spiritStones -= amount;
   totalContribution.value += amount;
   factionMessage.value = `贡献 ${amount} 灵石成功`;
+  eventLog.addEvent('social', `贡献宗门`, `向${factionName.value}贡献 ${amount} 灵石`);
 }
 
 function attemptPromote() {
@@ -54,6 +52,7 @@ function attemptPromote() {
   const result = FactionEngine.promote(playerStore.character, totalContribution.value);
   if (result.success) {
     factionMessage.value = `晋升成功！当前阶位：${factionRankLabel.value}`;
+    eventLog.addEvent('social', `宗门晋升`, `晋升为${factionName.value} · ${factionRankLabel.value}`, { isMajorEvent: true });
   } else {
     factionMessage.value = result.reason ?? '晋升失败';
   }
@@ -103,11 +102,15 @@ const isCultivating = computed(() => world.state.advancing);
 
 async function cultivate(months: number) {
   resultMessage.value = null;
-  const expBefore = playerStore.character?.cultivation.currentExp ?? 0;
   const result = await world.fastForward(months);
   if (!result.died) {
-    const ageBefore = Math.floor((playerStore.character?.lifespan.age ?? 0) - months / 12);
-    resultMessage.value = `闭关 ${months} 月圆满。修为 +${result.expGained}，年寿 +${(months / 12).toFixed(1)} 岁`;
+    const densityInfo = world.state.lastSpiritDensity !== 1.0
+      ? ` · 灵气浓度 ${(world.state.lastSpiritDensity * 100).toFixed(0)}%`
+      : '';
+    const eventInfo = world.state.lastCalendarEventName
+      ? ` · ${world.state.lastCalendarEventName}`
+      : '';
+    resultMessage.value = `闭关 ${months} 月圆满。修为 +${result.expGained}，年寿 +${(months / 12).toFixed(1)} 岁${densityInfo}${eventInfo}`;
   }
 }
 
@@ -146,6 +149,63 @@ const availableConfig = computed<RealmBreakthroughConfig | null>(() => {
   return allConfigs.find(c => c.fromRealm === currentRealm) ?? null;
 });
 
+// ---- 小境界圆满提升（练气1→2→...→9 等） ----
+
+/** 当前境界能否圆满提升到下一小境界（非大境界突破） */
+const canAdvanceMinorRealm = computed(() => {
+  if (!playerStore.character) return false;
+  // 如果有大境界突破配置（如练气9→筑基1），走突破逻辑而非圆满提升
+  if (availableConfig.value) return false;
+  if (isMaxRealm.value) return false;
+  // 修满 maxExp 才能圆满
+  return playerStore.character.cultivation.currentExp >= playerStore.character.cultivation.maxExp;
+});
+
+/** 获取下一个小境界 */
+function getNextMinorRealm(current: string): string | null {
+  const match = current.match(/^(.+?)_(\d+)$/);
+  if (!match) return null;
+  const prefix = match[1]!;
+  const num = parseInt(match[2]!, 10);
+
+  // 各大境界最大阶数
+  const maxStage: Record<string, number> = {
+    QiRefinement: 9,
+    Foundation: 3,
+    GoldenCore: 3,
+    NascentSoul: 3,
+    SoulFormation: 1,
+  };
+
+  const max = maxStage[prefix] ?? 1;
+  if (num >= max) return null; // 已到该境界顶级，需大境界突破
+  return `${prefix}_${num + 1}`;
+}
+
+function advanceMinorRealm() {
+  if (!playerStore.character) return;
+  const nextRealm = getNextMinorRealm(playerStore.character.realm);
+  if (!nextRealm) return;
+
+  const oldMaxExp = playerStore.character.cultivation.maxExp;
+  // 提升境界
+  playerStore.character.realm = nextRealm as RealmFullPath;
+  // 修为上限提升（每小境界 +50%）
+  playerStore.character.cultivation.maxExp = Math.floor(oldMaxExp * 1.5);
+  // 消耗当前修为的一半（圆满消耗）
+  playerStore.character.cultivation.currentExp = Math.floor(playerStore.character.cultivation.currentExp * 0.3);
+  // 气血/灵力上限小幅增长
+  playerStore.character.maxHp = Math.floor(playerStore.character.maxHp * 1.15);
+  playerStore.character.hp = playerStore.character.maxHp;
+  playerStore.character.spiritEnergy.max = Math.floor(playerStore.character.spiritEnergy.max * 1.1);
+  playerStore.character.spiritEnergy.current = playerStore.character.spiritEnergy.max;
+
+  resultMessage.value = `境界圆满！已踏入 ${formatRealm(nextRealm as RealmFullPath)}`;
+  eventLog.addEvent('cultivation', `境界圆满 · ${formatRealm(nextRealm as RealmFullPath)}`, '修为精进，更上一层', {
+    isMajorEvent: true,
+  });
+}
+
 // 判断是否已达最高境界
 const isMaxRealm = computed(() => {
   if (!playerStore.character) return false;
@@ -167,26 +227,40 @@ async function attemptBreakthrough() {
     return;
   }
 
-  // 传统突破模式：检查秘境材料
-  if (playerStore.character.gameMode?.breakthrough === 'Traditional') {
-    const requiredItems = availableConfig.value.requirements.requiredItems ?? [];
-    for (const itemId of requiredItems) {
-      const has = playerStore.character.inventory.some(
-        s => (s.item.templateId === itemId || s.item.id === itemId) && s.count > 0
-      );
-      if (!has) {
-        resultMessage.value = `传统突破需要秘境材料：${itemId}（当前缺失）`;
-        return;
-      }
-    }
+  // 材料不再硬性要求，只影响成功率（引擎层处理）
+  // 计算预估成功率用于提示
+  const config = availableConfig.value;
+  const requiredItems = config.requirements.requiredItems ?? [];
+  const hasItems = requiredItems.filter(itemId =>
+    playerStore.character!.inventory.some(
+      s => (s.item.templateId === itemId || s.item.id === itemId) && s.count > 0
+    )
+  );
+  const materialBonus = hasItems.length * 0.25;
+  const noMaterialPenalty = requiredItems.length > 0 && hasItems.length === 0 ? -0.30 : 0;
+  const physiqueBonus = (playerStore.character.attributes.physique ?? 0) / 100;
+  const luckBonus = (playerStore.character.attributes.luck ?? 0) / 100;
+  const estSuccessRate = Math.max(0.05, Math.min(0.99,
+    config.simpleModeSuccessRate + physiqueBonus + luckBonus + materialBonus + noMaterialPenalty
+  ));
+
+  // 如果没有材料且成功率低，提示但不阻止
+  if (requiredItems.length > 0 && hasItems.length === 0 && estSuccessRate < 0.5) {
+    resultMessage.value = `无材料加成，突破成功率仅 ${Math.round(estSuccessRate * 100)}%（材料：${requiredItems.map(formatItemId).join(', ')}）`;
   }
 
   const result = TribulationEngine.attempt(playerStore.character, availableConfig.value);
   if (result.success && result.updatedCharacter) {
     playerStore.character = result.updatedCharacter;
     resultMessage.value = `突破成功！已踏入 ${formatRealm(result.newRealm!)}`;
+    eventLog.addEvent('cultivation', `突破成功 · ${formatRealm(result.newRealm!)}`, `踏入全新境界`, {
+      isMajorEvent: true,
+    });
   } else {
     resultMessage.value = result.reason ?? '突破失败';
+    eventLog.addEvent('cultivation', '突破失败', result.reason ?? '劫数未至', {
+      isMajorEvent: true,
+    });
     if (result.updatedCharacter) {
       playerStore.character = result.updatedCharacter;
     }
@@ -251,6 +325,25 @@ async function attemptBreakthrough() {
 
     <!-- 闭关按钮 -->
     <div class="space-y-2">
+      <!-- 按月闭关（精细修炼） -->
+      <div class="grid grid-cols-3 gap-2">
+        <button @click="cultivate(1)"
+          class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs transition disabled:opacity-50"
+          :disabled="isCultivating">
+          闭关 1 月
+        </button>
+        <button @click="cultivate(3)"
+          class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs transition disabled:opacity-50"
+          :disabled="isCultivating">
+          闭关 3 月
+        </button>
+        <button @click="cultivate(6)"
+          class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs transition disabled:opacity-50"
+          :disabled="isCultivating">
+          闭关 6 月
+        </button>
+      </div>
+      <!-- 按年闭关（长期闭关） -->
       <button @click="cultivate(12)"
         class="w-full px-4 py-3 bg-amber-700 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
         :disabled="isCultivating">
@@ -276,14 +369,29 @@ async function attemptBreakthrough() {
       {{ resultMessage }}
     </div>
 
-    <!-- 突破区域 -->
+    <!-- 境界圆满提升（小境界） -->
+    <div v-if="canAdvanceMinorRealm" class="p-4 bg-emerald-900/30 rounded-lg border border-emerald-600/50 space-y-2">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-emerald-300 text-sm font-semibold">境界圆满</span>
+          <div class="text-xs text-slate-400">修为已满，可突破至下一阶</div>
+        </div>
+        <button @click="advanceMinorRealm"
+          class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold transition">
+          圆满提升
+        </button>
+      </div>
+    </div>
+
+    <!-- 突破区域（大境界） -->
     <div v-if="availableConfig" class="p-4 bg-slate-800 rounded-lg border border-amber-600/50 space-y-3">
       <h3 class="text-sm font-semibold text-amber-400">突破契机</h3>
       <div class="text-xs text-slate-300 space-y-1">
         <div>目标境界：<span class="text-amber-300">{{ formatRealm(availableConfig.toRealm as RealmFullPath) }}</span></div>
         <div>需修为：<span :class="canBreakthrough ? 'text-emerald-300' : 'text-red-300'">{{ availableConfig.requirements.expThreshold }}</span></div>
         <div v-if="availableConfig.requirements.requiredItems?.length">
-          需材料：<span class="text-slate-400">{{ availableConfig.requirements.requiredItems.join(', ') }}</span>
+          辅材：<span class="text-slate-400">{{ availableConfig.requirements.requiredItems.map(formatItemId).join(', ') }}</span>
+          <span class="text-xs text-slate-500">（有则提升成功率）</span>
         </div>
       </div>
       <button @click="attemptBreakthrough"

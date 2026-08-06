@@ -9,16 +9,9 @@ const playerStore = usePlayerStore();
 
 const visibleTabs = computed<Array<{ key: GameTab; label: string }>>(() => {
   const tabs: Array<{ key: GameTab; label: string }> = [
-    { key: 'map',    label: '大地图' },
-    { key: 'cult',   label: '修炼' },
+    { key: 'map',       label: '大地图' },
+    { key: 'character', label: '角色' },
   ];
-
-  const c = playerStore.character;
-  const hasRecipes = c && c.unlockedRecipes.length > 0;
-  const hasSkills = c && c.skills.length > 0;
-  if (hasRecipes || hasSkills) {
-    tabs.push({ key: 'craft', label: '百艺' });
-  }
 
   const currentNode = PRESET_MAP.continents[0]?.nodes[playerStore.currentNodeId];
   const canAccessMarket = currentNode?.type === 'Market' || currentNode?.type === 'City';
@@ -29,8 +22,6 @@ const visibleTabs = computed<Array<{ key: GameTab; label: string }>>(() => {
   if (playerStore.currentNPC) {
     tabs.push({ key: 'npc', label: '人际' });
   }
-
-  tabs.push({ key: 'inv', label: '背包' });
 
   return tabs;
 });

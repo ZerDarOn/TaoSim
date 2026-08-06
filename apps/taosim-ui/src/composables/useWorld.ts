@@ -1,94 +1,130 @@
 import { reactive } from 'vue';
-import { WorldEngine, PlayerLifecycleService } from '@taosim/engine';
+import { TimeAdvanceService, rollCalendarEvent } from '@taosim/engine';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
 import { useGameFlowStore } from '@/stores/game-flow';
-import type { BigEventLog } from '@taosim/contracts';
+import { useEventLogStore } from '@/stores/event-log';
+import type { TimeFlowMode } from '@taosim/contracts';
+
+/**
+ * 全局世界状态（单例）。
+ */
+const globalState = reactive({
+  recentEvents: [] as import('@taosim/contracts').BigEventLog[],
+  advancing: false,
+  deathMessage: null as string | null,
+  /** 最近一次时间推进的灵气浓度倍率 */
+  lastSpiritDensity: 1.0,
+  /** 最近一次激活的节气事件名称 */
+  lastCalendarEventName: null as string | null,
+});
 
 export function useWorld() {
   const appStore = useAppStore();
   const playerStore = usePlayerStore();
   const gameFlow = useGameFlowStore();
-  const state = reactive({
-    recentEvents: [] as BigEventLog[],
-    advancing: false,
-    deathMessage: null as string | null,
-  });
+  const eventLog = useEventLogStore();
 
-  function advanceMonth() {
-    if (!appStore.currentWorldState || !playerStore.character) return;
-    const engine = new WorldEngine(appStore.currentWorldState);
-    const result = engine.step();
-    appStore.currentWorldState = result.updatedState;
-    if (result.events[0]) {
-      state.recentEvents = [result.events[0], ...state.recentEvents].slice(0, 50);
-    }
-    applyPlayerTime(1);
-  }
-
-  interface CultivationResult {
-    months: number;
-    expGained: number;
-    died: boolean;
-    causeOfDeath?: string;
-  }
-
-  async function fastForward(months: number): Promise<CultivationResult> {
+  /**
+   * 推进时间 — 统一入口
+   *
+   * @param months  月数
+   * @param mode    World=世界同步运转, Isolated=仅玩家
+   */
+  async function advanceTime(
+    months: number,
+    mode: TimeFlowMode = 'World',
+  ): Promise<{ months: number; expGained: number; died: boolean; causeOfDeath?: string }> {
     if (!appStore.currentWorldState || !playerStore.character) {
       return { months: 0, expGained: 0, died: false };
     }
-    state.advancing = true;
-    const engine = new WorldEngine(appStore.currentWorldState);
-    let died = false;
-    let expBefore = playerStore.character.cultivation.currentExp;
 
-    const batchSize = 12;
-    for (let i = 0; i < months && !died; i += batchSize) {
-      const batch = Math.min(batchSize, months - i);
-      const result = engine.fastForward(batch);
-      appStore.currentWorldState = engine.getState();
-      state.recentEvents = [...result.events, ...state.recentEvents].slice(0, 50);
+    globalState.advancing = true;
 
-      // 联动玩家时间
-      const playerResult = PlayerLifecycleService.advanceTime(playerStore.character, batch);
-      playerStore.character = playerResult.updatedPlayer;
-      if (playerResult.died) {
-        died = true;
-        state.deathMessage = playerResult.causeOfDeath ?? '寿元耗尽';
-        state.advancing = false;
-        gameFlow.enterGameOver(state.deathMessage ?? undefined);
-        return {
-          months: i + batch,
-          expGained: playerStore.character.cultivation.currentExp - expBefore,
-          died: true,
-          causeOfDeath: playerResult.causeOfDeath,
-        };
+    try {
+      // 检查当月节气事件
+      const startMonth = appStore.currentWorldState.currentMonth;
+      const calendarEvent = rollCalendarEvent(startMonth);
+
+      const result = TimeAdvanceService.advance(
+        playerStore.character,
+        appStore.currentWorldState,
+        months,
+        mode,
+        calendarEvent,
+      );
+
+      // eslint-disable-next-line no-console
+      console.log('[useWorld] advanceTime result:', {
+        months, mode,
+        oldMonth: startMonth,
+        newMonth: result.updatedWorldState?.currentMonth,
+        newYear: result.updatedWorldState?.currentYear,
+        expGained: result.expGained,
+        died: result.died,
+      });
+
+      // 应用结果
+      playerStore.character = result.updatedPlayer;
+      if (result.updatedWorldState) {
+        appStore.currentWorldState = result.updatedWorldState;
       }
-      await new Promise(r => setTimeout(r, 50));
+
+      // 导入世界事件到日志
+      if (result.events.length > 0) {
+        globalState.recentEvents = [...result.events, ...globalState.recentEvents].slice(0, 50);
+        eventLog.importWorldEvents(result.events);
+      }
+
+      // 记录灵气浓度和节气事件
+      globalState.lastSpiritDensity = result.spiritDensityMult;
+      globalState.lastCalendarEventName = result.calendarEvent?.name ?? null;
+
+      // 修炼日志
+      if (!result.died) {
+        eventLog.addEvent('cultivation', `闭关${months >= 12 ? Math.floor(months / 12) + '年' : months + '月'}`, `修为 +${result.expGained}${calendarEvent ? `（${calendarEvent.name}）` : ''}`, {
+          isMajorEvent: months >= 12,
+        });
+
+        // 节气事件日志
+        if (calendarEvent) {
+          eventLog.addEvent('discovery', calendarEvent.name, calendarEvent.description, {
+            isMajorEvent: calendarEvent.effectType === 'heavenly_tribulation',
+          });
+        }
+      }
+
+      // 铁人模式自动存档
+      if (playerStore.character.gameMode?.saveMode === 'Ironman') {
+        appStore.saveGame().catch(() => {});
+      }
+
+      if (result.died) {
+        globalState.deathMessage = result.causeOfDeath ?? '寿元耗尽';
+        gameFlow.enterGameOver(globalState.deathMessage ?? undefined);
+        eventLog.addEvent('cultivation', '闭关中坐化', result.causeOfDeath ?? '寿元耗尽', { isMajorEvent: true });
+        return { months, expGained: result.expGained, died: true, causeOfDeath: result.causeOfDeath };
+      }
+
+      return { months, expGained: result.expGained, died: false };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[useWorld] advanceTime error:', err);
+      return { months: 0, expGained: 0, died: false };
+    } finally {
+      globalState.advancing = false;
     }
-    state.advancing = false;
-    return {
-      months,
-      expGained: playerStore.character.cultivation.currentExp - expBefore,
-      died: false,
-    };
   }
 
-  function applyPlayerTime(months: number) {
-    if (!playerStore.character) return;
-    const result = PlayerLifecycleService.advanceTime(playerStore.character, months);
-    playerStore.character = result.updatedPlayer;
-
-    // 铁人模式：月度自动存档
-    if (playerStore.character.gameMode?.saveMode === 'Ironman') {
-      appStore.saveGame().catch(() => {});
-    }
-
-    if (result.died) {
-      state.deathMessage = result.causeOfDeath ?? '寿元耗尽';
-      gameFlow.enterGameOver(state.deathMessage ?? undefined);
-    }
+  /** 推进 1 月（世界模式） */
+  function advanceMonth() {
+    return advanceTime(1, 'World');
   }
 
-  return { state, advanceMonth, fastForward };
+  /** 闭关（隔离模式） */
+  async function fastForward(months: number) {
+    return advanceTime(months, 'Isolated');
+  }
+
+  return { state: globalState, advanceMonth, advanceTime, fastForward };
 }

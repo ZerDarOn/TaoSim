@@ -1,16 +1,20 @@
 <script setup lang="ts">
+/**
+ * CraftingTab — 角色「百艺」子页签
+ * 内容源自原 CraftingPanel：炼丹 / 炼器 / 升品，始终显示（未解锁配方显示锁定状态）
+ */
 import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { RecipeRegistry, AlchemyEngine, ForgeEngine, UpgradeEngine } from '@taosim/engine';
 import type { Item, ItemQuality } from '@taosim/contracts';
-import { formatQuality } from '@/utils/i18n-game';
+import { formatQuality, formatItemId, formatAttributes } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 
-// 顶层子视图切换（炼制 / 升品），替代原 CraftingPage 与 UpgradePage 的路由跳转
+// 顶层子视图切换（炼制 / 升品）
 const subView = ref<'craft' | 'upgrade'>('craft');
 
-// ---- 炼制子视图状态（原 CraftingPage）----
+// ---- 炼制子视图状态 ----
 const activeTab = ref<'pill' | 'forge'>('pill');
 const result = ref<string | null>(null);
 
@@ -63,7 +67,7 @@ function forgeMaster(recipeName: string) {
     : `大师锻造失败：${r.reason}`;
 }
 
-// ---- 升品子视图状态（原 UpgradePage）----
+// ---- 升品子视图状态 ----
 const selectedItem = ref<Item | null>(null);
 
 const equipmentItems = computed(() =>
@@ -189,7 +193,7 @@ function qualityColor(quality?: string): string {
             <span class="font-semibold text-slate-100">{{ recipe.name }}</span>
             <span class="text-xs text-slate-500">{{ recipe.tier }}阶</span>
           </div>
-          <div class="text-xs text-slate-400">材料：{{ recipe.requiredMaterials.join(', ') }}</div>
+          <div class="text-xs text-slate-400">材料：{{ recipe.requiredMaterials.map(formatItemId).join('、') }}</div>
           <div class="text-xs text-slate-500">成功率：{{ Math.round(recipe.baseSuccessRate * 100) }}%</div>
           <button @click="craftPill(recipe.name)"
             class="w-full px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold">
@@ -218,8 +222,8 @@ function qualityColor(quality?: string): string {
             <span class="font-semibold text-slate-100">{{ recipe.name }}</span>
             <span class="text-xs text-slate-500">{{ recipe.tier }}阶</span>
           </div>
-          <div class="text-xs text-slate-400">主材：{{ recipe.mainMaterialId }}</div>
-          <div class="text-xs text-slate-500">辅材：{{ recipe.optionalAuxMaterials.join(', ') || '无' }}</div>
+          <div class="text-xs text-slate-400">主材：{{ formatItemId(recipe.mainMaterialId) }}</div>
+          <div class="text-xs text-slate-500">辅材：{{ recipe.optionalAuxMaterials.map(formatItemId).join('、') || '无' }}</div>
           <button @click="forgeEquipment(recipe.name)"
             class="w-full px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white rounded text-xs font-semibold">
             普通锻造
@@ -272,7 +276,7 @@ function qualityColor(quality?: string): string {
           <span :class="qualityColor(selectedItem.quality)">{{ formatQuality(selectedItem.quality) }}</span>
         </div>
         <div class="text-xs text-slate-500">
-          属性: {{ JSON.stringify(selectedItem.attributes) }}
+          属性：{{ formatAttributes(selectedItem.attributes) || '无加成' }}
         </div>
         <div v-if="selectedItem.durability" class="text-xs text-slate-500">
           耐久: {{ selectedItem.durability.current }}/{{ selectedItem.durability.max }}

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
 import { useGameFlowStore } from '@/stores/game-flow';
+import { useEventLogStore } from '@/stores/event-log';
 import { useCombat } from '@/composables/useCombat';
 import HexCanvas from '@/components/HexCanvas.vue';
 import ATBBar from '@/components/ATBBar.vue';
@@ -14,6 +15,7 @@ import type { BattleOutcome } from '@taosim/engine';
 const playerStore = usePlayerStore();
 const uiStore = useUiStore();
 const gameFlow = useGameFlowStore();
+const eventLog = useEventLogStore();
 
 const player = computed(() => playerStore.character!);
 const battleConfig = computed(() => uiStore.battleConfig!);
@@ -45,7 +47,7 @@ const playerClone = computed<Character>(() => ({
   skillCooldowns: { ...player.value.skillCooldowns },
 }));
 
-const { state, tick, movePlayer, selectSkill, attackTarget, endTurn } = useCombat(
+const { state, start, setPaused, movePlayer, selectSkill, attackTarget, endTurn } = useCombat(
   battleMap.value,
   player.value.id,
   playerClone.value,
@@ -87,6 +89,7 @@ function checkBattleEnd() {
   const enemyDown = enemyChar.hp <= 0;
 
   if (playerDown || enemyDown) {
+    pauseBattle();
     const outcome = resolveBattleOutcome(playerChar, enemyChar, battleConfig.value.type);
     battleResult.value = outcome;
     showResult.value = true;
@@ -114,6 +117,17 @@ function applyOutcome(outcome: BattleOutcome) {
     if (outcome.favorabilityChange > 0 && enemy.value.id in c.relations) {
       c.relations[enemy.value.id]!.favorability += outcome.favorabilityChange;
     }
+    // 战斗日志
+    const rewards: string[] = [];
+    if (outcome.expGained > 0) rewards.push(`经验 +${outcome.expGained}`);
+    if (outcome.spiritStonesGained > 0) rewards.push(`灵石 +${outcome.spiritStonesGained}`);
+    eventLog.addEvent('combat', `战斗胜利 · ${enemy.value.name}`, rewards.join('，'), {
+      isMajorEvent: battleConfig.value.type === 'duel',
+    });
+  } else {
+    eventLog.addEvent('combat', `战斗失利 · ${enemy.value.name}`, battleConfig.value.type === 'encounter' ? '不幸陨落' : '切磋落败', {
+      isMajorEvent: outcome.shouldGameOver,
+    });
   }
 
   // GameOver
@@ -150,8 +164,13 @@ function closeBattle() {
 }
 
 onMounted(() => {
-  tick();
+  start();
 });
+
+// 战斗结束：暂停 ATB 推进
+function pauseBattle() {
+  setPaused(true);
+}
 
 // NPC 回合后也检查
 watch(() => state.currentTurn, (newTurn) => {
@@ -185,20 +204,28 @@ watch(() => state.currentTurn, (newTurn) => {
       <!-- 主画布 -->
       <div class="flex-1 flex flex-col items-center justify-center">
         <HexCanvas
-          :map="battleMap"
+          :map="state.map"
           :player-id="player.id"
-          :view-radius="player.attributes.perception"
+          :view-radius="Math.max(2, Math.floor(player.attributes.perception / 2))"
           :characters="state.characters"
           @tile-click="onTileClick"
         />
         <div class="text-xs text-slate-500 mt-2 text-center">
-          {{ state.phase === 'targeting' ? '点击目标施放技能' : '点击空地移动（范围3格）' }}
+          <template v-if="state.phase === 'targeting'">
+            点击目标施放技能
+          </template>
+          <template v-else-if="state.currentTurn === player.id">
+            移动点剩余 {{ state.movePoints }}/{{ state.maxMovePoints }} · 点击空地移动，再攻击或结束回合
+          </template>
+          <template v-else>
+            行动条蓄力中，等待行动…
+          </template>
         </div>
       </div>
 
       <!-- 右侧面板 -->
       <div class="w-72 space-y-3 flex flex-col">
-        <ATBBar :characters="charList" :current-turn="state.currentTurn" />
+        <ATBBar :characters="charList" :current-turn="state.currentTurn" :atb="state.atb" />
         <SkillPanel
           :skills="availableSkills"
           :selected-id="state.selectedSkill?.id ?? null"

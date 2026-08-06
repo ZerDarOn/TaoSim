@@ -1,9 +1,13 @@
 <script setup lang="ts">
+/**
+ * InventoryTab — 角色「背包」子页签
+ * 内容源自原 InventoryPanel：装备穿戴区 + 物品列表
+ */
 import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { EquipmentManager } from '@taosim/engine';
 import type { Item } from '@taosim/contracts';
-import { formatItemType } from '@/utils/i18n-game';
+import { formatItemType, formatAttributes } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 const message = ref<string | null>(null);
@@ -44,19 +48,6 @@ function handleUnequipTreasure(itemId: string) {
   if (!character.value) return;
   const r = EquipmentManager.unequip(character.value, 'treasures', itemId);
   message.value = r.success ? '卸下法宝' : r.reason ?? '失败';
-}
-
-const attrLabels: Record<string, string> = {
-  attack: '攻击', defense: '防御', critRate: '暴击',
-  physique: '根骨', comprehension: '悟性', perception: '神识',
-  agility: '身法', luck: '气运',
-};
-
-function formatAttrs(attrs: Record<string, number>): string {
-  return Object.entries(attrs)
-    .filter(([, v]) => v > 0)
-    .map(([k, v]) => `${attrLabels[k] ?? k}+${v}`)
-    .join(' ');
 }
 </script>
 
@@ -104,7 +95,7 @@ function formatAttrs(attrs: Record<string, number>): string {
           <div class="text-xs text-slate-400">
             {{ formatItemType(stack.item.type) }} · {{ stack.item.tier }}阶
             <span v-if="Object.keys(stack.item.attributes).length">
-              · {{ formatAttrs(stack.item.attributes) }}
+              · {{ formatAttributes(stack.item.attributes) }}
             </span>
           </div>
         </div>

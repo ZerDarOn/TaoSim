@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { usePlayerStore } from '@/stores/player';
+import { useMapStore } from '@/stores/map';
+import { useUiStore } from '@/stores/ui';
+import { useEventLogStore } from '@/stores/event-log';
 import { MarketEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES, PRESET_MAP } from '@taosim/engine';
 import type { MarketInventory, MarketItem } from '@taosim/contracts';
 import { formatItemType, formatQuality } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
+const mapStore = useMapStore();
+const uiStore = useUiStore();
+const eventLog = useEventLogStore();
+
+// 从场所（商铺）进入坊市时，返回场所列表
+function backToVenue() {
+  mapStore.backToVenueList();
+  uiStore.setTab('map');
+}
 const message = ref<string | null>(null);
 const showSellPanel = ref(false);
 
@@ -53,9 +65,12 @@ const marketName = computed(() => {
 function handleBuy(marketItem: MarketItem) {
   if (!playerStore.character || !marketInv.value) return;
   const result = MarketTransaction.buyFromMarket(playerStore.character, marketInv.value, marketItem, 1);
-  message.value = result.success
-    ? `购买成功！花费 ${result.totalCost} 灵石`
-    : (result.reason ?? '交易失败');
+  if (result.success) {
+    message.value = `购买成功！花费 ${result.totalCost} 灵石`;
+    eventLog.addEvent('economy', `购买 · ${marketItem.item.name}`, `花费 ${result.totalCost} 灵石`);
+  } else {
+    message.value = result.reason ?? '交易失败';
+  }
 }
 
 function handleSell(stack: { item: import('@taosim/contracts').Item; count: number }) {
@@ -71,11 +86,18 @@ function handleSell(stack: { item: import('@taosim/contracts').Item; count: numb
     if (idx >= 0) playerStore.character.inventory.splice(idx, 1);
   }
   message.value = `售出 ${stack.item.name}，获得 ${sellPrice} 灵石`;
+  eventLog.addEvent('economy', `售出 · ${stack.item.name}`, `获得 ${sellPrice} 灵石`);
 }
 </script>
 
 <template>
   <div class="space-y-4">
+    <!-- 从场所进入时显示返回按钮 -->
+    <button v-if="mapStore.activeVenueId" @click="backToVenue"
+      class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-md transition flex items-center gap-1">
+      ‹ 返回场所
+    </button>
+
     <!-- 不在坊市时 -->
     <div v-if="!isAtMarket" class="p-8 text-center text-slate-500">
       <p class="text-sm">当前所在地点没有坊市。</p>

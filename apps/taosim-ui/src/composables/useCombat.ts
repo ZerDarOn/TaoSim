@@ -1,57 +1,140 @@
-import { reactive } from 'vue';
+import { reactive, onScopeDispose } from 'vue';
 import type { Character, HexBattleMap, Skill } from '@taosim/contracts';
 import { hexKey, hexDistance } from '@taosim/contracts';
 import { CombatEngine, DamagePipeline, NpcAI } from '@taosim/engine';
 
 interface CombatState {
   engine: CombatEngine | null;
+  map: HexBattleMap;                 // 响应式地图（moveCharacter 修改可被 Vue 追踪）
   characters: Record<string, Character>;
   currentTurn: string | null;
   selectedSkill: Skill | null;
   phase: 'idle' | 'moving' | 'targeting' | 'executing';
   log: string[];
+  // ATB 行动条镜像（引擎 atbQueue 的响应式副本，供 UI 展示行动值）
+  atb: Record<string, { gauge: number; actionReady: boolean }>;
+  // 本回合移动池：由身法决定，每次移动消耗实际距离
+  movePoints: number;
+  maxMovePoints: number;
+}
+
+/** ATB 行动条推进间隔（毫秒） */
+const ATB_TICK_MS = 400;
+/** 普通技能攻击射程（格） */
+const ATTACK_RANGE = 1;
+
+/** 每回合移动池 = 2 + ⌊身法/5⌋（身法 5→3 格、10→4 格、15→5 格、20→6 格） */
+export function calcMovePoints(agility: number): number {
+  return Math.max(2, 2 + Math.floor(agility / 5));
 }
 
 export function useCombat(map: HexBattleMap, playerId: string, player: Character, enemies: Character[]) {
   const allChars = [player, ...enemies];
   const charMap = Object.fromEntries(allChars.map(c => [c.id, reactive(c)])) as Record<string, Character>;
 
-  const engine = new CombatEngine(map, allChars);
+  const mapState = reactive(map);
+  const engine = new CombatEngine(mapState, allChars);
   const state = reactive<CombatState>({
     engine,
+    map: mapState,
     characters: charMap,
     currentTurn: null,
     selectedSkill: null,
     phase: 'idle',
     log: [],
+    atb: {},
+    movePoints: 0,
+    maxMovePoints: 0,
   });
 
+  /** 同步引擎 ATB 行动条到响应式镜像（供 ATBBar 渲染行动值） */
+  function syncAtb() {
+    for (const unit of engine.getAtbQueue()) {
+      state.atb[unit.characterId] = { gauge: unit.gauge, actionReady: unit.actionReady };
+    }
+  }
+  syncAtb();
+
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let paused = false;
+
+  /** 回合开始前刷新角色技能冷却，并按身法重置移动池 */
+  function beginTurn(id: string) {
+    const c = state.characters[id];
+    if (!c) return;
+    for (const key of Object.keys(c.skillCooldowns)) {
+      const cd = c.skillCooldowns[key];
+      if (cd !== undefined && cd > 0) {
+        c.skillCooldowns[key] = cd - 1;
+      }
+    }
+    if (id === playerId) {
+      state.maxMovePoints = calcMovePoints(c.attributes.agility);
+      state.movePoints = state.maxMovePoints;
+    }
+  }
+
+  /**
+   * 推进 ATB 行动条。无当前行动者时才推进：
+   * 行动条满的角色获得回合；若为 NPC 则自动执行其回合。
+   */
   function tick() {
+    if (paused) return;
     state.engine!.tickATB(state.characters);
+    syncAtb();
     const ready = state.engine!.getReadyUnits();
-    if (ready.length > 0) {
+    if (ready.length > 0 && state.currentTurn === null) {
       const unit = ready[0]!;
       state.currentTurn = unit.characterId;
+      beginTurn(unit.characterId);
       if (unit.characterId !== playerId) {
-        executeNpcTurn(unit.characterId);
+        void executeNpcTurn(unit.characterId);
       }
     }
   }
 
+  /** 启动 ATB 循环（战斗开始时调用） */
+  function start() {
+    if (timer) return;
+    tick(); // 立即推进一次
+    timer = setInterval(() => {
+      if (state.currentTurn === null) tick();
+    }, ATB_TICK_MS);
+  }
+
+  /** 暂停/恢复 ATB 推进（战斗结算期间暂停） */
+  function setPaused(v: boolean) {
+    paused = v;
+  }
+
+  function stop() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  onScopeDispose(stop);
+
   function movePlayer(toQ: number, toR: number) {
-    if (!state.currentTurn) return;
-    const pos = state.engine!.findCharacterPosition(state.currentTurn);
+    if (state.currentTurn !== playerId) return;
+    const pos = state.engine!.findCharacterPosition(playerId);
     if (!pos) return;
     const dist = hexDistance(pos.q, pos.r, toQ, toR);
-    const tile = map.tiles[hexKey(toQ, toR)];
-    if (!tile || dist > 3) return;
-    const character = state.characters[state.currentTurn];
+    const tile = mapState.tiles[hexKey(toQ, toR)];
+    if (!tile || dist > state.movePoints) return; // 超出本回合移动池
+    if (tile.isBlocked) return;
+    if (tile.occupantId) return; // 目标格已被占用
+    if (!tile.isRevealed) return; // 战争迷雾：不可见区域不可移动
+    const character = state.characters[playerId];
     if (character && tile.isWater && !character.canFly) return;
-    state.engine!.moveCharacter(state.currentTurn, toQ, toR);
+    state.engine!.moveCharacter(playerId, toQ, toR);
+    state.movePoints -= dist;
     state.phase = 'idle';
   }
 
   function selectSkill(skill: Skill) {
+    if (state.currentTurn !== playerId) return;
     state.selectedSkill = skill;
     state.phase = 'targeting';
   }
@@ -62,7 +145,17 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     const defender = state.characters[targetId];
     if (!attacker || !defender) return;
 
-    const result = DamagePipeline.calculate(attacker, defender, state.selectedSkill, false);
+    // 射程校验
+    const aPos = state.engine!.findCharacterPosition(attacker.id);
+    const dPos = state.engine!.findCharacterPosition(targetId);
+    if (aPos && dPos && hexDistance(aPos.q, aPos.r, dPos.q, dPos.r) > ATTACK_RANGE) {
+      state.log.push(`距离过远，${attacker.name} 无法命中 ${defender.name}`);
+      state.phase = 'idle';
+      return;
+    }
+
+    const skill = state.selectedSkill;
+    const result = DamagePipeline.calculate(attacker, defender, skill, false);
     defender.hp -= result.finalDamage;
     state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
 
@@ -70,15 +163,25 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
       state.log.push(`境界壁垒触发！${defender.name} 毫发无伤`);
     }
 
+    // 消耗 AP 与灵力
+    attacker.ap = Math.max(0, attacker.ap - skill.cost.ap);
+    attacker.spiritEnergy.current = Math.max(0, attacker.spiritEnergy.current - skill.cost.spiritEnergy);
+    // 记录技能冷却
+    if (skill.cooldownTurns > 0) {
+      attacker.skillCooldowns[skill.id] = skill.cooldownTurns;
+    }
+
     if (defender.hp <= 0) {
       state.log.push(`${defender.name} 已被击败`);
       defender.soulState = 'RemnantSoul';
     }
 
+    // 消耗本回合，交由 ATB 循环继续
+    state.engine!.consumeTurn(state.currentTurn);
+    syncAtb();
     state.selectedSkill = null;
     state.phase = 'idle';
     state.currentTurn = null;
-    tick();
   }
 
   async function executeNpcTurn(npcId: string) {
@@ -103,10 +206,13 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
   }
 
   function endTurn() {
+    if (!state.currentTurn) return;
+    state.engine!.consumeTurn(state.currentTurn);
+    syncAtb();
     state.currentTurn = null;
     state.phase = 'idle';
-    tick();
+    // 由 ATB 循环驱动下一次行动
   }
 
-  return { state, tick, movePlayer, selectSkill, attackTarget, endTurn, executeNpcTurn };
+  return { state, start, stop, setPaused, tick, movePlayer, selectSkill, attackTarget, endTurn, executeNpcTurn };
 }
