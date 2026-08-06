@@ -37,7 +37,7 @@ function makeChar(overrides: Partial<Character> = {}): Character {
 describe('calculateDamage', () => {
   const attacker = makeChar();
 
-  it('基础伤害 = 攻击 - 防御，最低 1', () => {
+  it('基础伤害 = 攻击 - 防御，不为负', () => {
     const defender = makeChar();
     const result = calculateDamage(
       attacker,

@@ -32,16 +32,17 @@ function realmTier(realm: RealmFullPath): number {
 /** 防御方护体元素来源：armor → weapon → treasures[0]，默认 Physical/tier 1 */
 function getDefenseElement(defender: Character): { element: SkillElement; tier: number } {
   const eq = defender.equipmentSlots;
-  const armor = eq.armor;
-  if (armor?.element) return { element: armor.element, tier: armor.tier };
-  const weapon = eq.weapon;
-  if (weapon?.element) return { element: weapon.element, tier: weapon.tier };
-  const treasure = eq.treasures[0];
-  if (treasure?.element) return { element: treasure.element, tier: treasure.tier };
+  const armor = eq?.armor;
+  if (armor) return { element: armor.element ?? 'Physical', tier: armor.tier };
+  const weapon = eq?.weapon;
+  if (weapon) return { element: weapon.element ?? 'Physical', tier: weapon.tier };
+  const treasure = eq?.treasures?.[0];
+  if (treasure) return { element: treasure.element ?? 'Physical', tier: treasure.tier };
   return { element: 'Physical', tier: 1 };
 }
 
 /** 五行交互系数（雷冰风暗不进入生克环，只参与同源抵消） */
+// 注：def.tier / atkTier 为 Phase B 功法阶位压制预留，当前仅用于签名一致
 function elementMultiplier(atk: SkillElement, def: { element: SkillElement; tier: number }, atkTier: number): number {
   if (atk === 'Physical' || def.element === 'Physical') return 1.0;
   if (atk === def.element) return 0.85;              // 同源抵消
