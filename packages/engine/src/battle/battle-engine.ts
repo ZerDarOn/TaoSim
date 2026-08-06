@@ -34,7 +34,7 @@ export class BattleEngine {
     };
   }
 
-  getState(): BattleState {
+  getState(): Readonly<BattleState> {
     return this.state;
   }
 
@@ -55,11 +55,28 @@ export class BattleEngine {
     }
   }
 
-  /** 注册双方单位并放置到出生格（深拷贝隔离） */
-  start(map: HexBattleMap, players: Character[], enemies: Character[]): void {
+  /**
+   * 注册双方单位并放置到出生格（深拷贝隔离）。
+   * 任一侧可放置格不足时启动失败：返回 { error: 'not_enough_spawn_slots' }，
+   * 且不做任何部分写入（state 保持 Idle 原样，不放置、不发 battle_start）。
+   */
+  start(map: HexBattleMap, players: Character[], enemies: Character[]): { error?: string } {
+    const mid = Math.floor(map.width / 2);
+    const tiles = Object.values(map.tiles);
+    const leftCount = tiles.filter((t) => t.q < mid && !t.isBlocked && !t.isWater && !t.occupantId).length;
+    const rightCount = tiles.filter((t) => t.q >= mid && !t.isBlocked && !t.isWater && !t.occupantId).length;
+    if (leftCount < players.length || rightCount < enemies.length) {
+      return { error: 'not_enough_spawn_slots' };
+    }
+
     this.state.map = structuredClone(map);
     this.state.characters = {};
     this.state.units = {};
+    this.state.currentTurnId = null;
+    this.state.tickNumber = 0;
+    this.state.turnNumber = 0;
+    this.state.winner = null;
+    this.state.events = [];
 
     for (const p of players) {
       this.state.characters[p.id] = this.cloneCharacter(p);
@@ -70,13 +87,18 @@ export class BattleEngine {
       this.state.units[e.id] = this.makeUnit(e.id, 'Enemy', e.attributes.agility);
     }
 
-    const playerStart = this.findStartSlot('left');
-    const enemyStart = this.findStartSlot('right');
-    if (playerStart && players[0]) this.placeUnit(players[0].id, playerStart.q, playerStart.r);
-    if (enemyStart && enemies[0]) this.placeUnit(enemies[0].id, enemyStart.q, enemyStart.r);
+    for (const p of players) {
+      const slot = this.findStartSlot('left');
+      if (slot) this.placeUnit(p.id, slot.q, slot.r);
+    }
+    for (const e of enemies) {
+      const slot = this.findStartSlot('right');
+      if (slot) this.placeUnit(e.id, slot.q, slot.r);
+    }
 
     this.state.phase = 'Running';
     this.emit('battle_start', undefined, undefined, { players: players.length, enemies: enemies.length });
+    return {};
   }
 
   private makeUnit(id: string, team: 'Player' | 'Enemy', agility: number): BattleUnit {
@@ -129,7 +151,7 @@ export class BattleEngine {
       if (unit.actionReady) { ready.push(unit.characterId); continue; }
       const slow = unit.statuses.some((s) => s.type === 'Slow');
       const gain = (BATTLE_CONFIG.ATB_BASE_GAIN + c.attributes.agility * BATTLE_CONFIG.ATB_AGILITY_GAIN) * (slow ? 0.5 : 1);
-      unit.gauge = Math.min(100, unit.gauge + gain);
+      unit.gauge = unit.gauge + gain; // 不封顶：gauge 降序即"溢出行动值降序"排序键
       if (unit.gauge >= 100) {
         unit.actionReady = true;
         ready.push(unit.characterId);
@@ -276,6 +298,7 @@ export class BattleEngine {
   private dispatchEndActivation(actorId: string): { error?: string } {
     const unit = this.state.units[actorId];
     if (!unit) return { error: 'unknown_unit' };
+    if (this.state.currentTurnId && this.state.currentTurnId !== actorId) return { error: 'not_your_turn' };
     unit.actionReady = false;
     unit.gauge = 0;
     const c = this.state.characters[actorId];
