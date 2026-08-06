@@ -12,6 +12,9 @@ export { NpcAI } from './combat/npc-ai.js';
 export { resolveBattleOutcome } from './combat/battle-resolver.js';
 export type { BattleOutcome, BattleType } from './combat/battle-resolver.js';
 
+// Battle System v2 (确定性状态机)
+export * from './battle/index.js';
+
 // Lifecycle Manager (生死轮回)
 export { LifecycleManager } from './lifecycle/lifecycle-manager.js';
 export { PlayerLifecycleService } from './lifecycle/player-lifecycle.js';
