@@ -90,7 +90,7 @@ function checkBattleEnd() {
 
   if (playerDown || enemyDown) {
     pauseBattle();
-    const outcome = resolveBattleOutcome(playerChar, enemyChar, battleConfig.value.type);
+    const outcome = resolveBattleOutcome(playerChar, [enemyChar], battleConfig.value.type);
     battleResult.value = outcome;
     showResult.value = true;
 

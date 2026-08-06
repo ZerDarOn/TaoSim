@@ -45,49 +45,49 @@ describe('resolveBattleOutcome', () => {
   it('玩家胜利时返回 victory', () => {
     const player = makePlayer(50);
     const npc = makeNpc(0); // NPC HP 为 0
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.victory).toBe(true);
   });
 
   it('玩家失败时返回 defeat', () => {
     const player = makePlayer(0); // 玩家 HP 为 0
     const npc = makeNpc(30);
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.victory).toBe(false);
   });
 
   it('切磋胜利获得经验', () => {
     const player = makePlayer(50);
     const npc = makeNpc(0);
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.expGained).toBeGreaterThan(0);
   });
 
   it('切磋胜利增加好感度', () => {
     const player = makePlayer(50);
     const npc = makeNpc(0);
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.favorabilityChange).toBeGreaterThan(0);
   });
 
   it('切磋失败好感度变化较小', () => {
     const player = makePlayer(0);
     const npc = makeNpc(30);
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.favorabilityChange).toBeLessThanOrEqual(1);
   });
 
   it('遭遇战胜利获得灵石掉落', () => {
     const player = makePlayer(50);
     const npc = makeNpc(0);
-    const result = resolveBattleOutcome(player, npc, 'encounter');
+    const result = resolveBattleOutcome(player, [npc], 'encounter');
     expect(result.spiritStonesGained).toBeGreaterThan(0);
   });
 
   it('遭遇战失败不获得奖励', () => {
     const player = makePlayer(0);
     const npc = makeNpc(30);
-    const result = resolveBattleOutcome(player, npc, 'encounter');
+    const result = resolveBattleOutcome(player, [npc], 'encounter');
     expect(result.expGained).toBe(0);
     expect(result.spiritStonesGained).toBe(0);
   });
@@ -95,22 +95,42 @@ describe('resolveBattleOutcome', () => {
   it('玩家死亡时标记 shouldGameOver', () => {
     const player = makePlayer(0);
     const npc = makeNpc(30);
-    const result = resolveBattleOutcome(player, npc, 'encounter');
+    const result = resolveBattleOutcome(player, [npc], 'encounter');
     expect(result.shouldGameOver).toBe(true);
   });
 
   it('玩家存活时不标记 shouldGameOver', () => {
     const player = makePlayer(1);
     const npc = makeNpc(0);
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.shouldGameOver).toBe(false);
   });
 
   it('切磋模式死亡不触发 GameOver（切点到为止）', () => {
     const player = makePlayer(0);
     const npc = makeNpc(30);
-    const result = resolveBattleOutcome(player, npc, 'duel');
+    const result = resolveBattleOutcome(player, [npc], 'duel');
     expect(result.shouldGameOver).toBe(false);
     expect(result.playerHpAfter).toBeGreaterThan(0);
+  });
+});
+
+describe('resolveBattleOutcome 多参战者聚合', () => {
+  it('encounter 胜利按所有敌人聚合经验与灵石', () => {
+    const player = makePlayer(100);
+    const e1 = makeNpc(0);
+    const e2 = makeNpc(0);
+    const result = resolveBattleOutcome(player, [e1, e2], 'encounter');
+    expect(result.victory).toBe(true);
+    expect(result.expGained).toBeGreaterThan(0);
+    expect(result.spiritStonesGained).toBeGreaterThan(0);
+  });
+
+  it('任一敌人存活时不判胜利', () => {
+    const player = makePlayer(100);
+    const e1 = makeNpc(0);
+    const e2 = makeNpc(50);
+    const result = resolveBattleOutcome(player, [e1, e2], 'encounter');
+    expect(result.victory).toBe(false);
   });
 });
