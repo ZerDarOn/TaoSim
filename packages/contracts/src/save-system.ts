@@ -8,6 +8,7 @@ import type { Faction } from './faction.js';
 import type { OverworldMap } from './overworld.js';
 import type { WorldState } from './world-state.js';
 import type { MarketInventory, NPCTradeOffer } from './market.js';
+import type { PlayerMapState } from './multi-layer-map.js';
 
 export interface SaveHeader {
   saveId: string;
@@ -42,6 +43,8 @@ export interface SavePayload {
   marketInventories: Record<string, MarketInventory>;
   npcTradeOffers: Record<string, NPCTradeOffer>;
   graveyard: GraveMarker[];
+  /** 玩家地图进度（层级/位置/已探索六边形）。Phase-save-fix 新增。 */
+  playerMapState?: PlayerMapState;
 }
 
 // ---- 存档版本迁移 ----

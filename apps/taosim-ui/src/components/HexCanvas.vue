@@ -21,8 +21,12 @@ const HEX_SIZE = 32;
 const HEX_WIDTH = HEX_SIZE * Math.sqrt(3);
 
 function hexToPixel(q: number, r: number): { x: number; y: number } {
-  const x = HEX_SIZE * (Math.sqrt(3) * q + (Math.sqrt(3) / 2) * r);
-  const y = HEX_SIZE * (3 / 2) * r;
+  // 采用 odd-row offset 布局：奇数行整体右移半格（蜂窝交错），
+  // 避免 axial 公式导致每行递增偏移、外轮廓呈平行四边形。
+  // 注意：此函数仅用于渲染像素坐标；axial 坐标 (q,r) 本身保持不变，
+  // 所有 hexDistance / hexNeighbors 等基于 axial 的逻辑不受影响。
+  const x = HEX_WIDTH * q + (r % 2 !== 0 ? HEX_WIDTH / 2 : 0);
+  const y = HEX_SIZE * 1.5 * r;
   return { x, y };
 }
 
@@ -60,7 +64,11 @@ function getCharacterOnTile(q: number, r: number): Character | null {
   return props.characters[tile.occupantId] ?? null;
 }
 
-function drawHex(tile: HexTile, g: Graphics, container: Container, offsetX: number, offsetY: number) {
+// 绘制时的整体偏移（render 时计算，供点击坐标换算使用）
+let offsetX = 0;
+let offsetY = 0;
+
+function drawHex(tile: HexTile, g: Graphics, container: Container) {
   const { x, y } = hexToPixel(tile.q, tile.r);
   const cx = x + offsetX; const cy = y + offsetY;
   const points: number[] = [];
@@ -69,7 +77,8 @@ function drawHex(tile: HexTile, g: Graphics, container: Container, offsetX: numb
     points.push(cx + HEX_SIZE * Math.cos(angle), cy + HEX_SIZE * Math.sin(angle));
   }
 
-  if (tile.isRevealed) {
+  // 战争迷雾：已揭示且处于视野内的格子才显示地形与单位，其余为暗格
+  if (tile.isRevealed && isVisible(tile.q, tile.r)) {
     g.beginFill(TERRAIN_COLORS[tile.terrain] ?? 0x999999);
     g.drawPolygon(points); g.endFill();
     g.lineStyle(1, 0x333333, 0.3);
@@ -85,9 +94,9 @@ function drawHex(tile: HexTile, g: Graphics, container: Container, offsetX: numb
     g.drawPolygon(points); g.endFill();
   }
 
-  // ---- 画角色棋子 ----
+  // ---- 画角色棋子（仅在视野内） ----
   const char = getCharacterOnTile(tile.q, tile.r);
-  if (char && tile.isRevealed) {
+  if (char) {
     const isPlayer = char.id === props.playerId;
     const charColor = isPlayer ? 0xfbbf24 : 0xf87171;
     const nameColor = isPlayer ? 0xfbbf24 : 0xfca5a5;
@@ -128,9 +137,6 @@ function drawHex(tile: HexTile, g: Graphics, container: Container, offsetX: numb
     hpText.anchor.set(0.5); hpText.position.set(cx, cy - 22);
     container.addChild(hpText);
   }
-
-  g.interactive = true; g.cursor = 'pointer';
-  g.on('click', () => emit('tileClick', tile.q, tile.r));
 }
 
 function render() {
@@ -140,12 +146,28 @@ function render() {
   const allCoords = Object.values(props.map.tiles).map(t => hexToPixel(t.q, t.r));
   const minX = Math.min(...allCoords.map(c => c.x));
   const minY = Math.min(...allCoords.map(c => c.y));
-  const offsetX = HEX_WIDTH / 2 - minX + 20;
-  const offsetY = HEX_SIZE * 2 / 2 - minY + 20;
+  offsetX = HEX_WIDTH / 2 - minX + 20;
+  offsetY = HEX_SIZE * 2 / 2 - minY + 20;
 
   for (const tile of Object.values(props.map.tiles)) {
-    drawHex(tile, g, container, offsetX, offsetY);
+    drawHex(tile, g, container);
   }
+
+  // 单一点击处理器：按最近格子判定目标（避免多格叠加同一 Graphics 导致事件串扰）
+  g.interactive = true; g.cursor = 'pointer';
+  g.on('click', (event: any) => {
+    const local = g.toLocal(event.global);
+    let best: HexTile | null = null;
+    let bestDist = Infinity;
+    for (const tile of Object.values(props.map.tiles)) {
+      const p = hexToPixel(tile.q, tile.r);
+      const cx = p.x + offsetX; const cy = p.y + offsetY;
+      const d = (local.x - cx) ** 2 + (local.y - cy) ** 2;
+      if (d < bestDist) { bestDist = d; best = tile; }
+    }
+    if (best) emit('tileClick', best.q, best.r);
+  });
+
   container.addChildAt(g, 0);
 }
 

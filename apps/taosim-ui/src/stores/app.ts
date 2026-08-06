@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 import type { WorldState, SavePayload, SaveHeader } from '@taosim/contracts';
 import { WorldEngine } from '@taosim/engine';
-import { IndexedDBStorageAdapter } from '@taosim/persistence';
+import { IndexedDBStorageAdapter, MigrationService } from '@taosim/persistence';
 import { usePlayerStore } from '@/stores/player';
+import { useMapStore } from '@/stores/map';
 
 interface AppState {
   isInitialized: boolean;
@@ -11,13 +12,22 @@ interface AppState {
 }
 
 let storage: IndexedDBStorageAdapter | null = null;
+let storageInitPromise: Promise<IndexedDBStorageAdapter> | null = null;
 
-async function getStorage(): Promise<IndexedDBStorageAdapter> {
-  if (!storage) {
-    storage = new IndexedDBStorageAdapter();
-    await storage.initialize();
-  }
-  return storage;
+/**
+ * 获取已初始化的存储适配器单例。
+ * 使用 in-flight Promise 缓存，避免并发调用时重复创建 DB 连接。
+ */
+function getStorage(): Promise<IndexedDBStorageAdapter> {
+  if (storage) return Promise.resolve(storage);
+  if (storageInitPromise) return storageInitPromise;
+  storageInitPromise = (async () => {
+    const adapter = new IndexedDBStorageAdapter();
+    await adapter.initialize();
+    storage = adapter;
+    return adapter;
+  })();
+  return storageInitPromise;
 }
 
 export const useAppStore = defineStore('app', {
@@ -48,6 +58,7 @@ export const useAppStore = defineStore('app', {
 
     async saveGame() {
       const playerStore = usePlayerStore();
+      const mapStore = useMapStore();
       const player = playerStore.character;
       if (!player || !this.currentWorldState) return;
 
@@ -73,6 +84,8 @@ export const useAppStore = defineStore('app', {
         graveyard: [],
         marketInventories: {},
         npcTradeOffers: {},
+        // 玩家地图进度：层级/位置/已探索六边形
+        playerMapState: mapStore.state,
       };
       await adapter.save(payload);
       this.saveHeaders = await adapter.listHeaders();
@@ -80,13 +93,22 @@ export const useAppStore = defineStore('app', {
 
     async loadGame(saveId: string) {
       const adapter = await getStorage();
-      const payload = await adapter.load(saveId);
-      if (!payload) return;
+      const raw = await adapter.load(saveId);
+      if (!raw) return;
+
+      // 执行版本迁移（向后兼容老存档）
+      const payload = MigrationService.loadWithMigration(raw);
 
       const playerStore = usePlayerStore();
+      const mapStore = useMapStore();
       playerStore.setPlayer(payload.player);
       this.currentWorldState = payload.worldState;
       this.isInitialized = true;
+
+      // 恢复玩家地图进度；老存档无此字段时保留当前默认状态
+      if (payload.playerMapState) {
+        mapStore.hydrateFromSave(payload.playerMapState);
+      }
     },
 
     clearWorldState() {

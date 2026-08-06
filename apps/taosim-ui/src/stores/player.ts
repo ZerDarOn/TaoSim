@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { PlayerLifecycleService } from '@taosim/engine';
 import type { Character, Skill, Item } from '@taosim/contracts';
+import { useGameFlowStore } from '@/stores/game-flow';
 
 export const usePlayerStore = defineStore('player', () => {
   const character = ref<Character | null>(null);
@@ -78,17 +79,19 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
-  function advanceTime(days: number) {
-    if (!character.value) return;
+  function advanceTime(days: number): { died: boolean; causeOfDeath?: string } {
+    if (!character.value) return { died: false };
     // 统一时间推进：天数 → 月数（30 天 = 1 月），使用 PlayerLifecycleService 统一逻辑
     const months = days / 30;
     const result = PlayerLifecycleService.advanceTime(character.value, months);
+    character.value = result.updatedPlayer;
+
+    // 寿元耗尽时立即触发游戏结束，避免"玩一个死人"
     if (result.died) {
-      // 寿元耗尽由调用方处理（通常 gameFlow 已监听）
-      character.value = result.updatedPlayer;
-    } else {
-      character.value = result.updatedPlayer;
+      const gameFlow = useGameFlowStore();
+      gameFlow.enterGameOver(result.causeOfDeath);
     }
+    return { died: result.died, causeOfDeath: result.causeOfDeath };
   }
 
   return {
