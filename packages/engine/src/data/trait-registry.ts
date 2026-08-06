@@ -184,6 +184,183 @@ export const TRAIT_REGISTRY: Trait[] = [
     description: '气运逆天，奇遇不断，行走修仙界如履平地。',
     effects: { luck: 30, charm: 50 },
   },
+
+  // ===== 补充：Green（绿阶·基础）=====
+  {
+    id: 'TRAIT_SLEEPY_HEAD',
+    name: '贪睡懒虫',
+    quality: 'Green',
+    description: '倒头便睡，灵力回复极快，可惜修炼上总是少了几分勤勉。',
+    effects: { spiritEnergyMax: 15, comprehension: -5 },
+  },
+  {
+    id: 'TRAIT_MISER',
+    name: '守财奴',
+    quality: 'Green',
+    description: '精打细算，起步略有余财，只是为人吝啬，走到哪儿都不太讨喜。',
+    effects: { initialStones: 300, charm: -50 },
+  },
+
+  // ===== 补充：Blue（蓝阶·优良）=====
+  {
+    id: 'TRAIT_ALCHEMY_SEED',
+    name: '丹心妙手',
+    quality: 'Blue',
+    description: '天生丹道亲和，控火手感极佳，悟性与灵力俱为上乘。',
+    effects: { comprehension: 8, spiritEnergyMax: 30 },
+  },
+  {
+    id: 'TRAIT_UNYIELDING',
+    name: '百折不挠',
+    quality: 'Blue',
+    description: '意志坚韧如铁，肉身高强度修炼下恢复极快，越挫越勇。',
+    effects: { physique: 8, defense: 5 },
+  },
+
+  // ===== 补充：Purple（紫阶·圣级）=====
+  {
+    id: 'TRAIT_THUNDER_APTITUDE',
+    name: '雷灵感应',
+    quality: 'Purple',
+    description: '天生亲近雷电，出手凌厉霸道，暴击惊人，只是脾性随之躁动。',
+    effects: { attack: 10, critRate: 10, comprehension: -5 },
+  },
+  {
+    id: 'TRAIT_SEVEN_ORIFICES',
+    name: '七窍玲珑',
+    quality: 'Purple',
+    description: '心思通透，察言观色远胜常人，悟性过人，人缘亦佳。',
+    effects: { perception: 15, comprehension: 5, charm: 30 },
+  },
+
+  // ===== 补充：Orange（橙阶·仙级）=====
+  {
+    id: 'TRAIT_REFINING_SAINT',
+    name: '炼体狂魔',
+    quality: 'Orange',
+    description: '肉身千锤百炼，刀枪难伤，攻防兼备，同境之中难逢敌手。',
+    effects: { physique: 15, defense: 10, attack: 8 },
+  },
+  {
+    id: 'TRAIT_ALCHEMY_SAINT',
+    name: '丹道奇才',
+    quality: 'Orange',
+    description: '天生丹道圣手，凡火中亦能炼出灵丹，福缘深厚，丹方屡有灵悟。',
+    effects: { comprehension: 15, luck: 10, spiritEnergyMax: 30 },
+  },
+
+  // ===== 补充：Red（红阶·神级）=====
+  {
+    id: 'TRAIT_HEAVEN_EYE',
+    name: '天眼通',
+    quality: 'Red',
+    description: '天生通晓天地，神识如渊如海，能窥破虚妄，洞见福祸。',
+    effects: { perception: 30, luck: 15, comprehension: 10 },
+  },
+  {
+    id: 'TRAIT_PHOENIX_REBIRTH',
+    name: '涅槃不灭体',
+    quality: 'Red',
+    description: '身负上古凤凰涅槃之力，寿元绵长，生机不绝，浴火可获新生。',
+    effects: { lifespanBonus: 80, physique: 12, spiritEnergyMax: 80 },
+  },
+
+  // ===== 补充：Green（绿阶·基础）=====
+  {
+    id: 'TRAIT_NIGHT_OWL',
+    name: '夜猫子',
+    quality: 'Green',
+    description: '昼伏夜出，夜中精神格外抖擞，神识也较常人灵敏几分，只是白日里总有些没精打采。',
+    effects: { perception: 6, comprehension: -3 },
+  },
+  {
+    id: 'TRAIT_STUDIOUS',
+    name: '手不释卷',
+    quality: 'Green',
+    description: '自幼嗜书如命，博闻强识，悟性略胜常人，只是久坐读书，身板不大结实。',
+    effects: { comprehension: 6, physique: -2 },
+  },
+  {
+    id: 'TRAIT_STUBBORN',
+    name: '倔驴脾气',
+    quality: 'Green',
+    description: '认准的事九头牛都拉不回来，皮实耐揍，只是这倔劲儿也常惹人不快。',
+    effects: { defense: 4, charm: -50 },
+  },
+
+  // ===== 补充：Blue（蓝阶·优良）=====
+  {
+    id: 'TRAIT_QUICK_WITTED',
+    name: '急智过人',
+    quality: 'Blue',
+    description: '临危不乱，遇事转念极快，身法灵动，常能在险境中觅得一线生机。',
+    effects: { agility: 8, perception: 5 },
+  },
+  {
+    id: 'TRAIT_GOURMAND',
+    name: '老饕',
+    quality: 'Blue',
+    description: '生于厨间，尝遍百味，连灵膳药膳的火候都颇有心得，人缘也因这一手好厨艺不差。',
+    effects: { spiritEnergyMax: 20, charm: 20, luck: 5 },
+  },
+  {
+    id: 'TRAIT_FOREST_CHILD',
+    name: '山林之子',
+    quality: 'Blue',
+    description: '自幼在山野间长大，与草木鸟兽为伴，身轻如猿，福缘也格外眷顾山野之中。',
+    effects: { agility: 10, luck: 5 },
+  },
+
+  // ===== 补充：Purple（紫阶·圣级）=====
+  {
+    id: 'TRAIT_MERCENARY',
+    name: '佣兵出身',
+    quality: 'Purple',
+    description: '刀口舔血的营生干过多年，攻伐凌厉，皮糙肉厚，只是心性难免被磨得又冷又硬。',
+    effects: { attack: 12, defense: 8, charm: -20 },
+  },
+  {
+    id: 'TRAIT_MOON_GRACE',
+    name: '月华洗炼',
+    quality: 'Purple',
+    description: '自幼便受月华青睐，夜间修炼事半功倍，身姿清冷，自带一股超凡气韵。',
+    effects: { spiritEnergyMax: 40, luck: 10, charm: 30 },
+  },
+
+  // ===== 补充：Orange（橙阶·仙级）=====
+  {
+    id: 'TRAIT_HERBAL_SAINT',
+    name: '药王传人',
+    quality: 'Orange',
+    description: '师承药王一脉，熟谙草木灵性，百毒难侵，炼药悟丹俱有独到之处。',
+    effects: { poisonResist: 40, spiritEnergyMax: 40, comprehension: 10 },
+  },
+  {
+    id: 'TRAIT_TALISMAN_SAINT',
+    name: '符箓天才',
+    quality: 'Orange',
+    description: '于符箓一道天赋异禀，神识精纯，落笔成符，灵力损耗亦远低于同侪。',
+    effects: { perception: 15, spiritEnergyMax: 50, comprehension: 10 },
+  },
+
+  // ===== 补充：Red（红阶·神级）=====
+  {
+    id: 'TRAIT_CHAOS_BODY',
+    name: '混沌之体',
+    quality: 'Red',
+    description: '混沌本源之气入体，万法皆可修，全属性精进如飞，只是这般体质注定招来天妒。',
+    effects: {
+      physique: 8, comprehension: 8, perception: 8, agility: 8,
+      luck: 8, charm: 8, spiritEnergyMax: 80,
+    },
+  },
+  {
+    id: 'TRAIT_EARTH_BLESSING',
+    name: '厚土之佑',
+    quality: 'Red',
+    description: '得大地厚土庇佑，肉身坚不可摧，寿元绵长，立于大地之上便如永世不倒的雄山。',
+    effects: { physique: 15, defense: 15, lifespanBonus: 40 },
+  },
 ];
 
 // ---- 查询函数 ----
