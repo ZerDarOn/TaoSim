@@ -122,8 +122,9 @@ describe('resolveBattleOutcome 多参战者聚合', () => {
     const e2 = makeNpc(0);
     const result = resolveBattleOutcome(player, [e1, e2], 'encounter');
     expect(result.victory).toBe(true);
-    expect(result.expGained).toBeGreaterThan(0);
-    expect(result.spiritStonesGained).toBeGreaterThan(0);
+    // 精确断言：两个敌人 maxExp=300、spiritStones=100，若实现退化为"只结算第一个"将失败
+    expect(result.expGained).toBe(Math.round(600 * 0.3));
+    expect(result.spiritStonesGained).toBe(Math.round(200 * 0.5));
   });
 
   it('任一敌人存活时不判胜利', () => {
