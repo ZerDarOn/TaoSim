@@ -69,13 +69,28 @@ describe('BattleEngine', () => {
   });
 
   it('同 tick 就绪顺序：身法降序，相同按 characterId 升序（与插入顺序无关）', () => {
-    const engine = new BattleEngine(1);
-    const a = makeChar('a', 10);
-    const b = makeChar('b', 10);
-    const c = makeChar('c', 10);
-    engine.start(makeMap(), [a, b], [c]);
-    for (let i = 0; i < 40; i++) engine.advanceTick();
-    expect(engine.getState().currentTurnId).toBe('a');
+    const mk = () => ({
+      a: makeChar('a', 10),
+      b: makeChar('b', 10),
+      c: makeChar('c', 10),
+    });
+    // 正向插入：players [a, b] + enemies [c]
+    {
+      const { a, b, c } = mk();
+      const engine = new BattleEngine(1);
+      engine.start(makeMap(), [a, b], [c]);
+      for (let i = 0; i < 40; i++) engine.advanceTick();
+      expect(engine.getState().currentTurnId).toBe('a');
+    }
+    // 反向插入对照：players [b, a] + enemies [c]，characterId 升序 'a' 仍胜出
+    // （'a' 须留在玩家阵营：AI 单位就绪后会立即结算回合，无法作为最终停留者）
+    {
+      const { a, b, c } = mk();
+      const engine = new BattleEngine(1);
+      engine.start(makeMap(), [b, a], [c]);
+      for (let i = 0; i < 40; i++) engine.advanceTick();
+      expect(engine.getState().currentTurnId).toBe('a');
+    }
   });
 
   it('一方全灭时 winner 立即判定', () => {
@@ -193,5 +208,111 @@ describe('BattleEngine', () => {
     stateOf(engine).currentTurnId = 'p';
     const r = engine.dispatch({ type: 'EndActivation', actorId: 'e' });
     expect(r.error).toBe('not_your_turn');
+  });
+
+  it('阻挡路径不可穿越：阻挡格无法直线跨过（movePoints 2 无 ≤2 步绕行）', () => {
+    const engine = new BattleEngine(1);
+    engine.start(makeMap(), [makeChar('p', 1)], [makeChar('e', 10)]);
+    const state = stateOf(engine);
+    state.currentTurnId = 'p';
+    // 把 p 放到 (0,0)（先清掉原出生格），(1,0) 设为阻挡
+    const oldPos = Object.values(state.map.tiles).find((t) => t.occupantId === 'p')!;
+    oldPos.occupantId = undefined;
+    state.map.tiles[hexKey(0, 0)]!.occupantId = 'p';
+    state.map.tiles[hexKey(1, 0)]!.isBlocked = true;
+    const r = engine.dispatch({ type: 'Move', actorId: 'p', to: { q: 2, r: 0 } });
+    expect(['blocked', 'out_of_range']).toContain(r.error);
+    expect(state.map.tiles[hexKey(2, 0)]!.occupantId).toBeUndefined();
+  });
+
+  it('寻路可绕行：movePoints 4 可绕行 4 步避开阻挡，证明是寻路而非纯端点判断', () => {
+    const engine = new BattleEngine(1);
+    engine.start(makeMap(), [makeChar('p', 10)], [makeChar('e', 10)]);
+    const state = stateOf(engine);
+    state.currentTurnId = 'p';
+    const oldPos = Object.values(state.map.tiles).find((t) => t.occupantId === 'p')!;
+    oldPos.occupantId = undefined;
+    state.map.tiles[hexKey(0, 0)]!.occupantId = 'p';
+    state.map.tiles[hexKey(1, 0)]!.isBlocked = true;
+    // 绕行 (0,0)→(0,1)→(1,1)→(2,1)→(2,0) 共 4 步 ≤ movePoints 4
+    const r = engine.dispatch({ type: 'Move', actorId: 'p', to: { q: 2, r: 0 } });
+    expect(r.error).toBeUndefined();
+    expect(state.map.tiles[hexKey(2, 0)]!.occupantId).toBe('p');
+    expect(state.map.tiles[hexKey(0, 0)]!.occupantId).toBeUndefined();
+  });
+
+  it('水域不可通行：水域格无法直线跨过', () => {
+    const engine = new BattleEngine(1);
+    engine.start(makeMap(), [makeChar('p', 1)], [makeChar('e', 10)]);
+    const state = stateOf(engine);
+    state.currentTurnId = 'p';
+    const oldPos = Object.values(state.map.tiles).find((t) => t.occupantId === 'p')!;
+    oldPos.occupantId = undefined;
+    state.map.tiles[hexKey(0, 0)]!.occupantId = 'p';
+    state.map.tiles[hexKey(1, 0)]!.isWater = true;
+    const r = engine.dispatch({ type: 'Move', actorId: 'p', to: { q: 2, r: 0 } });
+    expect(r.error).toBe('blocked');
+    expect(state.map.tiles[hexKey(2, 0)]!.occupantId).toBeUndefined();
+  });
+
+  it('ID 重复时启动失败且零写入', () => {
+    const engine = new BattleEngine(1);
+    const result = engine.start(makeMap(), [makeChar('p', 10), makeChar('p', 10)], [makeChar('e', 10)]);
+    expect(result.error).toBe('duplicate_unit_id');
+    const state = engine.getState();
+    expect(state.phase).toBe('Idle');
+    expect(Object.keys(state.units)).toHaveLength(0);
+    expect(Object.keys(state.characters)).toHaveLength(0);
+  });
+
+  it('一方无存活单位时启动失败且零写入', () => {
+    const engine = new BattleEngine(1);
+    const e = makeChar('e', 10);
+    e.hp = 0;
+    const result = engine.start(makeMap(), [makeChar('p', 10)], [e]);
+    expect(result.error).toBe('no_alive_unit');
+    const state = engine.getState();
+    expect(state.phase).toBe('Idle');
+    expect(Object.keys(state.units)).toHaveLength(0);
+  });
+
+  it('同队不可攻击', () => {
+    const engine = new BattleEngine(1);
+    engine.start(makeMap(), [makeChar('p1', 10), makeChar('p2', 10)], [makeChar('e', 10)]);
+    stateOf(engine).currentTurnId = 'p1';
+    const r = engine.dispatch({ type: 'BasicAttack', actorId: 'p1', targetId: 'p2' });
+    expect(r.error).toBe('invalid_target');
+  });
+
+  it('currentTurnId 为 null 时 EndActivation 被拒', () => {
+    const engine = new BattleEngine(1);
+    engine.start(makeMap(), [makeChar('p', 10)], [makeChar('e', 10)]);
+    // start 后 currentTurnId 为 null，任何单位都不可提前结算
+    const r = engine.dispatch({ type: 'EndActivation', actorId: 'p' });
+    expect(r.error).toBe('not_your_turn');
+    expect(engine.getState().currentTurnId).toBeNull();
+  });
+
+  it('同 seed 同命令序列完全可复现（events/characters/units 一致）', () => {
+    const run = () => {
+      const engine = new BattleEngine(42, 'battle_fixed'); // battleId 注入固定值消除 Date.now 差异
+      engine.start(makeMap(), [makeChar('p', 10)], [makeChar('e', 10)]);
+      const state = stateOf(engine);
+      state.currentTurnId = 'p';
+      // p 挪到 (2,0) 紧邻 e 出生格 (3,0)，保证 BasicAttack 射程内命中（消耗 rng 序列）
+      const oldPos = Object.values(state.map.tiles).find((t) => t.occupantId === 'p')!;
+      oldPos.occupantId = undefined;
+      state.map.tiles[hexKey(2, 0)]!.occupantId = 'p';
+      engine.dispatch({ type: 'BasicAttack', actorId: 'p', targetId: 'e' });
+      engine.dispatch({ type: 'Guard', actorId: 'p' });
+      engine.advanceTick();
+      engine.advanceTick();
+      return engine.getState();
+    };
+    const s1 = run();
+    const s2 = run();
+    expect(JSON.stringify(s1.events)).toBe(JSON.stringify(s2.events));
+    expect(JSON.stringify(s1.characters)).toBe(JSON.stringify(s2.characters));
+    expect(JSON.stringify(s1.units)).toBe(JSON.stringify(s2.units));
   });
 });

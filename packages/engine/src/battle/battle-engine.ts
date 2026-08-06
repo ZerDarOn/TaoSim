@@ -1,5 +1,5 @@
 import type { BattleState, BattleUnit, BattleCommand, BattleEvent, HexBattleMap, Character } from '@taosim/contracts';
-import { hexKey, hexDistance } from '@taosim/contracts';
+import { hexKey, hexDistance, hexNeighbors } from '@taosim/contracts';
 import { createSeededRng } from './seeded-rng.js';
 import { BATTLE_CONFIG } from './battle-config.js';
 import { calculateDamage } from './damage-calculator.js';
@@ -57,10 +57,19 @@ export class BattleEngine {
 
   /**
    * 注册双方单位并放置到出生格（深拷贝隔离）。
-   * 任一侧可放置格不足时启动失败：返回 { error: 'not_enough_spawn_slots' }，
-   * 且不做任何部分写入（state 保持 Idle 原样，不放置、不发 battle_start）。
+   * 启动前依次校验（任一失败即返回结构化错误，不做任何部分写入，state 保持 Idle 原样）：
+   *   1. 单位 ID 唯一（重复会互相覆盖 state.units）→ { error: 'duplicate_unit_id' }
+   *   2. 双方至少一名存活单位（hp > 0）→ { error: 'no_alive_unit' }
+   *   3. 任一侧可放置格不足 → { error: 'not_enough_spawn_slots' }
    */
   start(map: HexBattleMap, players: Character[], enemies: Character[]): { error?: string } {
+    const allIds = [...players, ...enemies].map((c) => c.id);
+    if (new Set(allIds).size !== allIds.length) {
+      return { error: 'duplicate_unit_id' };
+    }
+    if (!players.some((p) => p.hp > 0) || !enemies.some((e) => e.hp > 0)) {
+      return { error: 'no_alive_unit' };
+    }
     const mid = Math.floor(map.width / 2);
     const tiles = Object.values(map.tiles);
     const leftCount = tiles.filter((t) => t.q < mid && !t.isBlocked && !t.isWater && !t.occupantId).length;
@@ -237,11 +246,15 @@ export class BattleEngine {
     if (unit.movePoints < 1) return { error: 'no_move_points' };
     const from = this.findUnitPosition(actorId);
     if (!from) return { error: 'no_position' };
-    const d = hexDistance(from.q, from.r, toQ, toR);
-    if (d > unit.movePoints) return { error: 'out_of_range' };
     const tile = this.state.map.tiles[hexKey(toQ, toR)];
-    if (!tile || tile.isBlocked) return { error: 'blocked' };
+    if (!tile || tile.isBlocked || tile.isWater) return { error: 'blocked' };
     if (tile.occupantId) return { error: 'occupied' };
+    // BFS 寻路：必须存在 ≤ movePoints 的可通行路径，不能直线跨过阻挡/水域格
+    const d = this.shortestMoveDistance(from.q, from.r, toQ, toR, unit.movePoints);
+    if (d === null) {
+      // 直线距离本身超出移动力 → 超程；否则是被地形阻断且无法绕行
+      return { error: hexDistance(from.q, from.r, toQ, toR) > unit.movePoints ? 'out_of_range' : 'blocked' };
+    }
     const oldTile = this.state.map.tiles[hexKey(from.q, from.r)];
     if (oldTile) oldTile.occupantId = undefined;
     tile.occupantId = actorId;
@@ -250,12 +263,44 @@ export class BattleEngine {
     return {};
   }
 
+  /**
+   * BFS 最短路径步数（只做可达性判断，不做路径回放）。
+   * 每格可通行条件：格子存在 && 非阻挡 && 非水域 &&（格为空 || 该格就是目标格）。
+   * 步数上限 maxSteps 内到达目标格返回步数，否则返回 null。
+   */
+  private shortestMoveDistance(fromQ: number, fromR: number, toQ: number, toR: number, maxSteps: number): number | null {
+    const startKey = hexKey(fromQ, fromR);
+    const targetKey = hexKey(toQ, toR);
+    if (startKey === targetKey) return null; // 原地移动无意义
+    const visited = new Set<string>([startKey]);
+    let frontier: { q: number; r: number }[] = [{ q: fromQ, r: fromR }];
+    for (let step = 1; step <= maxSteps; step++) {
+      const next: { q: number; r: number }[] = [];
+      for (const cell of frontier) {
+        for (const n of hexNeighbors(cell.q, cell.r)) {
+          const key = hexKey(n.q, n.r);
+          if (visited.has(key)) continue;
+          visited.add(key);
+          const tile = this.state.map.tiles[key];
+          if (!tile || tile.isBlocked || tile.isWater) continue;
+          if (key === targetKey) return step;
+          if (tile.occupantId) continue; // 途经格必须为空
+          next.push(n);
+        }
+      }
+      frontier = next;
+    }
+    return null;
+  }
+
   private dispatchBasicAttack(actorId: string, targetId: string): { error?: string } {
     const check = this.canAct(actorId);
     if (!check.ok) return { error: check.error };
     const attacker = this.state.characters[actorId]!;
     const defender = this.state.characters[targetId];
     if (!defender || defender.hp <= 0) return { error: 'invalid_target' };
+    // 同队不可攻击
+    if (this.state.units[actorId]!.team === this.state.units[targetId]!.team) return { error: 'invalid_target' };
     const unit = this.state.units[actorId]!;
     if (unit.actionPoints < 1) return { error: 'no_ap' };
 
@@ -298,7 +343,8 @@ export class BattleEngine {
   private dispatchEndActivation(actorId: string): { error?: string } {
     const unit = this.state.units[actorId];
     if (!unit) return { error: 'unknown_unit' };
-    if (this.state.currentTurnId && this.state.currentTurnId !== actorId) return { error: 'not_your_turn' };
+    // 严格回合校验：currentTurnId 必须就是 actorId（currentTurnId 为 null 时任何单位都不可调用）
+    if (this.state.currentTurnId !== actorId) return { error: 'not_your_turn' };
     unit.actionReady = false;
     unit.gauge = 0;
     const c = this.state.characters[actorId];
