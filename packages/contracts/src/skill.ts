@@ -5,6 +5,12 @@
 // ---- 技能品质 ----
 export type SkillQuality = 'Huang' | 'Xuan' | 'Di' | 'Tian';
 
+export type SkillElement =
+  | 'Metal' | 'Wood' | 'Water' | 'Fire' | 'Earth'
+  | 'Thunder' | 'Ice' | 'Wind' | 'Dark' | 'Physical';
+
+export type TargetFilter = 'Enemy' | 'Ally' | 'Self' | 'Any';
+
 // ---- 战斗原子 ----
 export interface AtomicNode {
   id: string;
@@ -37,4 +43,10 @@ export interface Skill {
   cost: SkillCost;
   backfire?: BackfireEffect;
   cooldownTurns: number;
+  /** 功法五行属性（Phase B 五行交互使用；默认 Physical） */
+  element?: SkillElement;
+  /** 功法阶位（Huang=1/Xuan=2/Di=3/Tian=4，用于等级压制） */
+  tier?: number;
+  /** 显式目标阵营（不允许按技能名称或 Numeric 字段猜测） */
+  target?: TargetFilter;
 }

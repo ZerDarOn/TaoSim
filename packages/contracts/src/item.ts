@@ -2,6 +2,8 @@
 // Item 数据模型 — 架构规范 §23
 // ============================================================
 
+import type { SkillElement } from './skill.js';
+
 export type ItemType = 'Medicine' | 'Equipment' | 'Talisman' | 'Material' | 'Poison' | 'Formula';
 
 export type AttributeKey =
@@ -43,6 +45,8 @@ export interface Item {
   specialEffect?: SpecialEffectType;
   durability?: import('./durability.js').DurabilityState;
   isBroken?: boolean;
+  /** 法宝/防具的护体元素（五行交互防御来源，默认 Physical） */
+  element?: SkillElement;
 }
 
 export interface ItemStack {
