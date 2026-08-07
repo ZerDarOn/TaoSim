@@ -264,7 +264,11 @@ function bindViewportEvents(g: Graphics) {
     if (tile) emit('tileClick', tile.q, tile.r);
   });
   g.on('pointerupoutside', () => { pendingDrag = null; g.cursor = 'grab'; });
-  g.on('rightdown', () => emit('tileClick', -1, -1)); // 右键取消（-1 哨兵）
+  g.on('rightdown', () => {
+    pendingDrag = null;
+    g.cursor = 'grab';
+    emit('tileClick', -1, -1);
+  }); // 右键取消（-1 哨兵）
 }
 
 /** 飘字：监听 floatingTexts 新增项，创建 Pixi Text 并驱动 1.2s 上浮淡出动画 */
@@ -287,7 +291,7 @@ function spawnFloatTexts() {
     anims.push({ id: f.id, text: t, t: 0 });
     added = true;
   }
-  if (added) app!.ticker.add(tickAnim);
+  if (added && anims.length === 1) app!.ticker.add(tickAnim);
 }
 
 function tickAnim() {
