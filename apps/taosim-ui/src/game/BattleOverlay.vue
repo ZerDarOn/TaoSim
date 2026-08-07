@@ -14,6 +14,11 @@ import type { Character } from '@taosim/contracts';
 import { MapGenerator, resolveBattleOutcome } from '@taosim/engine';
 import type { BattleOutcome } from '@taosim/engine';
 
+const timers: number[] = [];
+function later(fn: () => void, ms: number) {
+  timers.push(window.setTimeout(fn, ms));
+}
+
 const playerStore = usePlayerStore();
 const uiStore = useUiStore();
 const gameFlow = useGameFlowStore();
@@ -85,6 +90,7 @@ const currentActor = computed(() =>
 
 // 检测战斗是否结束
 function checkBattleEnd() {
+  if (showResult.value) return;
   const playerChar = state.characters[player.value.id];
   const enemyChar = state.characters[enemy.value.id];
   if (!playerChar || !enemyChar) return;
@@ -146,7 +152,7 @@ function applyOutcome(outcome: BattleOutcome) {
 function onTileClick(q: number, r: number) {
   if (q === -1 && r === -1) { ui.cancel(); return; }
   ui.onTileClick(q, r);
-  setTimeout(checkBattleEnd, 100);
+  later(checkBattleEnd, 100);
 }
 
 function onTileHover(info: { q: number; r: number; characterId?: string } | null) {
@@ -155,7 +161,7 @@ function onTileHover(info: { q: number; r: number; characterId?: string } | null
 
 function onEndTurn() {
   ui.endTurnCmd();
-  setTimeout(checkBattleEnd, 600);
+  later(checkBattleEnd, 600);
 }
 
 function onEsc(e: KeyboardEvent) {
@@ -173,6 +179,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onEsc);
+  for (const t of timers) window.clearTimeout(t);
+  timers.length = 0;
 });
 
 // 战斗结束：暂停 ATB 推进
@@ -183,7 +191,7 @@ function pauseBattle() {
 // NPC 回合后也检查
 watch(() => state.currentTurn, (newTurn) => {
   if (newTurn === null && !showResult.value) {
-    setTimeout(checkBattleEnd, 200);
+    later(checkBattleEnd, 200);
   }
 });
 </script>
