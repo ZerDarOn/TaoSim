@@ -150,6 +150,15 @@ describe('useBattleUI 状态机', () => {
     expect(combat.state.characters['p']!.ap).toBe(2);
     expect(ui.phase.value).toBe('idle');
     expect(combat.state.currentTurn).toBeNull();
+
+    // endTurnCmd：重置为玩家回合进入 command 后直接结束
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    expect(ui.phase.value).toBe('command');
+    ui.endTurnCmd();
+    await nextTick();
+    expect(ui.phase.value).toBe('idle');
+    expect(combat.state.currentTurn).toBeNull();
   });
 
   it('removeFloatingText 从队列移除指定飘字', async () => {
