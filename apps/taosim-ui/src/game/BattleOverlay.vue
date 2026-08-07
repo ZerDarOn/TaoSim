@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
 import { useGameFlowStore } from '@/stores/game-flow';
 import { useEventLogStore } from '@/stores/event-log';
 import { useCombat } from '@/composables/useCombat';
+import { useBattleUI } from '@/composables/useBattleUI';
 import HexCanvas from '@/components/HexCanvas.vue';
-import ATBBar from '@/components/ATBBar.vue';
-import SkillPanel from '@/components/SkillPanel.vue';
-import type { Character, Skill } from '@taosim/contracts';
+import BattleStatusPanel from '@/components/BattleStatusPanel.vue';
+import BattleLog from '@/components/BattleLog.vue';
+import BattleCommandBar from '@/components/BattleCommandBar.vue';
+import type { Character } from '@taosim/contracts';
 import { MapGenerator, resolveBattleOutcome } from '@taosim/engine';
 import type { BattleOutcome } from '@taosim/engine';
 
@@ -47,25 +49,23 @@ const playerClone = computed<Character>(() => ({
   skillCooldowns: { ...player.value.skillCooldowns },
 }));
 
-const { state, start, setPaused, movePlayer, selectSkill, attackTarget, endTurn } = useCombat(
+const combat = useCombat(
   battleMap.value,
   player.value.id,
   playerClone.value,
   [enemy.value],
 );
+const { state, start, setPaused } = combat;
+const ui = useBattleUI(combat, player.value.id);
 
 // 放置角色
 state.engine!.placeCharacter(player.value.id, 1, 1);
 state.engine!.placeCharacter(enemy.value.id, 4, 4);
 
-const charList = computed(() =>
-  Object.values(state.characters).map(c => ({
-    id: c.id,
-    name: c.name,
-    hp: Math.max(0, c.hp),
-    maxHp: c.maxHp,
-    isPlayer: c.id === player.value.id,
-  })),
+// 悬停详情（设计文档 §6.4）
+const hoverInfo = ref<{ q: number; r: number; characterId?: string } | null>(null);
+const hoverCharacter = computed(() =>
+  hoverInfo.value?.characterId ? state.characters[hoverInfo.value.characterId] ?? null : null,
 );
 
 const availableSkills = computed(() => {
@@ -78,6 +78,10 @@ const availableSkills = computed(() => {
       && p.ap >= s.cost.ap;
   });
 });
+
+const currentActor = computed(() =>
+  state.currentTurn ? state.characters[state.currentTurn] ?? null : null,
+);
 
 // 检测战斗是否结束
 function checkBattleEnd() {
@@ -138,25 +142,24 @@ function applyOutcome(outcome: BattleOutcome) {
   }
 }
 
+// 地图点击：右键取消（HexCanvas 发 -1 哨兵）；其余交 useBattleUI 分发
 function onTileClick(q: number, r: number) {
-  if (state.phase === 'targeting') {
-    const tile = state.engine!.getMap().tiles[`${q},${r}`];
-    if (tile && tile.occupantId && tile.occupantId !== player.value.id) {
-      attackTarget(tile.occupantId);
-      setTimeout(checkBattleEnd, 100);
-    }
-  } else {
-    movePlayer(q, r);
-  }
+  if (q === -1 && r === -1) { ui.cancel(); return; }
+  ui.onTileClick(q, r);
+  setTimeout(checkBattleEnd, 100);
 }
 
-function onSkillSelect(skill: Skill) {
-  selectSkill(skill);
+function onTileHover(info: { q: number; r: number; characterId?: string } | null) {
+  hoverInfo.value = info;
 }
 
 function onEndTurn() {
-  endTurn();
+  ui.endTurnCmd();
   setTimeout(checkBattleEnd, 600);
+}
+
+function onEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape') ui.cancel();
 }
 
 function closeBattle() {
@@ -165,6 +168,11 @@ function closeBattle() {
 
 onMounted(() => {
   start();
+  window.addEventListener('keydown', onEsc);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onEsc);
 });
 
 // 战斗结束：暂停 ATB 推进
@@ -183,7 +191,7 @@ watch(() => state.currentTurn, (newTurn) => {
 <template>
   <!-- 全屏遮罩 -->
   <div class="fixed inset-0 z-50 bg-slate-900 flex flex-col">
-    <!-- 顶部标题栏 -->
+    <!-- 顶部状态条 -->
     <div class="flex items-center justify-between px-6 py-3 bg-slate-800 border-b border-slate-700">
       <div>
         <h2 class="text-lg font-bold text-amber-200">{{ battleConfig.title }}</h2>
@@ -202,59 +210,72 @@ watch(() => state.currentTurn, (newTurn) => {
     <!-- 战斗区域 -->
     <div class="flex-1 flex gap-4 p-4 overflow-hidden">
       <!-- 主画布 -->
-      <div class="flex-1 flex flex-col items-center justify-center">
+      <div class="flex-1 relative flex flex-col items-center justify-center">
         <HexCanvas
           :map="state.map"
           :player-id="player.id"
           :view-radius="Math.max(2, Math.floor(player.attributes.perception / 2))"
           :characters="state.characters"
+          :move-range="ui.moveRange.value"
+          :attack-range="ui.attackRange.value"
+          :selected-tile="hoverInfo ? { q: hoverInfo.q, r: hoverInfo.r } : null"
+          :floating-texts="ui.floatingTexts.value"
           @tile-click="onTileClick"
+          @tile-hover="onTileHover"
+          @floating-text-done="ui.removeFloatingText"
         />
         <div class="text-xs text-slate-500 mt-2 text-center">
-          <template v-if="state.phase === 'targeting'">
-            点击目标施放技能
+          <template v-if="ui.phase.value === 'moving'">
+            移动点剩余 {{ state.movePoints }}/{{ state.maxMovePoints }} · 点击绿色格子移动，Esc/右键取消
+          </template>
+          <template v-else-if="ui.phase.value === 'targeting-attack' || ui.phase.value === 'targeting-skill'">
+            点击红色高亮目标发动攻击，Esc/右键取消
           </template>
           <template v-else-if="state.currentTurn === player.id">
-            移动点剩余 {{ state.movePoints }}/{{ state.maxMovePoints }} · 点击空地移动，再攻击或结束回合
+            移动点剩余 {{ state.movePoints }}/{{ state.maxMovePoints }} · 请选择命令
           </template>
           <template v-else>
             行动条蓄力中，等待行动…
           </template>
         </div>
-      </div>
 
-      <!-- 右侧面板 -->
-      <div class="w-72 space-y-3 flex flex-col">
-        <ATBBar :characters="charList" :current-turn="state.currentTurn" :atb="state.atb" />
-        <SkillPanel
-          :skills="availableSkills"
-          :selected-id="state.selectedSkill?.id ?? null"
-          :phase="state.phase"
-          @select="onSkillSelect"
-          @cancel="state.phase = 'idle'; state.selectedSkill = null"
-        />
-        <button
-          v-if="state.currentTurn === player.id && state.phase === 'idle'"
-          @click="onEndTurn"
-          class="w-full px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-md font-semibold text-sm transition"
-        >
-          结束回合
-        </button>
-
-        <!-- 战斗日志 -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700 p-3 flex-1 overflow-y-auto min-h-[100px]">
-          <h3 class="text-xs font-semibold text-slate-400 mb-2">战斗日志</h3>
-          <div
-            v-for="(line, i) in state.log.slice(-20)"
-            :key="i"
-            class="text-xs text-slate-300 leading-relaxed"
-          >
-            {{ line }}
+        <!-- 目标悬停详情（设计文档 §6.4） -->
+        <div v-if="hoverCharacter"
+          class="absolute top-2 left-2 z-10 bg-slate-800/95 border border-slate-600 rounded-lg px-3 py-2 text-xs space-y-0.5 pointer-events-none">
+          <div class="font-bold" :class="hoverCharacter.id === player.id ? 'text-amber-300' : 'text-red-300'">
+            {{ hoverCharacter.name }}
           </div>
-          <div v-if="state.log.length === 0" class="text-xs text-slate-600">等待行动...</div>
+          <div class="text-slate-400">气血 {{ Math.max(0, Math.ceil(hoverCharacter.hp)) }}/{{ hoverCharacter.maxHp }}</div>
+          <div class="text-slate-400">灵力 {{ hoverCharacter.spiritEnergy.current }}/{{ hoverCharacter.spiritEnergy.max }}</div>
         </div>
       </div>
+
+      <!-- 右侧栏 -->
+      <div class="w-80 space-y-3 flex flex-col">
+        <BattleStatusPanel
+          :characters="state.characters"
+          :atb="state.atb"
+          :current-turn="state.currentTurn"
+        />
+        <BattleLog :lines="state.log" />
+      </div>
     </div>
+
+    <!-- 底部命令栏 -->
+    <BattleCommandBar
+      :phase="ui.phase.value"
+      :current-turn="state.currentTurn"
+      :player-id="player.id"
+      :actor="currentActor"
+      :waiting-name="state.currentTurn && state.currentTurn !== player.id ? state.characters[state.currentTurn]?.name : undefined"
+      :skills="availableSkills"
+      @attack="ui.openAttack()"
+      @skill="ui.openSkill($event)"
+      @defend="ui.defendCmd()"
+      @move="ui.openMove()"
+      @end-turn="onEndTurn"
+      @cancel="ui.cancel()"
+    />
 
     <!-- 战斗结果弹窗 -->
     <div
