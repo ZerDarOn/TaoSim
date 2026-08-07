@@ -39,6 +39,7 @@ let fxLayer: Container | null = null;
 let hoverTile: { q: number; r: number } | null = null;
 let pendingDrag: { startX: number; startY: number; dragged: boolean } | null = null;
 let anims: { id: number; text: Text; t: number }[] = [];
+let tickRegistered = false;
 let removeViewListeners: (() => void) | null = null;
 
 function hexToPixel(q: number, r: number): { x: number; y: number } {
@@ -291,7 +292,7 @@ function spawnFloatTexts() {
     anims.push({ id: f.id, text: t, t: 0 });
     added = true;
   }
-  if (added && anims.length === 1) app!.ticker.add(tickAnim);
+  if (added && !tickRegistered) { app!.ticker.add(tickAnim); tickRegistered = true; }
 }
 
 function tickAnim() {
@@ -310,7 +311,7 @@ function tickAnim() {
     if (child) child.destroy();
     emit('floatingTextDone', id);
   }
-  if (anims.length === 0) app!.ticker.remove(tickAnim);
+  if (anims.length === 0) { app!.ticker.remove(tickAnim); tickRegistered = false; }
 }
 
 /** 缩放按钮（围绕中心） */
@@ -351,13 +352,14 @@ onMounted(() => {
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     const newScale = Math.min(HEX_SCALE_MAX, Math.max(HEX_SCALE_MIN, scale * factor));
     if (newScale === scale) return;
-    // 围绕指针缩放：保持指针下的世界坐标不动
-    const local = worldContainer!.toLocal({ x: e.offsetX, y: e.offsetY });
+    // 围绕指针缩放：保持指针下的世界坐标不动（offsetX/Y 为 CSS 像素，需 ×resolution 换算物理像素）
+    const dpr = app!.renderer.resolution;
+    const local = worldContainer!.toLocal({ x: e.offsetX * dpr, y: e.offsetY * dpr });
     scale = newScale;
     worldContainer!.scale.set(scale);
     const back = worldContainer!.toGlobal(local);
-    viewX += e.offsetX - back.x;
-    viewY += e.offsetY - back.y;
+    viewX += e.offsetX * dpr - back.x;
+    viewY += e.offsetY * dpr - back.y;
     worldContainer!.position.set(viewX, viewY);
     render();
   };

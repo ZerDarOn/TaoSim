@@ -72,6 +72,8 @@ export function useBattleUI(combat: Combat, playerId: string) {
 
     if (phase.value === 'moving') {
       if (combat.state.currentTurn !== playerId) return;
+      const pos = findOccupant(combat.state.map, playerId);
+      if (pos && pos.q === q && pos.r === r) { cancel(); return; } // 点击自身=取消移动
       if (moveRange.value.some(t => t.q === q && t.r === r)) {
         combat.movePlayer(q, r);
         phase.value = 'command'; // 移动不结束回合
