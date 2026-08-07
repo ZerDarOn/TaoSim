@@ -164,6 +164,20 @@ function onEndTurn() {
   later(checkBattleEnd, 600);
 }
 
+function onFlee() {
+  const r = ui.fleeCmd(battleConfig.value.type);
+  if (r === 'success') {
+    closeBattle();
+  } else if (r === 'escape-hit') {
+    later(() => {
+      checkBattleEnd();              // 防一击致死漏结算
+      if (!showResult.value) closeBattle();
+    }, 200);
+  } else {
+    later(checkBattleEnd, 100);      // hit/caught 免费攻击后可能致死
+  }
+}
+
 function onEsc(e: KeyboardEvent) {
   if (e.key === 'Escape') ui.cancel();
 }
@@ -277,11 +291,13 @@ watch(() => state.currentTurn, (newTurn) => {
       :actor="currentActor"
       :waiting-name="state.currentTurn && state.currentTurn !== player.id ? state.characters[state.currentTurn]?.name : undefined"
       :skills="availableSkills"
+      :can-flee="ui.canFlee.value"
       @attack="ui.openAttack()"
       @skill="ui.openSkill($event)"
       @defend="ui.defendCmd()"
       @move="ui.openMove()"
       @end-turn="onEndTurn"
+      @flee="onFlee"
       @cancel="ui.cancel()"
     />
 

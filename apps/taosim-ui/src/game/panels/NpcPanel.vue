@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
 import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES, ContentRegistry } from '@taosim/engine';
+import { resolvePersonalityId } from '@taosim/engine';
 import type { NPCTradeOffer, MarketItem, ItemStack } from '@taosim/contracts';
 import type { NpcPersonality, NpcDialogue } from '@taosim/engine';
 import { formatRealm, formatGender, formatItemType, formatQuality } from '@/utils/i18n-game';
@@ -25,13 +26,9 @@ const npcPersonality = computed<NpcPersonality | null>(() => {
   if (!npc.value) return null;
   const pool = ContentRegistry.npcPersonalities;
   if (pool.length === 0) return null;
-  // 用 NPC id 字符串哈希确定性地选一个性格
-  let hash = 0;
-  for (const ch of npc.value.id) {
-    hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
-  }
-  const idx = Math.abs(hash) % pool.length;
-  return pool[idx]!;
+  // 优先读角色自带性格，老数据回退到 id 哈希（与 NPCGenerator 同源）
+  const pid = npc.value.personalityId ?? resolvePersonalityId(npc.value.id);
+  return pool.find(p => p.id === pid) ?? null;
 });
 
 const npcGreeting = computed<NpcDialogue | null>(() => {
