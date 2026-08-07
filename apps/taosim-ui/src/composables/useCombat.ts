@@ -23,6 +23,20 @@ const ATB_TICK_MS = 400;
 /** 普通技能攻击射程（格） */
 const ATTACK_RANGE = 1;
 
+/** 战斗内最大行动点（防御回复封顶值，也用于 UI 显示 ●●●） */
+export const MAX_AP = 3;
+
+/** 普攻内置 Skill：射程 1、系数 1.0、消耗 1 AP，复用 DamagePipeline 结算 */
+export const BASIC_ATTACK_SKILL: Skill = {
+  id: 'basic_attack',
+  name: '普攻',
+  quality: 'Common',
+  type: 'Active',
+  primitives: [],
+  cost: { ap: 1, spiritEnergy: 0 },
+  cooldownTurns: 0,
+};
+
 /** 每回合移动池 = 2 + ⌊身法/5⌋（身法 5→3 格、10→4 格、15→5 格、20→6 格） */
 export function calcMovePoints(agility: number): number {
   return Math.max(2, 2 + Math.floor(agility / 5));
@@ -139,7 +153,7 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     state.phase = 'targeting';
   }
 
-  function attackTarget(targetId: string) {
+  function attackTarget(targetId: string): { defenderId: string; damage: number; blockedByBarrier: boolean } | null {
     if (!state.currentTurn || !state.selectedSkill) return;
     const attacker = state.characters[state.currentTurn];
     const defender = state.characters[targetId];
@@ -182,6 +196,57 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     state.selectedSkill = null;
     state.phase = 'idle';
     state.currentTurn = null;
+    return { defenderId: targetId, damage: result.finalDamage, blockedByBarrier: result.blockedByBarrier };
+  }
+
+  /**
+   * 普攻：不依赖技能，射程 1，消耗 1 AP。
+   * 返回结算结果供 UI 飘字；失败返回 null。
+   */
+  function basicAttack(targetId: string): { defenderId: string; damage: number; blockedByBarrier: boolean } | null {
+    if (state.currentTurn !== playerId) return null;
+    const attacker = state.characters[state.currentTurn];
+    const defender = state.characters[targetId];
+    if (!attacker || !defender) return null;
+
+    const aPos = state.engine!.findCharacterPosition(attacker.id);
+    const dPos = state.engine!.findCharacterPosition(targetId);
+    if (aPos && dPos && hexDistance(aPos.q, aPos.r, dPos.q, dPos.r) > ATTACK_RANGE) {
+      state.log.push(`距离过远，${attacker.name} 无法命中 ${defender.name}`);
+      state.phase = 'idle';
+      return null;
+    }
+
+    const result = DamagePipeline.calculate(attacker, defender, BASIC_ATTACK_SKILL, false);
+    defender.hp -= result.finalDamage;
+    state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+    if (result.blockedByBarrier) {
+      state.log.push(`境界壁垒触发！${defender.name} 毫发无伤`);
+    }
+
+    attacker.ap = Math.max(0, attacker.ap - BASIC_ATTACK_SKILL.cost.ap);
+
+    if (defender.hp <= 0) {
+      state.log.push(`${defender.name} 已被击败`);
+      defender.soulState = 'RemnantSoul';
+    }
+
+    state.engine!.consumeTurn(state.currentTurn);
+    syncAtb();
+    state.selectedSkill = null;
+    state.phase = 'idle';
+    state.currentTurn = null;
+    return { defenderId: targetId, damage: result.finalDamage, blockedByBarrier: result.blockedByBarrier };
+  }
+
+  /** 防御：回复 1 AP（封顶 MAX_AP）并结束回合 */
+  function defend(): void {
+    if (state.currentTurn !== playerId) return;
+    const c = state.characters[state.currentTurn];
+    if (!c) return;
+    c.ap = Math.min(MAX_AP, c.ap + 1);
+    state.log.push(`${c.name} 防御，回复 1 点行动力`);
+    endTurn();
   }
 
   async function executeNpcTurn(npcId: string) {
@@ -214,5 +279,5 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     // 由 ATB 循环驱动下一次行动
   }
 
-  return { state, start, stop, setPaused, tick, movePlayer, selectSkill, attackTarget, endTurn, executeNpcTurn };
+  return { state, start, stop, setPaused, tick, movePlayer, selectSkill, attackTarget, basicAttack, defend, endTurn, executeNpcTurn };
 }
