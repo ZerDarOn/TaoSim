@@ -1,13 +1,18 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { PlayerLifecycleService } from '@taosim/engine';
-import type { Character, Skill, Item } from '@taosim/contracts';
+import type { Character, Skill, Item, BattleDelta } from '@taosim/contracts';
 import { useGameFlowStore } from '@/stores/game-flow';
 
 export const usePlayerStore = defineStore('player', () => {
   const character = ref<Character | null>(null);
   const currentNPC = ref<Character | null>(null);
   const isCreated = computed(() => character.value !== null);
+
+  /** 战斗提交修订号：每次成功提交 +1，用于并发/重复提交防护 */
+  const battleRevision = ref(0);
+  /** 最近已提交的 battleId（幂等键） */
+  const lastCommittedBattleId = ref<string | null>(null);
 
   function setPlayer(c: Character) {
     character.value = c;
@@ -94,6 +99,58 @@ export const usePlayerStore = defineStore('player', () => {
     return { died: result.died, causeOfDeath: result.causeOfDeath };
   }
 
+  /**
+   * 原子提交战斗差量。一次成功：HP/灵力/AP/冷却/经验/灵石/道具/关系全部生效。
+   * 重复 battleId 返回 AlreadyCommitted；baseRevision 不匹配返回 VersionConflict；
+   * 库存不足返回 InsufficientItems。任何失败都不做部分写入。
+   */
+  function commitBattleDelta(delta: BattleDelta): 'Committed' | 'AlreadyCommitted' | 'VersionConflict' | 'InsufficientItems' {
+    if (!character.value) return 'VersionConflict';
+    if (lastCommittedBattleId.value === delta.battleId) return 'AlreadyCommitted';
+    if (delta.baseRevision !== battleRevision.value) return 'VersionConflict';
+
+    const c = character.value;
+
+    // 校验库存（先验证后提交，保证原子性）
+    for (const ci of delta.consumedItems) {
+      const stack = c.inventory.find(s => s.item.id === ci.itemId);
+      if (!stack || stack.count < ci.count) return 'InsufficientItems';
+    }
+
+    // 一次性写入
+    c.hp = Math.max(0, Math.min(c.maxHp, delta.hpAfter));
+    c.spiritEnergy.current = Math.max(0, Math.min(c.spiritEnergy.max, delta.spiritEnergyAfter));
+    c.ap = delta.apAfter;
+    c.skillCooldowns = { ...delta.skillCooldownsAfter };
+    c.cultivation.currentExp += delta.rewards.cultivationExp;
+    c.spiritStones = Math.max(0, c.spiritStones + delta.rewards.spiritStones);
+
+    for (const ci of delta.consumedItems) {
+      const stack = c.inventory.find(s => s.item.id === ci.itemId);
+      if (stack) {
+        stack.count -= ci.count;
+        if (stack.count <= 0) {
+          c.inventory = c.inventory.filter(s => s.item.id !== ci.itemId);
+        }
+      }
+    }
+
+    for (const ri of delta.rewards.items) {
+      const existing = c.inventory.find(s => s.item.id === ri.item.id);
+      if (existing) existing.count += ri.count;
+      else c.inventory.push({ item: ri.item, count: ri.count });
+    }
+
+    for (const rc of delta.relationChanges) {
+      const rel = c.relations[rc.targetId];
+      if (rel) rel.favorability += rc.favorabilityDelta;
+    }
+
+    lastCommittedBattleId.value = delta.battleId;
+    battleRevision.value += 1;
+    return 'Committed';
+  }
+
   return {
     character,
     currentNPC,
@@ -112,5 +169,7 @@ export const usePlayerStore = defineStore('player', () => {
     addSpiritStones,
     unlockRecipe,
     advanceTime,
+    battleRevision,
+    commitBattleDelta,
   };
 });
