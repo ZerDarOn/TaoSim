@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { Character, Skill } from '@taosim/contracts';
 import SkillPanel from './SkillPanel.vue';
 import type { BattleUIPhase } from '@/battle/types';
@@ -33,6 +33,10 @@ const isTargeting = computed(() =>
 
 function toggleSkill() { if (isIdle.value) { skillOpen.value = !skillOpen.value; itemOpen.value = false; } }
 function toggleItem() { if (isIdle.value) { itemOpen.value = !itemOpen.value; skillOpen.value = false; } }
+
+watch(() => props.phase, (p) => {
+  if (p !== 'command') { skillOpen.value = false; itemOpen.value = false; }
+});
 </script>
 
 <template>

@@ -142,7 +142,7 @@ function applyOutcome(outcome: BattleOutcome) {
 
   // GameOver
   if (outcome.shouldGameOver) {
-    setTimeout(() => {
+    later(() => {
       gameFlow.enterGameOver();
     }, 2000);
   }

@@ -223,7 +223,7 @@ function render() {
 
 /** 视口交互：滚轮缩放（围绕指针）/拖拽平移（6px 阈值）/悬停/点击/右键取消 */
 function bindViewportEvents(g: Graphics) {
-  g.interactive = true;
+  g.eventMode = 'static';
   g.cursor = 'grab';
 
   g.on('pointerdown', (e: any) => {
