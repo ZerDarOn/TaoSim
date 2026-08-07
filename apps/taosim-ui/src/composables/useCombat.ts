@@ -21,7 +21,7 @@ interface CombatState {
 /** ATB 行动条推进间隔（毫秒） */
 const ATB_TICK_MS = 400;
 /** 普通技能攻击射程（格） */
-const ATTACK_RANGE = 1;
+export const ATTACK_RANGE = 1;
 
 /** 战斗内最大行动点（防御回复封顶值，也用于 UI 显示 ●●●） */
 export const MAX_AP = 3;
