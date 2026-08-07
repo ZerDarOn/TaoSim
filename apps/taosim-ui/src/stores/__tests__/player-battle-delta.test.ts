@@ -79,14 +79,28 @@ describe('commitBattleDelta', () => {
     const store = seedPlayer();
     const delta = makeDelta({ baseRevision: 99 });
     expect(store.commitBattleDelta(delta)).toBe('VersionConflict');
-    expect(store.character!.hp).toBe(100);
+    // 全字段零写入：HP/灵力/AP/经验/灵石/道具均不变（防半提交回归）
+    const c = store.character!;
+    expect(c.hp).toBe(100);
+    expect(c.spiritEnergy.current).toBe(50);
+    expect(c.ap).toBe(3);
+    expect(c.cultivation.currentExp).toBe(0);
+    expect(c.spiritStones).toBe(0);
+    expect(c.inventory[0]!.count).toBe(3);
   });
 
   it('库存不足返回 InsufficientItems，不做任何写入', () => {
     const store = seedPlayer();
     const delta = makeDelta({ consumedItems: [{ itemId: 'med1', count: 99 }] });
     expect(store.commitBattleDelta(delta)).toBe('InsufficientItems');
-    expect(store.character!.hp).toBe(100);
+    // 全字段零写入
+    const c = store.character!;
+    expect(c.hp).toBe(100);
+    expect(c.spiritEnergy.current).toBe(50);
+    expect(c.ap).toBe(3);
+    expect(c.cultivation.currentExp).toBe(0);
+    expect(c.spiritStones).toBe(0);
+    expect(c.inventory[0]!.count).toBe(3);
   });
 
   it('关系好感度变化生效', () => {
