@@ -11,8 +11,9 @@ export function findOccupant(map: HexBattleMap, characterId: string): { q: numbe
 }
 
 /**
- * BFS 计算移动可达范围。
- * 规则与 useCombat.movePlayer 一致：blocked/占用/未揭示/水格(非飞行) 不可走；
+ * BFS 计算移动可达范围（路径连通约束）。
+ * 障碍判定规则（blocked/占用/未揭示/水格(非飞行) 不可走）与 useCombat.movePlayer 一致，
+ * 但语义更强：本函数要求路径连通，movePlayer 仅校验目标格 hexDistance（可越过障碍）。
  * 不含起点（点击自身=取消移动）。
  */
 export function computeMoveRange(

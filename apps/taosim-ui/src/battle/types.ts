@@ -1,5 +1,3 @@
-import type { Skill } from '@taosim/contracts';
-
 /** 战斗 UI 状态机阶段（设计文档 §5.1） */
 export type BattleUIPhase =
   | 'idle'
