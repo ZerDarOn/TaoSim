@@ -39,6 +39,7 @@ let fxLayer: Container | null = null;
 let hoverTile: { q: number; r: number } | null = null;
 let pendingDrag: { startX: number; startY: number; dragged: boolean } | null = null;
 let anims: { id: number; text: Text; t: number }[] = [];
+let removeViewListeners: (() => void) | null = null;
 
 function hexToPixel(q: number, r: number): { x: number; y: number } {
   // 采用 odd-row offset 布局：奇数行整体右移半格（蜂窝交错），
@@ -224,23 +225,6 @@ function render() {
 function bindViewportEvents(g: Graphics) {
   g.interactive = true;
   g.cursor = 'grab';
-  const viewEl = app!.view as HTMLCanvasElement;
-
-  viewEl.addEventListener('wheel', (e: WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const newScale = Math.min(HEX_SCALE_MAX, Math.max(HEX_SCALE_MIN, scale * factor));
-    if (newScale === scale) return;
-    // 围绕指针缩放：保持指针下的世界坐标不动
-    const local = worldContainer!.toLocal({ x: e.clientX, y: e.clientY });
-    scale = newScale;
-    worldContainer!.scale.set(scale);
-    const back = worldContainer!.toGlobal(local);
-    viewX += e.clientX - back.x;
-    viewY += e.clientY - back.y;
-    worldContainer!.position.set(viewX, viewY);
-    render();
-  }, { passive: false });
 
   g.on('pointerdown', (e: any) => {
     pendingDrag = { startX: e.global.x, startY: e.global.y, dragged: false };
@@ -281,7 +265,6 @@ function bindViewportEvents(g: Graphics) {
   });
   g.on('pointerupoutside', () => { pendingDrag = null; g.cursor = 'grab'; });
   g.on('rightdown', () => emit('tileClick', -1, -1)); // 右键取消（-1 哨兵）
-  viewEl.addEventListener('contextmenu', (e: Event) => e.preventDefault());
 }
 
 /** 飘字：监听 floatingTexts 新增项，创建 Pixi Text 并驱动 1.2s 上浮淡出动画 */
@@ -357,11 +340,37 @@ onMounted(() => {
   fxLayer = new Container();
   app.stage.addChild(worldContainer);
   worldContainer.addChild(fxLayer);
+
+  const viewEl = app.view as HTMLCanvasElement;
+  const wheelHandler = (e: WheelEvent) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const newScale = Math.min(HEX_SCALE_MAX, Math.max(HEX_SCALE_MIN, scale * factor));
+    if (newScale === scale) return;
+    // 围绕指针缩放：保持指针下的世界坐标不动
+    const local = worldContainer!.toLocal({ x: e.clientX, y: e.clientY });
+    scale = newScale;
+    worldContainer!.scale.set(scale);
+    const back = worldContainer!.toGlobal(local);
+    viewX += e.clientX - back.x;
+    viewY += e.clientY - back.y;
+    worldContainer!.position.set(viewX, viewY);
+    render();
+  };
+  viewEl.addEventListener('wheel', wheelHandler, { passive: false });
+  const ctxHandler = (e: Event) => e.preventDefault();
+  viewEl.addEventListener('contextmenu', ctxHandler);
+  removeViewListeners = () => {
+    viewEl.removeEventListener('wheel', wheelHandler);
+    viewEl.removeEventListener('contextmenu', ctxHandler);
+  };
+
   render();
 });
 
 onUnmounted(() => {
   if (app) { app.destroy(true); app = null; }
+  if (removeViewListeners) { removeViewListeners(); removeViewListeners = null; }
   worldContainer = null; fxLayer = null;
   hoverTile = null; pendingDrag = null; anims = [];
 });
