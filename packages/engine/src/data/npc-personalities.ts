@@ -241,3 +241,18 @@ export const NPC_DIALOGUES: NpcDialogue[] = [
   { personalityId: 'PERSONALITY_RECLUSIVE', occasion: 'trade_start', text: '……这个，换那个。……要么？' },
   { personalityId: 'PERSONALITY_RECLUSIVE', occasion: 'gift', text: '……（接过，微微点头，转身离去，却记下了这份情）' },
 ];
+
+/**
+ * 按字符 id 哈希确定性挑选一个性格（djb2 变体，与旧 UI 侧逻辑一致）。
+ * 用于 NPC 生成时分配 personalityId，保证同一 NPC id 恒定同性格。
+ */
+export function resolvePersonalityId(characterId: string): string {
+  const pool = NPC_PERSONALITIES;
+  if (pool.length === 0) return 'PERSONALITY_GENEROUS';
+  let hash = 0;
+  for (const ch of characterId) {
+    hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  }
+  const idx = Math.abs(hash) % pool.length;
+  return pool[idx]!.id;
+}

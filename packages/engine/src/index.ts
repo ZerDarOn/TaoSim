@@ -36,6 +36,7 @@ export { SpiritRootRoller } from './character/spirit-root-roller.js';
 // Data Registries（数据表）
 export { TRAIT_REGISTRY, getTraitsByQuality, getTraitById, rollTraits } from './data/trait-registry.js';
 export { GRADE_MULTIPLIER, ELEMENT_COUNT_MODIFIER, VARIANT_MULTIPLIER, getSpiritRootMultiplier } from './data/spirit-root-table.js';
+export { NPC_PERSONALITIES, resolvePersonalityId } from './data/npc-personalities.js';
 
 // Tribulation Engine (渡劫突破)
 export { TribulationEngine } from './tribulation/tribulation-engine.js';

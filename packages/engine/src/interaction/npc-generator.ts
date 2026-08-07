@@ -1,4 +1,5 @@
 import type { Character } from '@taosim/contracts';
+import { resolvePersonalityId } from '../data/npc-personalities.js';
 
 function seededRandom(seed: number): () => number {
   let s = seed;
@@ -35,6 +36,7 @@ export class NPCGenerator {
 
     return {
       id: `NPC_GEN_${seed}`,
+      personalityId: resolvePersonalityId(`NPC_GEN_${seed}`),
       name,
       gender: rand() < 0.5 ? 'Male' : 'Female',
       realm: `${realmTier}_${subLevel}` as any,

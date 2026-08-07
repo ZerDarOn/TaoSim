@@ -125,6 +125,7 @@ export interface Character {
   traits: import('./trait.js').Trait[];
   factionId?: string;
   factionRank?: FactionRank;
+  personalityId?: string;    // NPC 性格 id（见 engine npc-personalities.ts）；玩家缺省=中性
   relations: Record<string, CharacterRelation>;
   spiritStones: number;
   wantedLevels: Record<string, number>;          // continentId → level (0~5)
