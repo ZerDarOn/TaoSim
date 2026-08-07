@@ -30,7 +30,7 @@ export const MAX_AP = 3;
 export const BASIC_ATTACK_SKILL: Skill = {
   id: 'basic_attack',
   name: '普攻',
-  quality: 'Common',
+  quality: 'Huang',
   type: 'Active',
   primitives: [],
   cost: { ap: 1, spiritEnergy: 0 },
@@ -154,10 +154,10 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
   }
 
   function attackTarget(targetId: string): { defenderId: string; damage: number; blockedByBarrier: boolean } | null {
-    if (!state.currentTurn || !state.selectedSkill) return;
+    if (!state.currentTurn || !state.selectedSkill) return null;
     const attacker = state.characters[state.currentTurn];
     const defender = state.characters[targetId];
-    if (!attacker || !defender) return;
+    if (!attacker || !defender) return null;
 
     // 射程校验
     const aPos = state.engine!.findCharacterPosition(attacker.id);
@@ -165,7 +165,7 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     if (aPos && dPos && hexDistance(aPos.q, aPos.r, dPos.q, dPos.r) > ATTACK_RANGE) {
       state.log.push(`距离过远，${attacker.name} 无法命中 ${defender.name}`);
       state.phase = 'idle';
-      return;
+      return null;
     }
 
     const skill = state.selectedSkill;
