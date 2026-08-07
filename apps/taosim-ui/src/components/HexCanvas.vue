@@ -352,12 +352,12 @@ onMounted(() => {
     const newScale = Math.min(HEX_SCALE_MAX, Math.max(HEX_SCALE_MIN, scale * factor));
     if (newScale === scale) return;
     // 围绕指针缩放：保持指针下的世界坐标不动
-    const local = worldContainer!.toLocal({ x: e.clientX, y: e.clientY });
+    const local = worldContainer!.toLocal({ x: e.offsetX, y: e.offsetY });
     scale = newScale;
     worldContainer!.scale.set(scale);
     const back = worldContainer!.toGlobal(local);
-    viewX += e.clientX - back.x;
-    viewY += e.clientY - back.y;
+    viewX += e.offsetX - back.x;
+    viewY += e.offsetY - back.y;
     worldContainer!.position.set(viewX, viewY);
     render();
   };
