@@ -4,3 +4,5 @@ export { calculateDamage } from './damage-calculator.js';
 export type { DamageSpec, DamageResult } from './damage-calculator.js';
 export { createSeededRng, seededInt } from './seeded-rng.js';
 export { BATTLE_CONFIG } from './battle-config.js';
+export { attemptFlee } from './flee.js';
+export type { FleeAttemptInput, FleeResult } from './flee.js';
