@@ -2,6 +2,7 @@ import { reactive, onScopeDispose } from 'vue';
 import type { Character, HexBattleMap, Skill } from '@taosim/contracts';
 import { hexKey, hexDistance } from '@taosim/contracts';
 import { CombatEngine, DamagePipeline, NpcAI } from '@taosim/engine';
+import { attemptFlee, type FleeResult } from '@taosim/engine';
 
 interface CombatState {
   engine: CombatEngine | null;
@@ -239,6 +240,48 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     return { defenderId: targetId, damage: result.finalDamage, blockedByBarrier: result.blockedByBarrier };
   }
 
+  /** 逃跑尝试：不消耗玩家回合；hit/caught/escape-hit 时敌方免费攻击一次 */
+  function flee(battleType: 'duel' | 'encounter'): FleeResult {
+    const playerChar = state.characters[playerId];
+    const enemyChar = state.characters[enemies[0]?.id ?? ''];
+    if (!playerChar || !enemyChar || state.currentTurn !== playerId) return 'hit';
+    const pos = state.engine!.findCharacterPosition(playerId);
+    const result = attemptFlee({
+      playerRealm: playerChar.realm,
+      enemyRealm: enemyChar.realm,
+      playerAgility: playerChar.attributes.agility,
+      enemyAgility: enemyChar.attributes.agility,
+      enemyPersonalityId: enemyChar.personalityId,
+      battleType,
+      distanceToEdge: pos ? pos.q : 0,
+      rng: Math.random,
+    });
+    if (result === 'success') {
+      state.log.push(`${playerChar.name} 成功逃离战斗`);
+    } else if (result === 'escape-hit' || result === 'hit' || result === 'caught') {
+      const dmg = DamagePipeline.calculate(enemyChar, playerChar, BASIC_ATTACK_SKILL, false);
+      if (dmg.blockedByBarrier) {
+        state.log.push(`境界壁垒触发！${playerChar.name} 毫发无伤`);
+      } else {
+        playerChar.hp = Math.max(0, playerChar.hp - dmg.finalDamage);
+        state.log.push(`${enemyChar.name} 追击，对 ${playerChar.name} 造成 ${dmg.finalDamage} 点伤害`);
+      }
+      if (playerChar.hp <= 0) {
+        state.log.push(`${playerChar.name} 已被击败`);
+        playerChar.soulState = 'RemnantSoul';
+      }
+      if (result === 'escape-hit') {
+        state.log.push(`${playerChar.name} 带伤逃离战斗`);
+      } else if (result === 'hit') {
+        state.log.push(`${playerChar.name} 没能甩开敌人`);
+      } else {
+        state.log.push(`${playerChar.name} 被敌人抓住了！`);
+      }
+    }
+    state.phase = 'idle';
+    return result;
+  }
+
   /** 防御：回复 1 AP（封顶 MAX_AP）并结束回合 */
   function defend(): void {
     if (state.currentTurn !== playerId) return;
@@ -279,5 +322,5 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     // 由 ATB 循环驱动下一次行动
   }
 
-  return { state, start, stop, setPaused, tick, movePlayer, selectSkill, attackTarget, basicAttack, defend, endTurn, executeNpcTurn };
+  return { state, start, stop, setPaused, tick, movePlayer, selectSkill, attackTarget, basicAttack, defend, endTurn, executeNpcTurn, flee };
 }

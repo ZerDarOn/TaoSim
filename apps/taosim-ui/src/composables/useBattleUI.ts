@@ -17,11 +17,13 @@ export function useBattleUI(combat: Combat, playerId: string) {
   const phase = ref<BattleUIPhase>('idle');
   const selectedSkill = ref<Skill | null>(null);
   const floatingTexts = ref<FloatingText[]>([]);
+  const canFlee = ref(true);
 
   const player = computed(() => combat.state.characters[playerId]);
 
   // 轮到玩家 → command；他人回合 → idle
   watch(() => combat.state.currentTurn, (turn) => {
+    if (turn === playerId) canFlee.value = true; // 新回合恢复逃跑
     if (turn === playerId && phase.value === 'idle') phase.value = 'command';
     if (turn !== null && turn !== playerId) phase.value = 'idle';
   });
@@ -132,6 +134,16 @@ export function useBattleUI(combat: Combat, playerId: string) {
     phase.value = 'idle';
   }
 
+  /** 逃跑命令（不结束回合）：成功/escape-hit 由外层关战斗；caught 本回合锁逃跑 */
+  function fleeCmd(battleType: 'duel' | 'encounter') {
+    if (phase.value !== 'command' || !canFlee.value) return 'hit' as const;
+    phase.value = 'executing';
+    const result = combat.flee(battleType);
+    if (result === 'caught') canFlee.value = false;
+    phase.value = 'idle';
+    return result;
+  }
+
   /** 取消当前选择（Esc / 右键 / 面板按钮），回 command */
   function cancel() {
     if (phase.value === 'targeting-attack' || phase.value === 'targeting-skill' || phase.value === 'moving') {
@@ -144,6 +156,6 @@ export function useBattleUI(combat: Combat, playerId: string) {
   return {
     phase, selectedSkill, moveRange, attackRange, floatingTexts,
     openAttack, openSkill, openMove, defendCmd, endTurnCmd, cancel,
-    onTileClick, removeFloatingText,
+    onTileClick, removeFloatingText, fleeCmd, canFlee,
   };
 }

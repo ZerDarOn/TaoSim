@@ -11,6 +11,7 @@ const props = defineProps<{
   actor?: Character | null;      // 当前行动者（用于技能面板冷却/资源态）
   waitingName?: string;          // 等待中的 NPC 名
   skills?: Skill[];
+  canFlee?: boolean;         // caught 后本回合禁用逃跑
 }>();
 
 const emit = defineEmits<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   endTurn: [];
   skill: [skill: Skill];
   cancel: [];
+  flee: [];
 }>();
 
 const skillOpen = ref(false);
@@ -78,6 +80,8 @@ watch(() => props.phase, (p) => {
       </div>
 
       <button class="cmd-btn" @click="emit('defend')" :disabled="!isIdle">防御</button>
+
+      <button class="cmd-btn" @click="emit('flee')" :disabled="!isIdle || canFlee === false">逃跑</button>
 
       <!-- 道具▾（Phase C 实现使用逻辑，本次仅占位） -->
       <div class="relative">
