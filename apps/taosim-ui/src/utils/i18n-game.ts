@@ -12,6 +12,8 @@ import type {
   SpiritElementType,
   TraitQuality,
   SkillQuality,
+  FactionRank,
+  OverworldNode,
 } from '@taosim/contracts';
 
 // RealmType → 中文大境界
@@ -308,4 +310,34 @@ export function formatAttributes(attrs: Record<string, number>): string {
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${ATTRIBUTE_LABEL_MAP[k] ?? k}+${v}`)
     .join(' ');
+}
+
+// ---- 大陆地图 / 宗门面板补充映射 ----
+
+/** OverworldNode.type → 中文 */
+const NODE_TYPE_MAP: Record<OverworldNode['type'], string> = {
+  City: '城镇',
+  Sect: '宗门',
+  Dungeon: '秘境',
+  Market: '坊市',
+  Wilderness: '荒野',
+};
+
+/** OverworldNode.type → 中文；未收录时原样返回 */
+export function formatNodeType(t: OverworldNode['type']): string {
+  return NODE_TYPE_MAP[t] ?? t;
+}
+
+/** FactionRank → 中文职位 */
+const FACTION_RANK_MAP: Record<FactionRank, string> = {
+  Disciple: '弟子',
+  Deacon: '执事',
+  Elder: '长老',
+  Leader: '掌门',
+};
+
+/** FactionRank → 中文职位；未入门显示"无" */
+export function formatFactionRank(r?: FactionRank): string {
+  if (!r) return '无';
+  return FACTION_RANK_MAP[r] ?? r;
 }

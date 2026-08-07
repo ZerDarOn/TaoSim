@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePlayerStore } from '@/stores/player';
+import { formatNodeType } from '@/utils/i18n-game';
 import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge } from '@taosim/engine';
 import type { OverworldNode } from '@taosim/contracts';
 
@@ -58,7 +59,7 @@ function goToNode(nodeId: string) {
     <div class="bg-surface rounded-lg border border-line p-4 text-sm">
       <span class="text-muted">当前位置：</span>
       <span class="font-semibold text-jade">{{ currentNode?.name ?? '未知' }}</span>
-      <span class="text-xs text-muted ml-2">（{{ currentNode?.type }} · {{ currentNode?.tier }}阶）</span>
+      <span class="text-xs text-muted ml-2">（{{ currentNode ? formatNodeType(currentNode.type) : '' }} · {{ currentNode?.tier }}阶）</span>
     </div>
 
     <button v-if="currentNode?.type === 'Market'"
@@ -86,7 +87,7 @@ function goToNode(nodeId: string) {
           class="bg-surface rounded-lg border border-line p-3 text-left hover:border-jade transition text-sm">
           <div class="font-semibold">{{ node.name }}</div>
           <div class="text-xs text-muted">
-            {{ node.type }} · {{ node.tier }}阶 ·
+            {{ formatNodeType(node.type) }} · {{ node.tier }}阶 ·
             {{ getEdge(currentNodeId, node.id)?.distanceDays ?? '?' }} 天
           </div>
         </button>
@@ -104,7 +105,7 @@ function goToNode(nodeId: string) {
             id === currentNodeId ? 'border-jade bg-jade-soft' : 'border-line bg-surface',
           ]">
           <div class="font-semibold">{{ node.name }}</div>
-          <div class="text-muted">{{ node.type }} · {{ node.tier }}阶</div>
+          <div class="text-muted">{{ formatNodeType(node.type) }} · {{ node.tier }}阶</div>
         </button>
       </div>
     </div>

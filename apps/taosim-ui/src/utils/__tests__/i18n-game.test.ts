@@ -8,6 +8,8 @@ import {
   formatSoulState,
   formatSpiritRootGrade,
   formatSpiritElement,
+  formatNodeType,
+  formatFactionRank,
 } from '../i18n-game';
 
 describe('formatRealm', () => {
@@ -103,5 +105,28 @@ describe('formatSpiritElement', () => {
     expect(formatSpiritElement('Ice')).toBe('冰');
     expect(formatSpiritElement('Wind')).toBe('风');
     expect(formatSpiritElement('Dark')).toBe('暗');
+  });
+});
+
+describe('formatNodeType', () => {
+  it('maps overworld node types to chinese', () => {
+    expect(formatNodeType('City')).toBe('城镇');
+    expect(formatNodeType('Sect')).toBe('宗门');
+    expect(formatNodeType('Dungeon')).toBe('秘境');
+    expect(formatNodeType('Market')).toBe('坊市');
+    expect(formatNodeType('Wilderness')).toBe('荒野');
+  });
+});
+
+describe('formatFactionRank', () => {
+  it('maps faction ranks to chinese', () => {
+    expect(formatFactionRank('Disciple')).toBe('弟子');
+    expect(formatFactionRank('Deacon')).toBe('执事');
+    expect(formatFactionRank('Elder')).toBe('长老');
+    expect(formatFactionRank('Leader')).toBe('掌门');
+  });
+
+  it('treats undefined as no faction', () => {
+    expect(formatFactionRank(undefined)).toBe('无');
   });
 });

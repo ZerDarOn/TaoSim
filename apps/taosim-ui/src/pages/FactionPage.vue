@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { usePlayerStore } from '@/stores/player';
+import { formatFactionRank } from '@/utils/i18n-game';
 import { FactionEngine } from '@taosim/engine';
 import type { Faction } from '@taosim/contracts';
 
@@ -38,7 +39,7 @@ function handlePromote() {
   if (!playerStore.character) return;
   // simplified: pass mock contribution
   const r = FactionEngine.promote(playerStore.character, contribution.value);
-  result.value = r.success ? `晋升成功：${playerStore.character.factionRank}` : r.reason ?? '失败';
+  result.value = r.success ? `晋升成功：${formatFactionRank(playerStore.character.factionRank)}` : r.reason ?? '失败';
 }
 </script>
 
@@ -52,7 +53,7 @@ function handlePromote() {
       <div><span class="text-muted">成员数：</span>{{ mockFaction.members.length }}</div>
       <div v-if="playerStore.character?.factionRank">
         <span class="text-muted">我的阶位：</span>
-        <span class="font-semibold text-jade">{{ playerStore.character.factionRank }}</span>
+        <span class="font-semibold text-jade">{{ formatFactionRank(playerStore.character.factionRank) }}</span>
       </div>
     </div>
 
