@@ -134,13 +134,13 @@ export function useBattleUI(combat: Combat, playerId: string) {
     phase.value = 'idle';
   }
 
-  /** 逃跑命令（不结束回合）：成功/escape-hit 由外层关战斗；caught 本回合锁逃跑 */
+  /** 逃跑命令（不结束回合）：成功/escape-hit 由外层关战斗；hit/caught 保留玩家回合，回 command 防软锁 */
   function fleeCmd(battleType: 'duel' | 'encounter') {
     if (phase.value !== 'command' || !canFlee.value) return 'hit' as const;
     phase.value = 'executing';
     const result = combat.flee(battleType);
     if (result === 'caught') canFlee.value = false;
-    phase.value = 'idle';
+    phase.value = result === 'success' || result === 'escape-hit' ? 'idle' : 'command';
     return result;
   }
 

@@ -13,9 +13,9 @@ import {
   VenueService,
   VENUE_TYPE_LABEL,
   VENUE_TYPE_ICON,
-  type VenueDef,
 } from '@taosim/engine';
 import { getVenue } from '@taosim/engine';
+import type { VenueDef } from '@taosim/contracts';
 
 const mapStore = useMapStore();
 const playerStore = usePlayerStore();

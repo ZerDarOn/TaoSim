@@ -55,11 +55,15 @@ function applyOutcome(outcome: AdventureOutcome) {
       break;
     }
     case 'attribute': {
-      const attr = outcome.value as string;
-      const [key, val] = attr.split(':');
-      if (key && val) {
-        (c.attributes as Record<string, number>)[key] = ((c.attributes as Record<string, number>)[key] ?? 0) + Number(val);
-        msg = `${key} ${Number(val) > 0 ? '+' : ''}${val}`;
+      // 数据模型为 { type:'attribute', attribute: key, value: number }，按字段读取；
+      // 未知属性名（如历史数据里的 'attack'）安全跳过，避免写入无效键。
+      const attrKey = outcome.attribute as string | undefined;
+      const attrVal = outcome.value as number;
+      if (attrKey && Object.prototype.hasOwnProperty.call(c.attributes, attrKey)) {
+        (c.attributes as Record<string, number>)[attrKey] = ((c.attributes as Record<string, number>)[attrKey] ?? 0) + attrVal;
+        msg = `${attrKey} ${attrVal > 0 ? '+' : ''}${attrVal}`;
+      } else {
+        msg = '（奖励未生效）';
       }
       break;
     }

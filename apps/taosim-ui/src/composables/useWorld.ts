@@ -94,9 +94,13 @@ export function useWorld() {
         }
       }
 
-      // 铁人模式自动存档
+      // 铁人模式自动存档（失败时给出警告，避免进度静默丢失）
       if (playerStore.character.gameMode?.saveMode === 'Ironman') {
-        appStore.saveGame().catch(() => {});
+        appStore.saveGame().catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error('[useWorld] 铁人自动存档失败:', err);
+          eventLog.addEvent('world', '存档失败', '铁人模式自动存档失败，进度可能丢失，请勿刷新页面', { isMajorEvent: true });
+        });
       }
 
       if (result.died) {

@@ -414,6 +414,28 @@ function doTeleport(targetTpId: string) {
   });
 }
 
+// Continent 层传送连线（预先过滤无效连接，避免 v-if/v-for 同元素冲突）
+const teleportLines = computed(() => {
+  const lines: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
+  for (const tp of Object.values(TELEPORT_GRAPH.nodes)) {
+    const from = getContinent(tp.continentId);
+    if (!from) continue;
+    for (const connId of tp.connections) {
+      const target = TELEPORT_GRAPH.nodes[connId];
+      const to = target ? getContinent(target.continentId) : undefined;
+      if (!to) continue;
+      lines.push({
+        id: `${tp.id}-${connId}`,
+        x1: from.position.x,
+        y1: from.position.y,
+        x2: to.position.x,
+        y2: to.position.y,
+      });
+    }
+  }
+  return lines;
+});
+
 // 图例
 const legendTerrains: HexTerrain[] = ['plain', 'forest', 'mountain', 'water', 'spirit_vein', 'wilderness', 'town'];
 </script>
@@ -495,13 +517,10 @@ const legendTerrains: HexTerrain[] = ['plain', 'forest', 'mountain', 'water', 's
       <div class="bg-slate-900 rounded-lg overflow-hidden border border-slate-700">
         <svg viewBox="0 0 800 600" class="w-full" style="background: radial-gradient(ellipse at center, #0f1a0f 0%, #050a05 80%);">
           <!-- 传送连线 -->
-          <g v-for="tp in Object.values(TELEPORT_GRAPH.nodes)" :key="'tp-line-' + tp.id">
-            <line v-for="connId in tp.connections" :key="connId"
-              v-if="TELEPORT_GRAPH.nodes[connId]"
-              :x1="getContinent(tp.continentId)?.position.x ?? 0"
-              :y1="getContinent(tp.continentId)?.position.y ?? 0"
-              :x2="getContinent(TELEPORT_GRAPH.nodes[connId]?.continentId ?? '')?.position.x ?? 0"
-              :y2="getContinent(TELEPORT_GRAPH.nodes[connId]?.continentId ?? '')?.position.y ?? 0"
+          <g v-for="line in teleportLines" :key="'tp-line-' + line.id">
+            <line
+              :x1="line.x1" :y1="line.y1"
+              :x2="line.x2" :y2="line.y2"
               stroke="rgba(34,211,238,0.15)" stroke-width="1" stroke-dasharray="3,3"
             />
           </g>

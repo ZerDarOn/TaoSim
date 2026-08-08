@@ -41,9 +41,12 @@ export interface GameMode {
 }
 
 // ---- 工具函数 ----
-export function parseRealm(fullPath: RealmFullPath): { realmType: RealmType; subLevel: number } {
-  const [realmStr, levelStr] = fullPath.split('_') as [string, string];
-  const level = parseInt(levelStr, 10);
+/** 解析境界完整路径（如 'GoldenCore_3' → { realmType: 'JinDan', subLevel: 3 }）。
+ *  防御式：未知前缀或缺少层级时返回 realmType: undefined / subLevel: NaN，
+ *  调用方应显式处理（境界门槛校验需 fail-closed）。 */
+export function parseRealm(fullPath: string): { realmType: RealmType | undefined; subLevel: number } {
+  const [realmStr, levelStr] = fullPath.split('_') as [string, string | undefined];
+  const level = levelStr === undefined ? NaN : parseInt(levelStr, 10);
   const map: Record<string, RealmType> = {
     QiRefinement: 'LianQi',
     Foundation: 'ZhuJi',
@@ -51,7 +54,7 @@ export function parseRealm(fullPath: RealmFullPath): { realmType: RealmType; sub
     NascentSoul: 'YuanYing',
     SoulFormation: 'HuaShen',
   };
-  return { realmType: map[realmStr]!, subLevel: level };
+  return { realmType: map[realmStr], subLevel: level };
 }
 
 // ---- 角色关系 ----

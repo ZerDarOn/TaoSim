@@ -10,6 +10,8 @@ const gameFlow = useGameFlowStore();
 
 const saving = ref(false);
 const loading = ref(false);
+const saveMsg = ref('');
+const loadMsg = ref('');
 
 // 铁人模式：禁用手动保存
 const isIronman = computed(() =>
@@ -22,20 +24,44 @@ onMounted(async () => {
 
 async function handleSave() {
   saving.value = true;
-  try { await appStore.saveGame(); }
-  finally { saving.value = false; }
+  saveMsg.value = '';
+  try {
+    await appStore.saveGame();
+    saveMsg.value = '已保存';
+    await appStore.loadSaveHeaders();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[SaveLoadPanel] 保存失败:', err);
+    saveMsg.value = `保存失败：${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function handleLoad(saveId: string) {
   loading.value = true;
+  loadMsg.value = '';
   try {
     await appStore.loadGame(saveId);
     gameFlow.enterPlaying();
-  } finally { loading.value = false; }
+    loadMsg.value = '已加载';
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[SaveLoadPanel] 加载失败:', err);
+    loadMsg.value = `加载失败：${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    loading.value = false;
+  }
 }
 
 async function handleDelete(saveId: string) {
-  await appStore.deleteSave(saveId);
+  try {
+    await appStore.deleteSave(saveId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[SaveLoadPanel] 删除失败:', err);
+    loadMsg.value = `删除失败：${err instanceof Error ? err.message : String(err)}`;
+  }
 }
 
 function formatTime(ts: number): string {
@@ -57,6 +83,9 @@ function formatTime(ts: number): string {
       </button>
       <span v-else class="text-xs text-danger">铁人模式 · 月度自动存档</span>
     </div>
+
+    <p v-if="saveMsg" class="text-xs" :class="saveMsg.startsWith('保存失败') ? 'text-danger' : 'text-jade'">{{ saveMsg }}</p>
+    <p v-if="loadMsg" class="text-xs" :class="loadMsg.includes('失败') ? 'text-danger' : 'text-jade'">{{ loadMsg }}</p>
 
     <div v-if="appStore.saveHeaders.length === 0" class="text-xs text-muted">尚无存档</div>
 

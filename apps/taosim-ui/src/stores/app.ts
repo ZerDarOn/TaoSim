@@ -11,6 +11,14 @@ interface AppState {
   saveHeaders: SaveHeader[];
 }
 
+/**
+ * 将 Vue 响应式 Proxy 转为普通可结构化克隆的纯对象。
+ * IndexedDB 的 structured clone 无法克隆 Proxy，保存前必须深拷贝。
+ */
+function toPlain<T>(value: T): T {
+  return value == null ? value : (JSON.parse(JSON.stringify(value)) as T);
+}
+
 let storage: IndexedDBStorageAdapter | null = null;
 let storageInitPromise: Promise<IndexedDBStorageAdapter> | null = null;
 
@@ -76,8 +84,8 @@ export const useAppStore = defineStore('app', {
             portraitId: 'default',
           },
         },
-        worldState: this.currentWorldState,
-        player,
+        worldState: toPlain(this.currentWorldState),
+        player: toPlain(player),
         activeNPCs: {},
         factions: {},
         overworldMap: { continents: [] },
@@ -85,7 +93,7 @@ export const useAppStore = defineStore('app', {
         marketInventories: {},
         npcTradeOffers: {},
         // 玩家地图进度：层级/位置/已探索六边形
-        playerMapState: mapStore.state,
+        playerMapState: toPlain(mapStore.state),
       };
       await adapter.save(payload);
       this.saveHeaders = await adapter.listHeaders();

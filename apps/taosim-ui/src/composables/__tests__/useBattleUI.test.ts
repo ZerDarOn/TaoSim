@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { effectScope, nextTick } from 'vue';
 import type { Character, HexBattleMap, HexTile, Skill } from '@taosim/contracts';
 import { hexKey } from '@taosim/contracts';
@@ -38,6 +38,16 @@ const skill: Skill = {
   primitives: [], cost: { ap: 1, spiritEnergy: 5 }, cooldownTurns: 0,
 };
 
+/**
+ * 控制 Math.random（useCombat.flee 将其作为 attemptFlee 的 rng）。
+ * 同阶 duel 中性性格：追击概率 P=0.3；玩家在 (1,1)，distanceToEdge=1。
+ * 序列：1 次追击检定 + 2 次 d20（追随时）。
+ */
+function stubRng(...vals: number[]): void {
+  const q = [...vals];
+  vi.spyOn(Math, 'random').mockImplementation(() => (q.length > 0 ? q.shift()! : 0.5));
+}
+
 describe('useBattleUI 状态机', () => {
   let scope: ReturnType<typeof effectScope>;
   let combat: ReturnType<typeof useCombat>;
@@ -53,7 +63,7 @@ describe('useBattleUI 状态机', () => {
     });
   });
 
-  afterEach(() => { scope.stop(); });
+  afterEach(() => { vi.restoreAllMocks(); scope.stop(); });
 
   it('非玩家回合 phase=idle；轮到玩家自动进入 command', async () => {
     expect(ui.phase.value).toBe('idle');
@@ -171,5 +181,75 @@ describe('useBattleUI 状态机', () => {
     ui.removeFloatingText(id);
     await nextTick();
     expect(ui.floatingTexts.value.length).toBe(0);
+  });
+
+  it('fleeCmd 非 command 相位直接返回 hit，不调用 combat.flee', async () => {
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    ui.openMove(); // 脱离 command
+    const fleeSpy = vi.spyOn(combat, 'flee');
+    expect(ui.fleeCmd('duel')).toBe('hit');
+    expect(fleeSpy).not.toHaveBeenCalled();
+  });
+
+  it('fleeCmd 成功逃跑 → phase 回 idle（外层关战斗），回合未消耗', async () => {
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    stubRng(0.99); // 同阶 duel P=0.3，0.99 >= 0.3 → 不追击 → success
+    expect(ui.fleeCmd('duel')).toBe('success');
+    expect(ui.phase.value).toBe('idle');
+    expect(ui.canFlee.value).toBe(true);
+    expect(combat.state.currentTurn).toBe('p');
+  });
+
+  it('fleeCmd 被击中(hit) → phase 回 command，玩家可继续行动，canFlee 保持 true', async () => {
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    stubRng(0.01, 0.05, 0.2); // 追击；玩家 d20 2 / 敌 d20 5 → diff -4 → hit
+    expect(ui.fleeCmd('duel')).toBe('hit');
+    expect(ui.phase.value).toBe('command');
+    expect(ui.canFlee.value).toBe(true);
+    expect(combat.state.currentTurn).toBe('p');
+    // 玩家仍可行动（例如再次进入普攻选择）
+    ui.openAttack();
+    expect(ui.phase.value).toBe('targeting-attack');
+  });
+
+  it('fleeCmd 被抓住(caught) → phase 回 command 但 canFlee=false，本回合无法再逃', async () => {
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    stubRng(0.01, 0.05, 0.3); // 追击；玩家 d20 2 / 敌 d20 7 → diff -6 → caught
+    expect(ui.fleeCmd('duel')).toBe('caught');
+    expect(ui.phase.value).toBe('command');
+    expect(ui.canFlee.value).toBe(false);
+    const fleeSpy = vi.spyOn(combat, 'flee');
+    expect(ui.fleeCmd('duel')).toBe('hit'); // 守卫拦截，不再尝试
+    expect(fleeSpy).not.toHaveBeenCalled();
+  });
+
+  it('被抓住后进入下一回合（currentTurn 经 watch 回到玩家）→ canFlee 恢复 true', async () => {
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    stubRng(0.01, 0.05, 0.3);
+    ui.fleeCmd('duel');
+    expect(ui.canFlee.value).toBe(false);
+    // 敌方回合
+    combat.state.currentTurn = 'e';
+    await nextTick();
+    expect(ui.phase.value).toBe('idle');
+    // 回到玩家回合：watch 恢复逃跑权并回 command
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    expect(ui.canFlee.value).toBe(true);
+    expect(ui.phase.value).toBe('command');
+  });
+
+  it('fleeCmd 带伤逃离(escape-hit) → phase 回 idle（外层关战斗）', async () => {
+    combat.state.currentTurn = 'p';
+    await nextTick();
+    stubRng(0.01, 0.55, 0.5); // 追击；玩家 d20 12 / 敌 d20 11 → diff 0 → escape-hit
+    expect(ui.fleeCmd('duel')).toBe('escape-hit');
+    expect(ui.phase.value).toBe('idle');
+    expect(combat.state.currentTurn).toBe('p');
   });
 });

@@ -13,7 +13,7 @@
  */
 
 import type { Character, RealmType, PlayerMapState } from '@taosim/contracts';
-import { REALM_ORDER } from '@taosim/contracts';
+import { REALM_ORDER, parseRealm } from '@taosim/contracts';
 import {
   getTeleportNode,
   getTeleportNodeAt,
@@ -75,7 +75,13 @@ export class TravelService {
       ? targetTp.requiredRealm
       : sourceTp.requiredRealm;
 
-    if (REALM_ORDER[player.realm.split('_')[0] as RealmType] < REALM_ORDER[requiredRealm]) {
+    const playerRealmType = parseRealm(player.realm).realmType;
+    if (!playerRealmType) {
+      return { ok: false, reason: '境界数据异常，无法校验传送门槛' };
+    }
+    const playerRealmOrder = REALM_ORDER[playerRealmType];
+
+    if (playerRealmOrder < REALM_ORDER[requiredRealm]) {
       return {
         ok: false,
         reason: `需要${requiredRealm}以上境界`,
@@ -94,7 +100,7 @@ export class TravelService {
 
     // 目标大陆境界校验
     const targetContinent = getContinent(targetTp.continentId);
-    if (targetContinent && REALM_ORDER[player.realm.split('_')[0] as RealmType] < REALM_ORDER[targetContinent.requiredRealm]) {
+    if (targetContinent && playerRealmOrder < REALM_ORDER[targetContinent.requiredRealm]) {
       return {
         ok: false,
         reason: `目标大陆需要${targetContinent.requiredRealm}以上境界`,

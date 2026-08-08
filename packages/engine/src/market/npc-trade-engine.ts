@@ -13,7 +13,7 @@ const BUDGET_MAP: Record<string, number> = {
 const DEFAULT_BUDGET = 200;
 
 function getRealmNumericTier(realmStr: string): number {
-  const parsed = parseRealm(realmStr as any);
+  const parsed = parseRealm(realmStr);
   const tierMap: Record<string, number> = {
     LianQi: 1,
     ZhuJi: 2,
@@ -21,7 +21,7 @@ function getRealmNumericTier(realmStr: string): number {
     YuanYing: 4,
     HuaShen: 5,
   };
-  return tierMap[parsed.realmType] ?? 1;
+  return (parsed.realmType && tierMap[parsed.realmType]) ?? 1;
 }
 
 function inferProfessionPreferences(npc: Character): ItemType[] {
@@ -40,8 +40,8 @@ function inferProfessionPreferences(npc: Character): ItemType[] {
 
 export class NPCTradeEngine {
   static getNPCBudget(realm: string): number {
-    const parsed = parseRealm(realm as any);
-    return BUDGET_MAP[parsed.realmType] ?? DEFAULT_BUDGET;
+    const parsed = parseRealm(realm);
+    return (parsed.realmType && BUDGET_MAP[parsed.realmType]) ?? DEFAULT_BUDGET;
   }
 
   static refreshNPCOffer(npc: Character, currentMonth: number): NPCTradeOffer {

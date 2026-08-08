@@ -1,4 +1,4 @@
-import type { Character } from '@taosim/contracts';
+import type { Character, RealmFullPath } from '@taosim/contracts';
 import { resolvePersonalityId } from '../data/npc-personalities.js';
 
 function seededRandom(seed: number): () => number {
@@ -21,7 +21,8 @@ export class NPCGenerator {
       tier === 2 ? 'Foundation' :
       tier >= 3 ? (rand() < 0.5 ? 'Foundation' : 'GoldenCore') : 'QiRefinement';
 
-    const subLevel = 1 + Math.floor(rand() * 5);
+    // subLevel 按境界上限收敛：炼气 1..9，筑基/金丹 1..3（对齐 RealmFullPath 契约）
+    const subLevel = 1 + Math.floor(rand() * (realmTier === 'QiRefinement' ? 9 : 3));
 
     const attributes = {
       physique: 3 + Math.floor(rand() * 12),
@@ -39,7 +40,7 @@ export class NPCGenerator {
       personalityId: resolvePersonalityId(`NPC_GEN_${seed}`),
       name,
       gender: rand() < 0.5 ? 'Male' : 'Female',
-      realm: `${realmTier}_${subLevel}` as any,
+      realm: `${realmTier}_${subLevel}` as RealmFullPath,
       soulState: 'Active',
       cultivation: { currentExp: 0, maxExp: 500 * tier },
       lifespan: { age: 20 + Math.floor(rand() * 100), maxLifespan: 100 + tier * 100 },
