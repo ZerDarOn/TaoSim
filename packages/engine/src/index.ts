@@ -73,6 +73,10 @@ export { TimeAdvanceService } from './time/time-advance-service.js';
 export type { TimeAdvanceResult } from './time/time-advance-service.js';
 export { CALENDAR_EVENTS, rollCalendarEvent, getExpectedCalendarEvent } from './time/calendar-event-scheduler.js';
 
+// World Emergence (涌现叙事：事件模板/出口/编年史/传闻/生平 — §5/§6)
+export { buildChronicle, visibleToPlayer, rumorPool, npcTimeline } from './world/chronicle.js';
+export type { YearChronicle, Rumor } from './world/chronicle.js';
+
 // Interaction (NPC 交互)
 export { NPCGenerator } from './interaction/npc-generator.js';
 export { NPCInteractionEngine } from './interaction/npc-interaction-engine.js';

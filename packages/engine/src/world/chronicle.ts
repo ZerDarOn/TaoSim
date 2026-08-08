@@ -49,6 +49,16 @@ export function buildChronicle(eventLog: BigEventLog[]): YearChronicle[] {
     });
 }
 
+/**
+ * NPC 生平时间线（上帝视角 §6.2）：事件流中所有涉及其的事件，按时间升序。
+ * 反查 involvedCharacterIds 聚合一生脉络，供编年史/后续 AI 生平增强使用。
+ */
+export function npcTimeline(npcId: string, eventLog: BigEventLog[]): BigEventLog[] {
+  return eventLog
+    .filter(e => e.involvedCharacterIds.includes(npcId))
+    .sort((a, b) => a.year - b.year || a.month - b.month);
+}
+
 const SEVERITY_LEVEL: Record<EventSeverity, number> = { minor: 0, normal: 1, major: 2, epoch: 3 };
 
 /**

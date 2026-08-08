@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { BigEventLog, Character } from '@taosim/contracts';
-import { buildChronicle, rumorPool, visibleToPlayer } from '../world/chronicle.js';
+import { buildChronicle, npcTimeline, rumorPool, visibleToPlayer } from '../world/chronicle.js';
 
 function makeEvent(overrides: Partial<BigEventLog> = {}): BigEventLog {
   return {
@@ -75,6 +75,22 @@ describe('visibleToPlayer', () => {
     expect(visibleToPlayer(makeEvent({ severity: 'minor', visibility: 'local' }), makePlayer())).toBe(false);
     expect(visibleToPlayer(makeEvent({ severity: 'minor', visibility: 'regional' }), makePlayer())).toBe(false);
     expect(visibleToPlayer(makeEvent({ severity: 'major', visibility: 'local' }), makePlayer())).toBe(false);
+  });
+});
+
+describe('npcTimeline', () => {
+  it('只返回涉及其的事件，并按时间升序', () => {
+    const events = [
+      makeEvent({ id: 'E3', year: 2, month: 1, involvedCharacterIds: ['NPC_A'] }),
+      makeEvent({ id: 'E1', year: 1, month: 3, involvedCharacterIds: ['NPC_A', 'NPC_B'] }),
+      makeEvent({ id: 'E2', year: 1, month: 8, involvedCharacterIds: ['NPC_B'] }),
+    ];
+    expect(npcTimeline('NPC_A', events).map(e => e.id)).toEqual(['E1', 'E3']);
+    expect(npcTimeline('NPC_B', events).map(e => e.id)).toEqual(['E1', 'E2']);
+  });
+
+  it('无涉及事件返回空数组', () => {
+    expect(npcTimeline('NPC_X', [makeEvent({ involvedCharacterIds: ['NPC_A'] })])).toEqual([]);
   });
 });
 
