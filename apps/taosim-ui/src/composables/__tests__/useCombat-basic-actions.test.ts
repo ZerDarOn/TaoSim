@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { effectScope } from 'vue';
 import type { Character, HexBattleMap, HexTile } from '@taosim/contracts';
 import { hexKey } from '@taosim/contracts';
 import { useCombat, MAX_AP } from '../useCombat';
+
+/** 固定命中/暴击判定：默认 0.5 既不触发闪避也不触发暴击，避免随机 flaky */
+function stubRng(...vals: number[]): void {
+  const q = [...vals];
+  vi.spyOn(Math, 'random').mockImplementation(() => (q.length > 0 ? q.shift()! : 0.5));
+}
 
 function makeCharacter(id: string, agility = 10): Character {
   return {
@@ -46,9 +52,10 @@ describe('useCombat basicAttack/defend', () => {
     });
   });
 
-  afterEach(() => { scope.stop(); });
+  afterEach(() => { scope.stop(); vi.restoreAllMocks(); });
 
   it('普攻：距离 1 结算伤害（physique 10 → 5 点）、扣 1 AP、消耗回合、写日志', () => {
+    stubRng(0.5, 0.5);
     const result = combat.basicAttack('e');
     const p = combat.state.characters['p']!;
     const e = combat.state.characters['e']!;

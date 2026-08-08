@@ -77,6 +77,10 @@ export { CALENDAR_EVENTS, rollCalendarEvent, getExpectedCalendarEvent } from './
 export { buildChronicle, visibleToPlayer, rumorPool, npcTimeline } from './world/chronicle.js';
 export type { YearChronicle, Rumor } from './world/chronicle.js';
 
+// AI 增强层预留 (上下文序列化 — §8)
+export { serializeNpcBiography, serializeWorldDigest, serializeEventChain, buildAiNarrativePrompt } from './world/context-serializer.js';
+export type { AiEnhancementKind } from './world/context-serializer.js';
+
 // Interaction (NPC 交互)
 export { NPCGenerator } from './interaction/npc-generator.js';
 export { NPCInteractionEngine } from './interaction/npc-interaction-engine.js';
