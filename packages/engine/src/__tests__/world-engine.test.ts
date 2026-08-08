@@ -116,4 +116,28 @@ describe('WorldEngine', () => {
     const special = npcs.filter(n => n.destiny.tier === 'prodigy' || n.destiny.tier === 'talented');
     expect(special.length).toBeGreaterThan(0);
   });
+
+  it('社交/寻仇：同地点 NPC 关系沉淀并产生 social/combat 事件', () => {
+    const strong = makeNpc({ id: 'NPC_S1', realm: 'GoldenCore_1', locationId: 'LOC_A', skillIds: ['SKILL_X'] });
+    const weak = makeNpc({ id: 'NPC_S2', locationId: 'LOC_A' });
+    const enemyEntry = { type: 'enemy' as const, bond: -40, trust: 5, events: ['结仇'], changedAt: { year: 1, month: 1 } };
+    weak.relations[strong.id] = enemyEntry;
+    strong.relations[weak.id] = enemyEntry;
+    const engine = new WorldEngine({ ...baseState, npcs: { [strong.id]: strong, [weak.id]: weak } });
+
+    const events: import('@taosim/contracts').BigEventLog[] = [];
+    for (let i = 0; i < 240; i++) {
+      const result = engine.step();
+      events.push(...result.events);
+    }
+
+    const social = events.filter(e => e.category === 'social');
+    const combat = events.filter(e => e.category === 'combat');
+    expect(social.length + combat.length).toBeGreaterThan(0);
+
+    const state = engine.getState();
+    const s1 = state.npcs['NPC_S1']!;
+    const s2 = state.npcs['NPC_S2']!;
+    expect(s1.relations['NPC_S2'] || s2.relations['NPC_S1']).toBeDefined();
+  });
 });

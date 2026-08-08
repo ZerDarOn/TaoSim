@@ -9,6 +9,7 @@ import {
   tryWander,
   tryWonder,
 } from './world-tick-rules.js';
+import { samplePairs, socialEncounter, tryFeud } from './world-social-rules.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
@@ -18,7 +19,8 @@ export interface MonthlyTickResult {
 
 /**
  * 世界引擎 — 驱动月度 Tick（无 AI 涌现叙事）。
- * 负责：NPC 月度更新（寿元/人口）、宗门外交骰子、灵石产出、大事件生成。
+ * 负责：NPC 月度更新（寿元/修炼/突破/奇遇/云游）、社交相遇与寻仇（关系轨道）、
+ *       人口补充、宗门维护、大事件生成。
  *
  * NPC 持久化（世界涌现叙事设计 §3.3/§9）：
  * - 状态只存精简 NpcRecord（this.state.npcs），随 WorldState 持久化
@@ -145,7 +147,51 @@ export class WorldEngine {
       }
     }
 
-    // 2. 清理已湮灭的 NPC
+    // 2. 社交相遇 + 寻仇（同地点/云游配对，关系轨道 §4.3/§4.4 — 阶段 1b）
+    const now = { year: this.state.currentYear, month: this.state.currentMonth };
+    const groups = new Map<string, NpcRecord[]>();
+    for (const npc of Object.values(this.state.npcs)) {
+      if (npc.soulState !== 'Active') continue;
+      const key = npc.locationId ?? '__wander__';
+      const list = groups.get(key) ?? [];
+      list.push(npc);
+      groups.set(key, list);
+    }
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      const pairs = samplePairs(list, Math.random, Math.max(1, Math.floor(list.length / 20)));
+      for (const [a, b] of pairs) {
+        const encounter = socialEncounter(a, b, now, Math.random);
+        if (encounter) {
+          events.push({
+            id: this.generateEventId(),
+            year: now.year,
+            month: now.month,
+            isMajorEvent: encounter.major,
+            category: 'social',
+            title: encounter.title,
+            description: encounter.description,
+            involvedCharacterIds: [a.id, b.id],
+          });
+        }
+        const feud = tryFeud(a, b, now, Math.random);
+        if (feud) {
+          events.push({
+            id: this.generateEventId(),
+            year: now.year,
+            month: now.month,
+            isMajorEvent: feud.major,
+            category: 'combat',
+            title: feud.title,
+            description: feud.description,
+            involvedCharacterIds: [a.id, b.id],
+          });
+          if (feud.lethal) npcPopulationChanged = true;
+        }
+      }
+    }
+
+    // 3. 清理已湮灭的 NPC
     const toRemove: string[] = [];
     for (const [id, npc] of Object.entries(this.state.npcs)) {
       if (npc.soulState === 'Oblivion') toRemove.push(id);
@@ -155,7 +201,7 @@ export class WorldEngine {
       npcPopulationChanged = true;
     }
 
-    // 3. NPC 人口补充（低于 800 则生成散修，复用 NPCGenerator 的真实数据模型）
+    // 4. NPC 人口补充（低于 800 则生成散修，复用 NPCGenerator 的真实数据模型）
     if (Object.keys(this.state.npcs).length < 800) {
       const count = Math.min(10, 800 - Object.keys(this.state.npcs).length);
       for (let i = 0; i < count; i++) {
@@ -175,7 +221,7 @@ export class WorldEngine {
       }
     }
 
-    // 4. 宗门月度维护
+    // 5. 宗门月度维护
     for (const [, faction] of this.factions) {
       const maintenance = EconomyEngine.spiritVeinMaintenanceCost(faction.spiritVeinLevel);
       faction.treasurySpiritStones -= maintenance;
