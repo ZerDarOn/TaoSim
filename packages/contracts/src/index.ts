@@ -14,6 +14,7 @@ export * from './tribulation.js';
 export * from './action-registry.js';
 export * from './save-system.js';
 export * from './world-state.js';
+export * from './npc-record.js';
 export * from './event-log.js';
 export * from './battle-preview.js';
 export * from './log-filter.js';

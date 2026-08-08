@@ -1,6 +1,7 @@
-import type { WorldState, BigEventLog, Character, RealmFullPath, Faction } from '@taosim/contracts';
-import { LifecycleManager } from '../lifecycle/lifecycle-manager.js';
+import type { WorldState, BigEventLog, NpcRecord, Faction } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
+import { NPCGenerator } from '../interaction/npc-generator.js';
+import { characterToNpcRecord } from './npc-record-mapper.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
@@ -9,17 +10,24 @@ export interface MonthlyTickResult {
 }
 
 /**
- * 世界引擎 — 驱动月度 Tick。
- * 负责：NPC 月度更新、宗门外交骰子、灵石产出、大事件生成。
+ * 世界引擎 — 驱动月度 Tick（无 AI 涌现叙事）。
+ * 负责：NPC 月度更新（寿元/人口）、宗门外交骰子、灵石产出、大事件生成。
+ *
+ * NPC 持久化（世界涌现叙事设计 §3.3/§9）：
+ * - 状态只存精简 NpcRecord（this.state.npcs），随 WorldState 持久化
+ * - 构造时从 state.npcs 恢复，推进后写回，getState() 带出 → 跨推进/跨会话连续
  */
 export class WorldEngine {
   private state: WorldState;
-  private activeNPCs: Map<string, Character> = new Map();
   private npcCounter = 0;
+  private eventCounter = 0;
   private factions: Map<string, Faction> = new Map();
 
   constructor(initialState: WorldState) {
-    this.state = { ...initialState };
+    this.state = {
+      ...initialState,
+      npcs: { ...(initialState.npcs ?? {}) },
+    };
   }
 
   /** 推进一个月，返回更新后的状态与事件列表 */
@@ -29,11 +37,16 @@ export class WorldEngine {
     const events: BigEventLog[] = [];
     let npcPopulationChanged = false;
 
-    // 1. NPC 寿元检查
-    for (const [id, npc] of this.activeNPCs) {
-      const lifespanResult = LifecycleManager.checkLifespan(npc);
-      if (lifespanResult.willDie) {
-        const deathResult = LifecycleManager.handleDeath(npc, '寿元耗尽');
+    // 1. NPC 寿元检查（基于精简档案；元神不再老化）
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState !== 'Active') continue;
+      npc.lifespan.age += 1 / 12;
+      if (npc.lifespan.age >= npc.lifespan.maxLifespan) {
+        npc.soulState = 'PrimordialSoul';
+        npc.deathYear = this.state.currentYear;
+        npc.deathMonth = this.state.currentMonth;
+        npc.causeOfDeath = '寿元耗尽';
+        npc.lastUpdate = { year: this.state.currentYear, month: this.state.currentMonth };
         npcPopulationChanged = true;
         events.push({
           id: this.generateEventId(),
@@ -42,29 +55,28 @@ export class WorldEngine {
           isMajorEvent: false,
           category: 'world',
           title: `${npc.name} 坐化`,
-          description: `${npc.name} 寿元耗尽，${deathResult.newSoulState === 'PrimordialSoul' ? '元神出窍' : '残魂消散'}`,
+          description: `${npc.name} 寿元耗尽，元神出窍，留下一段修行往事`,
           involvedCharacterIds: [id],
         });
-        npc.soulState = deathResult.newSoulState;
-      } else {
-        npc.lifespan.age += 1 / 12;
       }
     }
 
     // 2. 清理已湮灭的 NPC
-    for (const [id, npc] of this.activeNPCs) {
-      if (npc.soulState === 'Oblivion') {
-        this.activeNPCs.delete(id);
-        npcPopulationChanged = true;
-      }
+    const toRemove: string[] = [];
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState === 'Oblivion') toRemove.push(id);
+    }
+    if (toRemove.length > 0) {
+      for (const id of toRemove) delete this.state.npcs[id];
+      npcPopulationChanged = true;
     }
 
-    // 3. NPC 人口补充（低于 800 则生成散修）
-    if (this.activeNPCs.size < 800) {
-      const count = Math.min(10, 800 - this.activeNPCs.size);
+    // 3. NPC 人口补充（低于 800 则生成散修，复用 NPCGenerator 的真实数据模型）
+    if (Object.keys(this.state.npcs).length < 800) {
+      const count = Math.min(10, 800 - Object.keys(this.state.npcs).length);
       for (let i = 0; i < count; i++) {
-        const npc = this.generateWildCultivator();
-        this.activeNPCs.set(npc.id, npc);
+        const npc = this.spawnWildCultivator();
+        this.state.npcs[npc.id] = npc;
         npcPopulationChanged = true;
         events.push({
           id: this.generateEventId(),
@@ -115,7 +127,7 @@ export class WorldEngine {
   }
 
   public getState(): WorldState {
-    return { ...this.state };
+    return { ...this.state, npcs: { ...this.state.npcs } };
   }
 
   private advanceCalendar(): void {
@@ -130,49 +142,33 @@ export class WorldEngine {
   }
 
   private generateEventId(): string {
-    return `EVT_${this.state.currentYear}_${this.state.currentMonth}_${Math.random().toString(36).slice(2, 6)}`;
+    this.eventCounter++;
+    return `EVT_${this.state.currentYear}_${this.state.currentMonth}_${this.eventCounter}`;
   }
 
-  private generateWildCultivator(): Character {
+  /** 生成一个散修 NPC 并归档为 NpcRecord（境界分布：炼气为主、少量筑基/金丹） */
+  private spawnWildCultivator(): NpcRecord {
     this.npcCounter++;
     const id = `NPC_${this.state.currentYear}_${this.state.currentMonth}_${this.npcCounter}`;
-    const realms: RealmFullPath[] = ['QiRefinement_1', 'QiRefinement_3', 'QiRefinement_5', 'QiRefinement_7', 'QiRefinement_9', 'Foundation_1'];
-    const names = ['散修·李四', '散修·王五', '散修·赵六', '散修·陈七', '散修·刘八', '散修·周九'];
-    const realm = realms[Math.floor(Math.random() * realms.length)]!;
-    const age = 20 + Math.floor(Math.random() * 60);
+    const tierRoll = Math.random();
+    const tier = tierRoll < 0.75 ? 1 : tierRoll < 0.95 ? 2 : 3;
+    const seed = Math.floor(Math.random() * 1_000_000);
+    const character = NPCGenerator.generate(tier, seed);
 
-    return {
-      id, name: names[Math.floor(Math.random() * names.length)]!,
-      gender: 'Male',
-      realm,
-      soulState: 'Active',
-      cultivation: { currentExp: Math.floor(Math.random() * 500), maxExp: 500 },
-      lifespan: { age, maxLifespan: 100 },
-      spiritEnergy: { current: 100, max: 100 },
-      monthlyActionPoints: { current: 10, max: 10 },
-      attributes: {
-        physique: 1 + Math.floor(Math.random() * 10),
-        comprehension: 1 + Math.floor(Math.random() * 10),
-        perception: 1 + Math.floor(Math.random() * 10),
-        agility: 1 + Math.floor(Math.random() * 10),
-        luck: 1 + Math.floor(Math.random() * 10),
-        charm: 1 + Math.floor(Math.random() * 10),
-      },
-      spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
-      gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
-      hp: 100, maxHp: 100, ap: 3,
-      canFly: typeof realm === 'string' && realm.startsWith('Foundation'),
-      spiritStones: 0,
-      inventory: [],
-      equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
-      skills: [],
-      skillCooldowns: {},
-      traits: [],
-      factionId: undefined,
-      factionRank: undefined,
-      relations: {},
-      wantedLevels: {},
-      unlockedRecipes: [],
-    };
+    const record = characterToNpcRecord(
+      { ...character, id, name: character.name },
+      this.state.currentYear,
+      this.state.currentMonth,
+    );
+
+    // 命格（阶段 1 起影响奇遇/突破/死劫加权）：0.5% 天骄、2.5% 英才
+    const destinyRoll = Math.random();
+    record.destiny =
+      destinyRoll < 0.005
+        ? { tier: 'prodigy', luck: 95, hidden: true }
+        : destinyRoll < 0.03
+          ? { tier: 'talented', luck: 80, hidden: true }
+          : { tier: 'common', luck: record.attributes.luck, hidden: false };
+    return record;
   }
 }

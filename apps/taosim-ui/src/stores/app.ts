@@ -58,6 +58,7 @@ export const useAppStore = defineStore('app', {
         catastropheCountdownMonths: 600,
         activeContinentIds: ['CONTINENT_CANGZHOU'],
         globalFlags: {},
+        npcs: {},
       };
       const engine = new WorldEngine(initialState);
       this.currentWorldState = engine.getState();
@@ -74,7 +75,7 @@ export const useAppStore = defineStore('app', {
       const payload: SavePayload = {
         header: {
           saveId: `save_${Date.now()}`,
-          schemaVersion: 1,
+          schemaVersion: 2,
           gameVersion: '0.2.0',
           timestamp: Date.now(),
           playTimeMonths: (this.currentWorldState.currentYear - 1) * 12 + this.currentWorldState.currentMonth - 1,
