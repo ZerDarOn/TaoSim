@@ -24,7 +24,7 @@ export class PlayerLifecycleService {
    * 原子性：老化 + 修为增长 + 灵力恢复 + AP 恢复 + 寿命检查 一体完成。
    * 不可变：返回新对象，不修改入参。
    */
-  static advanceTime(player: Character, months: number): AdvanceTimeResult {
+  static advanceTime(player: Character, months: number, monthlySpiritStoneIncome?: number): AdvanceTimeResult {
     // 使用 JSON 深拷贝代替 structuredClone，避免 Vue reactive proxy 克隆失败
     const updated: Character = JSON.parse(JSON.stringify(player));
 
@@ -40,13 +40,18 @@ export class PlayerLifecycleService {
     const expGain = Math.floor(updated.attributes.comprehension * months * COMPREHENSION_EXP_RATIO * rootMult);
     updated.cultivation.currentExp += expGain;
 
-    // 3. 灵力恢复至满
+    // 3. 灵石月度产出（境界俸禄水龙头；不传则不发放）
+    if (monthlySpiritStoneIncome && monthlySpiritStoneIncome > 0) {
+      updated.spiritStones += Math.floor(monthlySpiritStoneIncome * months);
+    }
+
+    // 4. 灵力恢复至满
     updated.spiritEnergy.current = updated.spiritEnergy.max;
 
-    // 4. 行动点恢复 (每月恢复 max)
+    // 5. 行动点恢复 (每月恢复 max)
     updated.monthlyActionPoints.current = updated.monthlyActionPoints.max;
 
-    // 5. 寿命检查
+    // 6. 寿命检查
     if (updated.lifespan.age >= updated.lifespan.maxLifespan) {
       const tier = getRealmTier(updated.realm);
       const newSoulState: SoulState = tier >= 3 ? 'PrimordialSoul' : 'RemnantSoul';

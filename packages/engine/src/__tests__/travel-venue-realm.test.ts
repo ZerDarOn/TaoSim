@@ -33,6 +33,7 @@ function makeMapState(): PlayerMapState {
     activeContinentId: 'CONT_EAST',
     activeVenueId: null,
     exploredHexes: {},
+    hexPos: { q: 0, r: 0 },
   };
 }
 

@@ -20,6 +20,7 @@ export const DEFAULT_ITEM_TEMPLATES: ItemTemplate[] = [
   { templateId: 'MAT_METEORITE', name: '陨铁', tier: 3, type: 'Material', baseAttributes: {} },
   { templateId: 'MAT_STARLIGHT', name: '星光粉', tier: 3, type: 'Material', baseAttributes: {} },
   { templateId: 'MED_LONGEVITY_PILL', name: '延寿丹', tier: 3, type: 'Medicine', baseAttributes: {} },
+  { templateId: 'MED_GOLDEN_CORE_PILL', name: '金丹丹', tier: 3, type: 'Medicine', baseAttributes: {} },
   { templateId: 'EQ_STAR_SWORD', name: '星辰剑', tier: 3, type: 'Equipment', baseAttributes: { attack: 30, critRate: 10, agility: 3 } },
   // Tier 4
   { templateId: 'MAT_MILLENNIUM_LINGZHI', name: '万年灵芝', tier: 4, type: 'Material', baseAttributes: {} },
@@ -28,4 +29,5 @@ export const DEFAULT_ITEM_TEMPLATES: ItemTemplate[] = [
   // Tier 5
   { templateId: 'MAT_IMMORTAL_JADE', name: '仙灵玉髓', tier: 5, type: 'Material', baseAttributes: {} },
   { templateId: 'MAT_CHAOS_STONE', name: '混沌石', tier: 5, type: 'Material', baseAttributes: {} },
+  { templateId: 'MED_SOUL_FORMATION_PILL', name: '化神丹', tier: 5, type: 'Medicine', baseAttributes: {} },
 ];

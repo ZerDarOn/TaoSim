@@ -1,4 +1,4 @@
-import type { Character, RealmFullPath, SkillElement } from '@taosim/contracts';
+import type { Character, RealmFullPath, Skill, SkillElement } from '@taosim/contracts';
 import { EquipmentManager } from '../equipment/equipment-manager.js';
 import { BATTLE_CONFIG } from './battle-config.js';
 
@@ -6,6 +6,26 @@ export interface DamageSpec {
   multiplier: number;      // 技能系数（普攻 1.0）
   element: SkillElement;
   tier: number;            // 攻击方功法阶位
+}
+
+/**
+ * 从 Skill 推导伤害规格：
+ * - multiplier 取 Numeric 原子中的最大 multiplier（无则 1.0）
+ * - element 取 skill.element（无则 Physical）
+ * - tier 取 skill.tier（无则 1）
+ */
+export function skillToDamageSpec(skill: Skill): DamageSpec {
+  let multiplier = 1.0;
+  for (const p of skill.primitives) {
+    if (p.category === 'Numeric' && typeof p.params.multiplier === 'number') {
+      multiplier = Math.max(multiplier, p.params.multiplier);
+    }
+  }
+  return {
+    multiplier,
+    element: skill.element ?? 'Physical',
+    tier: skill.tier ?? 1,
+  };
 }
 
 export interface DamageResult {
@@ -59,12 +79,14 @@ export function calculateDamage(
   defender: Character,
   spec: DamageSpec,
   rng: () => number,
-  critRate: number = 0.05,
+  critRate?: number,
 ): DamageResult {
   const atkBonuses = EquipmentManager.getCombatBonuses(attacker);
   const defBonuses = EquipmentManager.getCombatBonuses(defender);
   const attackPower = atkBonuses.attack + 10;
   const baseDefense = defender.attributes.physique * 0.5;
+  // 暴击率：显式传入优先；否则用词条暴击加成；都没有时退回基础 0.05
+  const finalCritRate = critRate ?? (atkBonuses.critRate > 0 ? atkBonuses.critRate / 100 : 0.05);
 
   const atkTier = realmTier(attacker.realm);
   const defTier = realmTier(defender.realm);
@@ -80,7 +102,7 @@ export function calculateDamage(
   const missed = rng() < dodge;
 
   // 暴击判定（未命中不判暴击）
-  const crit = !missed && rng() < critRate;
+  const crit = !missed && rng() < finalCritRate;
 
   // 境界硬壁垒
   let barrierRate = 0;

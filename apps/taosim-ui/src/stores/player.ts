@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { PlayerLifecycleService } from '@taosim/engine';
+import { PlayerLifecycleService, EconomyEngine } from '@taosim/engine';
 import type { Character, Skill, Item, BattleDelta } from '@taosim/contracts';
 import { useGameFlowStore } from '@/stores/game-flow';
 
@@ -88,7 +88,11 @@ export const usePlayerStore = defineStore('player', () => {
     if (!character.value) return { died: false };
     // 统一时间推进：天数 → 月数（30 天 = 1 月），使用 PlayerLifecycleService 统一逻辑
     const months = days / 30;
-    const result = PlayerLifecycleService.advanceTime(character.value, months);
+    const result = PlayerLifecycleService.advanceTime(
+      character.value,
+      months,
+      EconomyEngine.realmMonthlyIncome(character.value.realm),
+    );
     character.value = result.updatedPlayer;
 
     // 寿元耗尽时立即触发游戏结束，避免"玩一个死人"

@@ -1,7 +1,7 @@
 import { reactive, onScopeDispose } from 'vue';
 import type { Character, HexBattleMap, Skill } from '@taosim/contracts';
 import { hexKey, hexDistance } from '@taosim/contracts';
-import { CombatEngine, DamagePipeline, NpcAI } from '@taosim/engine';
+import { CombatEngine, NpcAI, calculateDamage, skillToDamageSpec } from '@taosim/engine';
 import { attemptFlee, type FleeResult } from '@taosim/engine';
 
 interface CombatState {
@@ -27,7 +27,7 @@ export const ATTACK_RANGE = 1;
 /** 战斗内最大行动点（防御回复封顶值，也用于 UI 显示 ●●●） */
 export const MAX_AP = 3;
 
-/** 普攻内置 Skill：射程 1、系数 1.0、消耗 1 AP，复用 DamagePipeline 结算 */
+/** 普攻内置 Skill：射程 1、系数 1.0、消耗 1 AP，复用 calculateDamage 结算 */
 export const BASIC_ATTACK_SKILL: Skill = {
   id: 'basic_attack',
   name: '普攻',
@@ -170,9 +170,15 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     }
 
     const skill = state.selectedSkill;
-    const result = DamagePipeline.calculate(attacker, defender, skill, false);
+    const result = calculateDamage(attacker, defender, skillToDamageSpec(skill), Math.random);
     defender.hp -= result.finalDamage;
-    state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+    if (result.missed) {
+      state.log.push(`${attacker.name} 的攻击被 ${defender.name} 闪避`);
+    } else if (result.crit) {
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成暴击 ${result.finalDamage} 点伤害`);
+    } else {
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+    }
 
     if (result.blockedByBarrier) {
       state.log.push(`境界壁垒触发！${defender.name} 毫发无伤`);
@@ -218,9 +224,15 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
       return null;
     }
 
-    const result = DamagePipeline.calculate(attacker, defender, BASIC_ATTACK_SKILL, false);
+    const result = calculateDamage(attacker, defender, skillToDamageSpec(BASIC_ATTACK_SKILL), Math.random);
     defender.hp -= result.finalDamage;
-    state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+    if (result.missed) {
+      state.log.push(`${attacker.name} 的攻击被 ${defender.name} 闪避`);
+    } else if (result.crit) {
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成暴击 ${result.finalDamage} 点伤害`);
+    } else {
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+    }
     if (result.blockedByBarrier) {
       state.log.push(`境界壁垒触发！${defender.name} 毫发无伤`);
     }
@@ -259,9 +271,11 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     if (result === 'success') {
       state.log.push(`${playerChar.name} 成功逃离战斗`);
     } else if (result === 'escape-hit' || result === 'hit' || result === 'caught') {
-      const dmg = DamagePipeline.calculate(enemyChar, playerChar, BASIC_ATTACK_SKILL, false);
+      const dmg = calculateDamage(enemyChar, playerChar, skillToDamageSpec(BASIC_ATTACK_SKILL), Math.random);
       if (dmg.blockedByBarrier) {
         state.log.push(`境界壁垒触发！${playerChar.name} 毫发无伤`);
+      } else if (dmg.missed) {
+        state.log.push(`${enemyChar.name} 追击落空，${playerChar.name} 闪避了攻击`);
       } else {
         playerChar.hp = Math.max(0, playerChar.hp - dmg.finalDamage);
         state.log.push(`${enemyChar.name} 追击，对 ${playerChar.name} 造成 ${dmg.finalDamage} 点伤害`);

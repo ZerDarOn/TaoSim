@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NPCInteractionEngine } from '../interaction/npc-interaction-engine.js';
+import { RecipeRegistry } from '../crafting/recipe-registry.js';
 import type { Character } from '@taosim/contracts';
 
 function makePlayer(overrides: Partial<Character> = {}): Character {
@@ -97,8 +98,13 @@ describe('NPCInteractionEngine recipe unlock', () => {
   });
 
   it('已解锁全部配方时不再授予', () => {
+    // 动态构造"全部配方已解锁"，避免新增配方导致列表过期
+    const allRecipeIds = [
+      ...RecipeRegistry.getAllPillRecipes().map(r => r.id),
+      ...RecipeRegistry.getAllForgeRecipes().map(r => r.id),
+    ];
     for (let i = 0; i < 50; i++) {
-      const player = makePlayer({ unlockedRecipes: ['RECIPE_FOUNDATION_PILL', 'RECIPE_QI_PILL', 'RECIPE_LONGEVITY_PILL', 'RECIPE_SPIRIT_SWORD', 'RECIPE_SPIRIT_ARMOR', 'RECIPE_STAR_SWORD'] });
+      const player = makePlayer({ unlockedRecipes: allRecipeIds });
       const npc = makeNPC('N4');
       const result = NPCInteractionEngine.discuss(player, npc);
       expect(result.unlockedRecipe).toBeUndefined();

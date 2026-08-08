@@ -36,4 +36,17 @@ export class EconomyEngine {
     const costs = [0, 50, 200, 800, 3200, 12800];
     return costs[spiritVeinLevel] ?? 0;
   }
+
+  /**
+   * 修士月度俸禄（境界水龙头）。
+   * 玩家没有稳定的宗门灵脉数据源，用境界档位作为基础灵石产出，
+   * 保证经济闭环存在一个持续的收入项（与传送/升品等消耗对应）。
+   */
+  public static realmMonthlyIncome(realm: string): number {
+    if (realm.startsWith('SoulFormation')) return 2000;
+    if (realm.startsWith('NascentSoul')) return 800;
+    if (realm.startsWith('GoldenCore')) return 300;
+    if (realm.startsWith('Foundation')) return 120;
+    return 50; // QiRefinement
+  }
 }

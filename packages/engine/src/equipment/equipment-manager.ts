@@ -91,6 +91,13 @@ export class EquipmentManager {
       if (attrs.luck) bonuses.luck += attrs.luck;
     }
 
+    // 词条（先天气运）战斗加成合并
+    if (character.traitBonuses) {
+      bonuses.attack += character.traitBonuses.attack ?? 0;
+      bonuses.defense += character.traitBonuses.defense ?? 0;
+      bonuses.critRate += character.traitBonuses.critRate ?? 0;
+    }
+
     return bonuses;
   }
 

@@ -20,6 +20,14 @@ export type Gender = 'Male' | 'Female' | 'Other';
 
 export type FactionRank = 'Disciple' | 'Deacon' | 'Elder' | 'Leader';
 
+/** 词条（先天气运）提供的战斗属性加成，创角时聚合写入 Character.traitBonuses */
+export interface TraitCombatBonuses {
+  attack: number;
+  defense: number;
+  critRate: number;
+  poisonResist: number;
+}
+
 // ---- 灵根系统 ----
 export type SpiritRootGrade = 'Heaven' | 'Earth' | 'Profound' | 'Yellow'; // 天/地/玄/黄
 
@@ -126,6 +134,8 @@ export interface Character {
   skills: import('./skill.js').Skill[];
   skillCooldowns: Record<string, number>;       // skillId → 剩余冷却回合数
   traits: import('./trait.js').Trait[];
+  /** 先天气运词条的战斗加成落点（trait.effects 中 attack/defense/critRate/poisonResist 的聚合值，创角时写入） */
+  traitBonuses?: TraitCombatBonuses;
   factionId?: string;
   factionRank?: FactionRank;
   personalityId?: string;    // NPC 性格 id（见 engine npc-personalities.ts）；玩家缺省=中性

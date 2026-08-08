@@ -44,9 +44,14 @@ export class AlchemyEngine {
     const quality = QualityCalculator.rollPillQuality();
 
     // 6. pillCategory 推断: 0=Restore, 1=Breakthrough, 2=Lifespan
+    //    基于配方 id（与突破 requiredItems 对齐），比按名称匹配更可靠
+    const BREAKTHROUGH_RECIPE_IDS = new Set([
+      'RECIPE_FOUNDATION_PILL', 'RECIPE_GOLDEN_CORE_PILL',
+      'RECIPE_NASCENT_SOUL_PILL', 'RECIPE_SOUL_FORMATION_PILL',
+    ]);
     let pillCategory = 0;
-    if (recipe.name.includes('筑基') || recipe.name.includes('金元') || recipe.name.includes('凝婴')) pillCategory = 1;
-    else if (recipe.name.includes('延寿')) pillCategory = 2;
+    if (BREAKTHROUGH_RECIPE_IDS.has(recipe.id)) pillCategory = 1;
+    else if (recipe.id.includes('LONGEVITY')) pillCategory = 2;
 
     // 7. 产出
     const pillName = isPoison ? `毒${recipe.name}` : recipe.name;

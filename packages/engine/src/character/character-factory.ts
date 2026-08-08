@@ -1,4 +1,5 @@
-import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill, SpiritRoot, GameMode } from '@taosim/contracts';
+import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill, SpiritRoot, GameMode, TraitCombatBonuses } from '@taosim/contracts';
+import type { AttributeKey } from '@taosim/contracts';
 import { getTraitById } from '../data/trait-registry.js';
 
 function generateId(): string {
@@ -49,6 +50,47 @@ const STARTER_SKILL: Skill = {
   cooldownTurns: 0,
 };
 
+/** 六维属性键（词条 effects 中直接写入 attributes 的键） */
+type AttributeSix = 'physique' | 'comprehension' | 'perception' | 'agility' | 'luck' | 'charm';
+function isAttributeSix(k: AttributeKey): k is AttributeSix {
+  return k === 'physique' || k === 'comprehension' || k === 'perception' || k === 'agility' || k === 'luck' || k === 'charm';
+}
+
+/**
+ * 应用先天气运词条效果（trait.effects）。
+ * 此前词条只挂载列表、效果全部悬空；此处补齐：
+ *  - 六维属性 → attributes
+ *  - spiritEnergyMax / initialStones / lifespanBonus → 对应字段
+ *  - attack / defense / critRate / poisonResist → 聚合到 traitBonuses（供装备系统合并）
+ */
+function applyTraitEffects(c: Character): void {
+  const bonuses: TraitCombatBonuses = { attack: 0, defense: 0, critRate: 0, poisonResist: 0 };
+  for (const trait of c.traits) {
+    const effects = trait.effects;
+    for (const key of Object.keys(effects) as AttributeKey[]) {
+      const v = effects[key] ?? 0;
+      if (v === 0) continue;
+      if (isAttributeSix(key)) {
+        c.attributes[key] = Math.max(1, (c.attributes[key] ?? 0) + v);
+      } else {
+        switch (key) {
+          case 'spiritEnergyMax': c.spiritEnergy.max = Math.max(1, c.spiritEnergy.max + v); break;
+          case 'initialStones': c.spiritStones = Math.max(0, c.spiritStones + v); break;
+          case 'lifespanBonus': c.lifespan.maxLifespan = Math.max(1, c.lifespan.maxLifespan + v); break;
+          case 'attack': bonuses.attack += v; break;
+          case 'defense': bonuses.defense += v; break;
+          case 'critRate': bonuses.critRate += v; break;
+          case 'poisonResist': bonuses.poisonResist += v; break;
+        }
+      }
+    }
+  }
+  if (bonuses.attack !== 0 || bonuses.defense !== 0 || bonuses.critRate !== 0 || bonuses.poisonResist !== 0) {
+    c.traitBonuses = bonuses;
+  }
+  c.spiritEnergy.current = c.spiritEnergy.max;
+}
+
 export class CharacterFactory {
   static create(params: CreateCharacterParams): Character {
     const id = generateId();
@@ -75,7 +117,7 @@ export class CharacterFactory {
 
     // 穿越模式：白板开局（无灵石/装备/宗门/技能）
     if (arrivalMode === 'transmigration') {
-      return {
+      const character: Character = {
         id, name: params.name, gender: params.gender, realm, soulState: 'Active',
         cultivation: { currentExp: 0, maxExp: 100 },
         lifespan: { age, maxLifespan: 100 },
@@ -93,6 +135,8 @@ export class CharacterFactory {
         relations: {}, wantedLevels: {},
         unlockedRecipes: ['RECIPE_QI_PILL'],
       };
+      applyTraitEffects(character);
+      return character;
     }
 
     // 诞生模式：按家世给资源
@@ -112,7 +156,7 @@ export class CharacterFactory {
       factionRank = 'Disciple';
     }
 
-    return {
+    const character: Character = {
       id, name: params.name, gender: params.gender, realm, soulState: 'Active',
       cultivation: { currentExp: 0, maxExp: 100 },
       lifespan: { age, maxLifespan: 100 },
@@ -129,6 +173,8 @@ export class CharacterFactory {
       factionId, factionRank, relations: {}, wantedLevels: {},
       unlockedRecipes: ['RECIPE_QI_PILL'],
     };
+    applyTraitEffects(character);
+    return character;
   }
 }
 

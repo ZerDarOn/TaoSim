@@ -45,6 +45,21 @@ const BUILTIN_PILL_RECIPES: PillRecipe[] = [
     requiredMaterials: ['MAT_YIN_DEW', 'MAT_YANG_STONE', 'MAT_DRAGON_BLOOD', 'MAT_PHOENIX_FEATHER'],
     yinYangThreshold: 0.4, baseSuccessRate: 0.4,
   },
+  {
+    type: 'pill', id: 'RECIPE_GOLDEN_CORE_PILL', name: '金丹丹', tier: 3,
+    requiredMaterials: ['MAT_DRAGON_BLOOD', 'MAT_PHOENIX_FEATHER', 'MAT_METEORITE', 'MAT_STARLIGHT'],
+    yinYangThreshold: 0.4, baseSuccessRate: 0.5,
+  },
+  {
+    type: 'pill', id: 'RECIPE_NASCENT_SOUL_PILL', name: '凝婴丹', tier: 4,
+    requiredMaterials: ['MAT_MILLENNIUM_LINGZHI', 'MAT_SKY_GOLD_SAND', 'MAT_DRAGON_BLOOD'],
+    yinYangThreshold: 0.3, baseSuccessRate: 0.3,
+  },
+  {
+    type: 'pill', id: 'RECIPE_SOUL_FORMATION_PILL', name: '化神丹', tier: 5,
+    requiredMaterials: ['MAT_MILLENNIUM_LINGZHI', 'MAT_SKY_GOLD_SAND', 'MAT_IMMORTAL_JADE', 'MAT_CHAOS_STONE'],
+    yinYangThreshold: 0.3, baseSuccessRate: 0.2,
+  },
 ];
 
 const BUILTIN_FORGE_RECIPES: ForgeRecipe[] = [

@@ -12,6 +12,7 @@
 
 import type { Character, WorldState, TimeFlowMode, BigEventLog } from '@taosim/contracts';
 import { PlayerLifecycleService } from '../lifecycle/player-lifecycle.js';
+import { EconomyEngine } from '../economy/economy-engine.js';
 import { getSpiritRootMultiplier } from '../data/spirit-root-table.js';
 import { getSpiritDensityMultiplier } from './season-system.js';
 import type { CalendarEventDef } from '@taosim/contracts';
@@ -94,7 +95,12 @@ export class TimeAdvanceService {
     totalExpGain = Math.floor(totalExpGain);
 
     // 用 PlayerLifecycleService 处理老化/寿命/灵力（但不让它算修为，我们自己加）
-    const playerResult = PlayerLifecycleService.advanceTime(player, months);
+    // 灵石月度产出：境界俸禄水龙头（传送/坊市等消费对应）
+    const playerResult = PlayerLifecycleService.advanceTime(
+      player,
+      months,
+      EconomyEngine.realmMonthlyIncome(player.realm),
+    );
     // 覆盖修为：用我们的季节感知版本替换 PlayerLifecycleService 的计算
     playerResult.updatedPlayer.cultivation.currentExp = expBefore + totalExpGain;
 
