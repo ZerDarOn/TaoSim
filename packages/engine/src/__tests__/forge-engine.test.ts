@@ -64,11 +64,18 @@ describe('ForgeEngine', () => {
   });
 
   it('根骨影响炼制成功率', () => {
-    let successes = 0;
-    for (let i = 0; i < 20; i++) {
-      const player = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 } });
-      if (ForgeEngine.craft(player, '灵蕴剑').success) successes++;
-    }
-    expect(successes).toBeGreaterThanOrEqual(18);
+    // 固定随机数避免 flaky：成功判定用第 1 次 random()，0.9 介于默认根骨成功率 0.75 与高根骨 0.95 之间
+    const origRandom = Math.random;
+    let calls = 0;
+    Math.random = () => { calls++; return calls % 2 === 1 ? 0.9 : 0.5; };
+
+    const strong = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 } });
+    const strongResult = ForgeEngine.craft(strong, '灵蕴剑');
+    const weak = makePlayer();
+    const weakResult = ForgeEngine.craft(weak, '灵蕴剑');
+    Math.random = origRandom;
+
+    expect(strongResult.success).toBe(true); // physique 100 → 成功率 0.95 ≥ 0.9
+    expect(weakResult.success).toBe(false);  // 默认 physique 10 → 成功率 0.75 < 0.9
   });
 });

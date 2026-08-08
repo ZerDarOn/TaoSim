@@ -62,6 +62,8 @@ export interface NpcRecord {
   destiny: NpcDestiny;
   realm: RealmFullPath;
   soulState: SoulState;
+  /** 修为进度（突破判定依据） */
+  cultivation: { currentExp: number; maxExp: number };
   /** 当前所在地图节点 id（引用真实节点） */
   locationId?: string;
   factionId?: string;

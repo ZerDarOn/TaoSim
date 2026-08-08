@@ -21,6 +21,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
     destiny: { tier: 'common', luck: 10, hidden: false },
     realm: 'QiRefinement_1',
     soulState: 'Active',
+    cultivation: { currentExp: 0, maxExp: 80 },
     spiritRoot: { grade: 'Yellow', elements: ['Earth'], isVariant: false },
     attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
     lifespan: { age: 30, maxLifespan: 100 },

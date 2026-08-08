@@ -2,6 +2,13 @@ import type { WorldState, BigEventLog, NpcRecord, Faction } from '@taosim/contra
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { characterToNpcRecord } from './npc-record-mapper.js';
+import {
+  cultivateNpc,
+  realmDisplay,
+  tryBreakthrough,
+  tryWander,
+  tryWonder,
+} from './world-tick-rules.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
@@ -37,16 +44,18 @@ export class WorldEngine {
     const events: BigEventLog[] = [];
     let npcPopulationChanged = false;
 
-    // 1. NPC 寿元检查（基于精简档案；元神不再老化）
+    // 1. NPC 月度推进（寿元 / 修炼 / 突破 / 奇遇 / 云游）— 无 AI 涌现规则集 §4
     for (const [id, npc] of Object.entries(this.state.npcs)) {
       if (npc.soulState !== 'Active') continue;
       npc.lifespan.age += 1 / 12;
+      npc.lastUpdate = { year: this.state.currentYear, month: this.state.currentMonth };
+
+      // 寿元耗尽 → 坐化
       if (npc.lifespan.age >= npc.lifespan.maxLifespan) {
         npc.soulState = 'PrimordialSoul';
         npc.deathYear = this.state.currentYear;
         npc.deathMonth = this.state.currentMonth;
         npc.causeOfDeath = '寿元耗尽';
-        npc.lastUpdate = { year: this.state.currentYear, month: this.state.currentMonth };
         npcPopulationChanged = true;
         events.push({
           id: this.generateEventId(),
@@ -56,6 +65,81 @@ export class WorldEngine {
           category: 'world',
           title: `${npc.name} 坐化`,
           description: `${npc.name} 寿元耗尽，元神出窍，留下一段修行往事`,
+          involvedCharacterIds: [id],
+        });
+        continue;
+      }
+
+      // 修炼增长
+      cultivateNpc(npc);
+
+      // 突破判定
+      const breakthrough = tryBreakthrough(npc, Math.random);
+      if (breakthrough.attempted) {
+        if (breakthrough.succeeded) {
+          events.push({
+            id: this.generateEventId(),
+            year: this.state.currentYear,
+            month: this.state.currentMonth,
+            isMajorEvent: breakthrough.major,
+            category: 'cultivation',
+            title: breakthrough.major
+              ? `${npc.name} 突破至${realmDisplay(npc.realm)}！`
+              : `${npc.name} 修为精进，臻至${realmDisplay(npc.realm)}`,
+            description: breakthrough.major
+              ? `${npc.name} 历经磨难，一举跨入${realmDisplay(npc.realm)}，震动一方`
+              : `${npc.name} 稳步精进，修为达到${realmDisplay(npc.realm)}`,
+            involvedCharacterIds: [id],
+          });
+        } else {
+          events.push({
+            id: this.generateEventId(),
+            year: this.state.currentYear,
+            month: this.state.currentMonth,
+            isMajorEvent: false,
+            category: 'cultivation',
+            title: `${npc.name} 突破失败`,
+            description: `${npc.name} 冲击${realmDisplay(breakthrough.nextRealm ?? npc.realm)}未果，重伤折损寿元`,
+            involvedCharacterIds: [id],
+          });
+        }
+      }
+
+      // 奇遇判定
+      const wonder = tryWonder(npc, Math.random);
+      if (wonder.triggered) {
+        const wonderTitles: Record<string, string> = {
+          treasure: `${npc.name} 得遇天材地宝`,
+          heritage: `${npc.name} 发现前辈洞府`,
+          injury: `${npc.name} 秘境遇险`,
+        };
+        const wonderDescs: Record<string, string> = {
+          treasure: `${npc.name} 偶得灵药，修为精进`,
+          heritage: `${npc.name} 探得无主洞府，收获丰厚`,
+          injury: `${npc.name} 误入凶险秘境，重伤而归，寿元受损`,
+        };
+        events.push({
+          id: this.generateEventId(),
+          year: this.state.currentYear,
+          month: this.state.currentMonth,
+          isMajorEvent: wonder.type === 'heritage',
+          category: 'discovery',
+          title: wonderTitles[wonder.type] ?? `${npc.name} 历经奇遇`,
+          description: wonderDescs[wonder.type] ?? '',
+          involvedCharacterIds: [id],
+        });
+      }
+
+      // 云游判定
+      if (tryWander(npc, Math.random)) {
+        events.push({
+          id: this.generateEventId(),
+          year: this.state.currentYear,
+          month: this.state.currentMonth,
+          isMajorEvent: false,
+          category: 'travel',
+          title: `${npc.name} 云游四方`,
+          description: `${npc.name} 收拾行囊，踏上云游之路`,
           involvedCharacterIds: [id],
         });
       }
