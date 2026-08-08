@@ -61,10 +61,14 @@ export const useEventLogStore = defineStore('eventLog', () => {
       involvedCharacterIds?: string[];
       year?: number;
       month?: number;
+      severity?: BigEventLog['severity'];
+      visibility?: BigEventLog['visibility'];
     } = {},
   ) {
     const year = options.year ?? appStore.currentWorldState?.currentYear ?? 1;
     const month = options.month ?? appStore.currentWorldState?.currentMonth ?? 1;
+    const severity = options.severity ?? (options.isMajorEvent ? 'major' : 'normal');
+    const visibility = options.visibility ?? 'local';
 
     const evt: BigEventLog = {
       id: `EVT_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -75,6 +79,9 @@ export const useEventLogStore = defineStore('eventLog', () => {
       title,
       description,
       involvedCharacterIds: options.involvedCharacterIds ?? [],
+      severity,
+      visibility,
+      source: 'player',
     };
 
     events.value.unshift(evt);

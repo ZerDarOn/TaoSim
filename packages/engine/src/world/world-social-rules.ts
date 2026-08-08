@@ -83,15 +83,19 @@ const MEET_CHANCE = 0.05;
 
 export type EncounterKind = 'meet' | 'dao-discussion' | 'spar' | 'grudge';
 
+export type EncounterTemplateKey = 'social.meet' | 'social.dao' | 'social.spar' | 'social.grudge';
+
 export interface EncounterResult {
   kind: EncounterKind;
+  /** 事件模板键（文本统一由模板库产出 §5） */
+  templateKey: EncounterTemplateKey;
   /** 对双方的 bond 影响（正=友善，负=敌对） */
   bondDelta: number;
   /** 论道修为增益（关系轨道 ↔ 境界轨道） */
   expGain?: number;
+  /** 论道焦点人物（悟性高者，模板 {npc} 变量） */
+  focalName?: string;
   major: boolean;
-  title: string;
-  description: string;
 }
 
 /**
@@ -112,9 +116,7 @@ export function socialEncounter(
     applyRelation(a, b.id, 'friend', bond, '初识', now);
     applyRelation(b, a.id, 'friend', bond, '初识', now);
     return {
-      kind: 'meet', bondDelta: bond, major: false,
-      title: `${a.name} 与 ${b.name} 相识`,
-      description: `${a.name} 与 ${b.name} 于江湖相遇，一见如故`,
+      kind: 'meet', templateKey: 'social.meet', bondDelta: bond, major: false,
     };
   }
   if (roll < 0.75) {
@@ -125,9 +127,8 @@ export function socialEncounter(
     const wiser = a.attributes.comprehension >= b.attributes.comprehension ? a : b;
     wiser.cultivation.currentExp += expGain;
     return {
-      kind: 'dao-discussion', bondDelta: bond, expGain, major: false,
-      title: `${a.name} 与 ${b.name} 论道`,
-      description: `${wiser.name} 在论道中悟得玄机，修为精进`,
+      kind: 'dao-discussion', templateKey: 'social.dao', bondDelta: bond, expGain,
+      focalName: wiser.name, major: false,
     };
   }
   if (roll < 0.9) {
@@ -135,18 +136,14 @@ export function socialEncounter(
     applyRelation(a, b.id, 'rival', bond, '切磋', now);
     applyRelation(b, a.id, 'rival', bond, '切磋', now);
     return {
-      kind: 'spar', bondDelta: bond, major: false,
-      title: `${a.name} 与 ${b.name} 切磋`,
-      description: `${a.name} 与 ${b.name} 切磋斗法，不分胜负，心中暗较劲`,
+      kind: 'spar', templateKey: 'social.spar', bondDelta: bond, major: false,
     };
   }
   const bond = -(20 + Math.floor(rng() * 16)); // -20..-35
   applyRelation(a, b.id, 'enemy', bond, '结仇', now);
   applyRelation(b, a.id, 'enemy', bond, '结仇', now);
   return {
-    kind: 'grudge', bondDelta: bond, major: true,
-    title: `${a.name} 与 ${b.name} 结仇`,
-    description: `${a.name} 与 ${b.name} 因故结下仇怨，江湖多了一对死对头`,
+    kind: 'grudge', templateKey: 'social.grudge', bondDelta: bond, major: true,
   };
 }
 
@@ -155,13 +152,13 @@ const INJURY_BASE_YEARS = 2;
 
 export interface FeudResult {
   attackerWins: boolean;
+  /** 事件模板键（combat.feed.win / combat.feed.lethal） */
+  templateKey: 'combat.feed.win' | 'combat.feed.lethal';
   /** 败者折寿（年） */
   injuryYears: number;
   /** 实力悬殊 → 陨落（仇杀） */
   lethal: boolean;
   major: boolean;
-  title: string;
-  description: string;
 }
 
 /**
@@ -208,12 +205,9 @@ export function tryFeud(
 
   return {
     attackerWins,
+    templateKey: lethal ? 'combat.feed.lethal' : 'combat.feed.win',
     injuryYears,
     lethal,
     major: lethal,
-    title: lethal ? `${loser.name} 陨落于 ${winner.name} 之手` : `${winner.name} 击伤 ${loser.name}`,
-    description: lethal
-      ? `${winner.name} 与 ${loser.name} 的恩怨了结，${loser.name} 陨落当场，江湖震动`
-      : `${winner.name} 与 ${loser.name} 斗法一场，${loser.name} 负伤遁走，折损 ${injuryYears} 年寿元`,
   };
 }

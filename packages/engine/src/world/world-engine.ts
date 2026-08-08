@@ -2,6 +2,7 @@ import type { WorldState, BigEventLog, NpcRecord, Faction } from '@taosim/contra
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { characterToNpcRecord } from './npc-record-mapper.js';
+import { EventCollector } from './event-collector.js';
 import {
   cultivateNpc,
   realmDisplay,
@@ -22,20 +23,21 @@ export interface MonthlyTickResult {
  * 负责：NPC 月度更新（寿元/修炼/突破/奇遇/云游）、社交相遇与寻仇（关系轨道）、
  *       人口补充、宗门维护、大事件生成。
  *
- * NPC 持久化（世界涌现叙事设计 §3.3/§9）：
- * - 状态只存精简 NpcRecord（this.state.npcs），随 WorldState 持久化
- * - 构造时从 state.npcs 恢复，推进后写回，getState() 带出 → 跨推进/跨会话连续
+ * 持久化（世界涌现叙事设计 §3.3/§5/§9）：
+ * - 状态只存精简 NpcRecord（this.state.npcs）+ 全量事件流（this.state.eventLog）
+ * - 构造时从 state 恢复，推进后写回，getState() 带出 → 跨推进/跨会话连续
+ * - 所有事件经 EventCollector 出口（模板渲染 + 时间戳 + 自增 id）
  */
 export class WorldEngine {
   private state: WorldState;
   private npcCounter = 0;
-  private eventCounter = 0;
   private factions: Map<string, Faction> = new Map();
 
   constructor(initialState: WorldState) {
     this.state = {
       ...initialState,
       npcs: { ...(initialState.npcs ?? {}) },
+      eventLog: [...(initialState.eventLog ?? [])],
     };
   }
 
@@ -43,6 +45,7 @@ export class WorldEngine {
   public step(): MonthlyTickResult {
     this.advanceCalendar();
 
+    const collector = new EventCollector(this.state.currentYear, this.state.currentMonth);
     const events: BigEventLog[] = [];
     let npcPopulationChanged = false;
 
@@ -59,16 +62,9 @@ export class WorldEngine {
         npc.deathMonth = this.state.currentMonth;
         npc.causeOfDeath = '寿元耗尽';
         npcPopulationChanged = true;
-        events.push({
-          id: this.generateEventId(),
-          year: this.state.currentYear,
-          month: this.state.currentMonth,
-          isMajorEvent: false,
-          category: 'world',
-          title: `${npc.name} 坐化`,
-          description: `${npc.name} 寿元耗尽，元神出窍，留下一段修行往事`,
-          involvedCharacterIds: [id],
-        });
+        events.push(
+          collector.emit({ key: 'death.natural', vars: { npc: npc.name }, involvedCharacterIds: [id] }),
+        );
         continue;
       }
 
@@ -79,71 +75,47 @@ export class WorldEngine {
       const breakthrough = tryBreakthrough(npc, Math.random);
       if (breakthrough.attempted) {
         if (breakthrough.succeeded) {
-          events.push({
-            id: this.generateEventId(),
-            year: this.state.currentYear,
-            month: this.state.currentMonth,
-            isMajorEvent: breakthrough.major,
-            category: 'cultivation',
-            title: breakthrough.major
-              ? `${npc.name} 突破至${realmDisplay(npc.realm)}！`
-              : `${npc.name} 修为精进，臻至${realmDisplay(npc.realm)}`,
-            description: breakthrough.major
-              ? `${npc.name} 历经磨难，一举跨入${realmDisplay(npc.realm)}，震动一方`
-              : `${npc.name} 稳步精进，修为达到${realmDisplay(npc.realm)}`,
-            involvedCharacterIds: [id],
-          });
+          const major = breakthrough.major;
+          events.push(
+            collector.emit({
+              key: major ? 'breakthrough.major' : 'breakthrough.minor',
+              vars: { npc: npc.name, realm: realmDisplay(npc.realm) },
+              involvedCharacterIds: [id],
+            }),
+          );
         } else {
-          events.push({
-            id: this.generateEventId(),
-            year: this.state.currentYear,
-            month: this.state.currentMonth,
-            isMajorEvent: false,
-            category: 'cultivation',
-            title: `${npc.name} 突破失败`,
-            description: `${npc.name} 冲击${realmDisplay(breakthrough.nextRealm ?? npc.realm)}未果，重伤折损寿元`,
-            involvedCharacterIds: [id],
-          });
+          events.push(
+            collector.emit({
+              key: 'breakthrough.fail',
+              vars: { npc: npc.name, realm: realmDisplay(breakthrough.nextRealm ?? npc.realm) },
+              involvedCharacterIds: [id],
+            }),
+          );
         }
       }
 
       // 奇遇判定
       const wonder = tryWonder(npc, Math.random);
       if (wonder.triggered) {
-        const wonderTitles: Record<string, string> = {
-          treasure: `${npc.name} 得遇天材地宝`,
-          heritage: `${npc.name} 发现前辈洞府`,
-          injury: `${npc.name} 秘境遇险`,
+        const wonderKeys: Record<string, string> = {
+          treasure: 'wonder.treasure',
+          heritage: 'wonder.heritage',
+          injury: 'wonder.injury',
         };
-        const wonderDescs: Record<string, string> = {
-          treasure: `${npc.name} 偶得灵药，修为精进`,
-          heritage: `${npc.name} 探得无主洞府，收获丰厚`,
-          injury: `${npc.name} 误入凶险秘境，重伤而归，寿元受损`,
-        };
-        events.push({
-          id: this.generateEventId(),
-          year: this.state.currentYear,
-          month: this.state.currentMonth,
-          isMajorEvent: wonder.type === 'heritage',
-          category: 'discovery',
-          title: wonderTitles[wonder.type] ?? `${npc.name} 历经奇遇`,
-          description: wonderDescs[wonder.type] ?? '',
-          involvedCharacterIds: [id],
-        });
+        events.push(
+          collector.emit({
+            key: wonderKeys[wonder.type] ?? 'wonder.treasure',
+            vars: { npc: npc.name },
+            involvedCharacterIds: [id],
+          }),
+        );
       }
 
       // 云游判定
       if (tryWander(npc, Math.random)) {
-        events.push({
-          id: this.generateEventId(),
-          year: this.state.currentYear,
-          month: this.state.currentMonth,
-          isMajorEvent: false,
-          category: 'travel',
-          title: `${npc.name} 云游四方`,
-          description: `${npc.name} 收拾行囊，踏上云游之路`,
-          involvedCharacterIds: [id],
-        });
+        events.push(
+          collector.emit({ key: 'travel.wander', vars: { npc: npc.name }, involvedCharacterIds: [id] }),
+        );
       }
     }
 
@@ -163,29 +135,26 @@ export class WorldEngine {
       for (const [a, b] of pairs) {
         const encounter = socialEncounter(a, b, now, Math.random);
         if (encounter) {
-          events.push({
-            id: this.generateEventId(),
-            year: now.year,
-            month: now.month,
-            isMajorEvent: encounter.major,
-            category: 'social',
-            title: encounter.title,
-            description: encounter.description,
-            involvedCharacterIds: [a.id, b.id],
-          });
+          const vars = { npcA: a.name, npcB: b.name, npc: encounter.focalName ?? a.name };
+          events.push(
+            collector.emit({
+              key: encounter.templateKey,
+              vars,
+              involvedCharacterIds: [a.id, b.id],
+            }),
+          );
         }
         const feud = tryFeud(a, b, now, Math.random);
         if (feud) {
-          events.push({
-            id: this.generateEventId(),
-            year: now.year,
-            month: now.month,
-            isMajorEvent: feud.major,
-            category: 'combat',
-            title: feud.title,
-            description: feud.description,
-            involvedCharacterIds: [a.id, b.id],
-          });
+          const winnerName = feud.attackerWins ? a.name : b.name;
+          const loserName = feud.attackerWins ? b.name : a.name;
+          events.push(
+            collector.emit({
+              key: feud.templateKey,
+              vars: { winner: winnerName, loser: loserName, years: String(feud.injuryYears) },
+              involvedCharacterIds: [a.id, b.id],
+            }),
+          );
           if (feud.lethal) npcPopulationChanged = true;
         }
       }
@@ -208,16 +177,9 @@ export class WorldEngine {
         const npc = this.spawnWildCultivator();
         this.state.npcs[npc.id] = npc;
         npcPopulationChanged = true;
-        events.push({
-          id: this.generateEventId(),
-          year: this.state.currentYear,
-          month: this.state.currentMonth,
-          isMajorEvent: false,
-          category: 'world',
-          title: `散修 ${npc.name} 出世`,
-          description: `${npc.name} 踏入修仙之路`,
-          involvedCharacterIds: [npc.id],
-        });
+        events.push(
+          collector.emit({ key: 'world.spawn', vars: { npc: npc.name }, involvedCharacterIds: [npc.id] }),
+        );
       }
     }
 
@@ -230,18 +192,19 @@ export class WorldEngine {
         // 灵石枯竭降级灵脉
         if (faction.spiritVeinLevel > 1) {
           faction.spiritVeinLevel--;
-          events.push({
-            id: this.generateEventId(),
-            year: this.state.currentYear, month: this.state.currentMonth,
-            isMajorEvent: true,
-            category: 'world',
-            title: `${faction.name} 灵脉降级`,
-            description: `${faction.name} 灵石耗尽，灵脉降至 ${faction.spiritVeinLevel} 阶`,
-            involvedCharacterIds: [],
-          });
+          events.push(
+            collector.emit({
+              key: 'faction.veinDegrade',
+              vars: { faction: faction.name, level: String(faction.spiritVeinLevel) },
+              involvedCharacterIds: [],
+            }),
+          );
         }
       }
     }
+
+    // 事件流持久化（编年史/传闻的数据基础）
+    this.state.eventLog.push(...events);
 
     return { updatedState: this.getState(), events, npcPopulationChanged };
   }
@@ -257,7 +220,7 @@ export class WorldEngine {
   }
 
   public getState(): WorldState {
-    return { ...this.state, npcs: { ...this.state.npcs } };
+    return { ...this.state, npcs: { ...this.state.npcs }, eventLog: [...this.state.eventLog] };
   }
 
   private advanceCalendar(): void {
@@ -269,11 +232,6 @@ export class WorldEngine {
     if (this.state.catastropheCountdownMonths > 0) {
       this.state.catastropheCountdownMonths--;
     }
-  }
-
-  private generateEventId(): string {
-    this.eventCounter++;
-    return `EVT_${this.state.currentYear}_${this.state.currentMonth}_${this.eventCounter}`;
   }
 
   /** 生成一个散修 NPC 并归档为 NpcRecord（境界分布：炼气为主、少量筑基/金丹） */

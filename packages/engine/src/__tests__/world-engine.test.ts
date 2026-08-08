@@ -9,6 +9,7 @@ const baseState: WorldState = {
   activeContinentIds: ['CONTINENT_CANGZHOU'],
   globalFlags: {},
   npcs: {},
+  eventLog: [],
 };
 
 function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
@@ -139,5 +140,30 @@ describe('WorldEngine', () => {
     const s1 = state.npcs['NPC_S1']!;
     const s2 = state.npcs['NPC_S2']!;
     expect(s1.relations['NPC_S2'] || s2.relations['NPC_S1']).toBeDefined();
+  });
+
+  it('所有事件结构化：severity/visibility/source 且 isMajorEvent 与 severity 一致', () => {
+    const engine = new WorldEngine(baseState);
+    const events = engine.fastForward(24).events;
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) {
+      expect(['minor', 'normal', 'major', 'epoch']).toContain(e.severity);
+      expect(['local', 'regional', 'world']).toContain(e.visibility);
+      expect(e.source).toBe('engine');
+      expect(e.isMajorEvent).toBe(e.severity === 'major' || e.severity === 'epoch');
+    }
+  });
+
+  it('事件流持久化：eventLog 累积且重建引擎后保留（编年史数据基础）', () => {
+    const engine = new WorldEngine(baseState);
+    const result = engine.step();
+    const state = engine.getState();
+    expect(state.eventLog.length).toBeGreaterThan(0);
+    expect(state.eventLog).toEqual(result.events);
+
+    const engine2 = new WorldEngine(state);
+    const before = engine2.getState().eventLog.length;
+    engine2.step();
+    expect(engine2.getState().eventLog.length).toBeGreaterThan(before);
   });
 });

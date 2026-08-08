@@ -84,6 +84,8 @@ describe('useBattleUI 状态机', () => {
     combat.state.currentTurn = 'p';
     await nextTick();
     ui.openAttack();
+    // 固定命中/暴击判定：同属性普攻伤害 5（0.5 既不触发闪避也不触发暴击，避免 flaky）
+    stubRng(0.5, 0.5);
     ui.onTileClick(1, 2);
     await nextTick();
     expect(combat.state.characters['e']!.hp).toBe(95);

@@ -48,14 +48,22 @@ export interface SavePayload {
 }
 
 // ---- 存档版本迁移 ----
-// 当前 schemaVersion = 2
+// 当前 schemaVersion = 3
 // v1 → v2：WorldState 新增 npcs 字段（NPC 持久化档案），旧存档补空对象
+// v2 → v3：WorldState 新增 eventLog 字段（全量事件流），旧存档补空数组
 export class SaveMigrationRunner {
   private static migrations: Map<number, (oldData: any) => any> = new Map([
     [
       1,
       (data) => {
         data.worldState.npcs = data.worldState.npcs ?? {};
+        return data;
+      },
+    ],
+    [
+      2,
+      (data) => {
+        data.worldState.eventLog = data.worldState.eventLog ?? [];
         return data;
       },
     ],
