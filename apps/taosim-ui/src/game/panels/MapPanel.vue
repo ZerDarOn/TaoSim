@@ -21,13 +21,15 @@ import {
   COSMOS_CATALOG, CONTINENT_CATALOG, TELEPORT_GRAPH,
   getTeleportNodeAt, getContinent, getCosmos,
   TravelService, VenueService,
+  npcSpatialIndex,
   type WorldHexGrid, type WorldHex, type HexTerrain, type HexMoveEvent,
 } from '@taosim/engine';
-import type { Character, MapLayer } from '@taosim/contracts';
+import type { Character, MapLayer, NpcRecord } from '@taosim/contracts';
 import type { AdventureEvent } from '@taosim/engine';
 import { AdventureEngine, NPCGenerator } from '@taosim/engine';
 import { formatRealm } from '@/utils/i18n-game';
 import { useEventLogStore } from '@/stores/event-log';
+import { useAppStore } from '@/stores/app';
 import AdventureEventCard from './AdventureEventCard.vue';
 import VenuePanel from './VenuePanel.vue';
 
@@ -35,6 +37,7 @@ const playerStore = usePlayerStore();
 const uiStore = useUiStore();
 const mapStore = useMapStore();
 const eventLog = useEventLogStore();
+const appStore = useAppStore();
 
 // ---- 当前层级 ----
 const activeLayer = computed(() => mapStore.activeLayer);
@@ -164,6 +167,47 @@ function hexPolygonPoints(cx: number, cy: number): string {
 
 const allHexes = computed(() => Array.from(worldGrid.value.hexes.values()));
 const neighborPositions = computed(() => getHexNeighbors(playerHexPos.value.q, playerHexPos.value.r));
+
+// ============================================================
+// NPC 呈现（设计 §spec 3.4：上帝视角聚合 + 沉浸视角附近精细）
+// ============================================================
+
+// 世界档案 NPC（Active）按格索引（venue→hex 由引擎维护）
+const npcByHex = computed(() => {
+  const npcs = appStore.currentWorldState?.npcs ?? {};
+  return npcSpatialIndex(npcs, worldGrid.value);
+});
+
+// 上帝视角：每格聚合标记（人数 + 最高境界色）
+const npcAggregates = computed(() => {
+  const out: Array<{ q: number; r: number; count: number; color: string }> = [];
+  for (const [key, list] of npcByHex.value) {
+    const [q, r] = key.split(',').map(Number);
+    let color = realmColor('QiRefinement_1');
+    for (const n of list) color = realmColor(n.realm);
+    out.push({ q: q!, r: r!, count: list.length, color });
+  }
+  return out;
+});
+
+// 沉浸视角：玩家所在格 + 邻格 NPC 精细标记（人形 + 姓名；稍远不可见——修仙神秘感）
+const nearbyNpcs = computed(() => {
+  const pos = playerHexPos.value;
+  const around = [{ q: pos.q, r: pos.r }, ...getHexNeighbors(pos.q, pos.r)];
+  const out: Array<{ q: number; r: number; npc: NpcRecord }> = [];
+  for (const p of around) {
+    const list = npcByHex.value.get(`${p.q},${p.r}`) ?? [];
+    for (const n of list) out.push({ q: p.q, r: p.r, npc: n });
+  }
+  return out;
+});
+
+function realmColor(realm: string): string {
+  if (realm.startsWith('NascentSoul')) return '#a78bfa'; // 元婴紫
+  if (realm.startsWith('GoldenCore')) return '#fbbf24';   // 金丹金
+  if (realm.startsWith('Foundation')) return '#60a5fa';   // 筑基蓝
+  return '#22d3ee';                                       // 炼气青
+}
 
 function isAdjacent(q: number, r: number): boolean {
   return neighborPositions.value.some(n => n.q === q && n.r === r);
@@ -665,6 +709,25 @@ const legendTerrains: HexTerrain[] = ['plain', 'forest', 'mountain', 'water', 's
             </g>
             <circle v-if="isAdjacent(hex.q, hex.r) && !isPlayerHere(hex.q, hex.r)"
               r="3" fill="rgba(34,211,238,0.5)" class="pointer-events-none animate-pulse" />
+          </g>
+
+          <!-- NPC 聚合标记（上帝视角：人数 + 最高境界色） -->
+          <g v-for="agg in npcAggregates" :key="`npcagg-${agg.q}-${agg.r}`"
+            :transform="`translate(${hexToPixel(agg.q, agg.r).x}, ${hexToPixel(agg.q, agg.r).y})`"
+            class="pointer-events-none select-none">
+            <circle :r="4 + Math.min(agg.count, 8)" :fill="agg.color" fill-opacity="0.55"
+              :stroke="agg.color" stroke-width="1" />
+            <text y="3" text-anchor="middle" fill="#fff" font-size="6" font-weight="bold"
+              v-if="agg.count > 1">{{ agg.count }}</text>
+          </g>
+
+          <!-- NPC 精细标记（沉浸视角：玩家附近，人形 + 姓名） -->
+          <g v-for="near in nearbyNpcs" :key="`npcnear-${near.q}-${near.r}-${near.npc.id}`"
+            :transform="`translate(${hexToPixel(near.q, near.r).x}, ${hexToPixel(near.q, near.r).y})`"
+            class="pointer-events-none select-none">
+            <circle r="5" :fill="realmColor(near.npc.realm)" stroke="#0f172a" stroke-width="1" />
+            <text y="13" text-anchor="middle" :fill="realmColor(near.npc.realm)" font-size="6"
+              font-weight="bold">{{ near.npc.name }}</text>
           </g>
         </svg>
         <div v-if="pendingPath" class="absolute top-2 right-2 px-2 py-1 bg-amber-900/70 rounded text-xs text-amber-200">

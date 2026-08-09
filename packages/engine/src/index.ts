@@ -61,6 +61,8 @@ export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';
 export { generateWorldGrid, moveOneStep, autoTravel, findPath, findLandmarkPos, hexDistance, getHexNeighbors, applyExploredCache, collectExplored } from './overworld/hex-overworld-engine.js';
 export type { WorldHexGrid, WorldHex, HexTerrain, HexMoveResult, HexMoveEvent } from './overworld/hex-overworld-engine.js';
 export { TERRAIN_INFO } from './overworld/hex-overworld-engine.js';
+export { npcHexPos, npcSpatialIndex, deriveNpcHexPos } from './overworld/npc-spatial.js';
+export type { NpcHexDeriveResult } from './overworld/npc-spatial.js';
 
 // Multi-layer Map Catalog (多层地图)
 export { COSMOS_CATALOG, CONTINENT_CATALOG, TELEPORT_GRAPH, VENUE_CATALOG, getCosmos, getContinent, getContinentIdsByCosmos, getTeleportNode, getTeleportNodeAt, getVenuesByNode, getVenue, createInitialMapState } from './overworld/map-catalog.js';
