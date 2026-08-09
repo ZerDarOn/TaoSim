@@ -37,12 +37,14 @@ function makeMapState(): PlayerMapState {
   };
 }
 
-describe('TravelService 境界门槛（回归 I1）', () => {
-  // 天机城（CONT_EAST）传送阵 → 西漠传送阵（requiredRealm: YuanYing）
+describe('TravelService 目标大陆可用性（回归：占位大陆单向死路）', () => {
+  // 天机城（CONT_EAST）传送阵 → 西漠传送阵：西漠为占位大陆（PRESET_MAP 无节点，
+  // 传送阵 nodeId 暂挂东荒节点），原实现放行后玩家落入无地标/无场所的空白网格，
+  // 无法传送返回也无法进入场所（能出不能进的单向死路）。修复后统一拦截为"尚未开放"。
   const SOURCE = { mapState: makeMapState(), currentNodeId: 'NODE_CITY_TIANJI' };
   const TARGET_TP = 'TP_WEST_FOZONG';
 
-  it('炼气期（LianQi）玩家被传送阵境界门槛拦截', () => {
+  it('炼气期玩家被拦截：目标大陆尚未开放', () => {
     const result = TravelService.canTeleport(
       makePlayer('QiRefinement_1', 600),
       SOURCE.mapState,
@@ -50,20 +52,21 @@ describe('TravelService 境界门槛（回归 I1）', () => {
       TARGET_TP,
     );
     expect(result.ok).toBe(false);
-    expect(result.missingRealm).toBe('YuanYing');
+    expect(result.reason).toBe('该大陆尚未开放');
   });
 
-  it('元婴期（YuanYing）玩家可通过传送阵境界门槛并成功', () => {
+  it('元婴期玩家同样无法传送至未开放大陆（防止单向死路）', () => {
     const result = TravelService.canTeleport(
       makePlayer('NascentSoul_1', 600),
       SOURCE.mapState,
       SOURCE.currentNodeId,
       TARGET_TP,
     );
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('该大陆尚未开放');
   });
 
-  it('灵石不足仍被拦截（境界校验之后）', () => {
+  it('灵石充足与否均被未开放拦截（可用性校验优先于费用）', () => {
     const result = TravelService.canTeleport(
       makePlayer('NascentSoul_1', 100),
       SOURCE.mapState,
@@ -71,7 +74,6 @@ describe('TravelService 境界门槛（回归 I1）', () => {
       TARGET_TP,
     );
     expect(result.ok).toBe(false);
-    expect(result.missingStones).toBeGreaterThan(0);
   });
 });
 

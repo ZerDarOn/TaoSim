@@ -20,8 +20,39 @@ function shuffle<T>(arr: T[], rand: () => number): T[] {
   return a;
 }
 
-const NAMES = ['玄明子', '妙音', '苍梧', '青羽', '无尘', '九渊', '白鹤', '紫电', '凌霄', '幽兰'];
-const SURNAMES = ['云', '慕', '叶', '司', '顾', '温', '沈', '柳', '裴', '萧'];
+/**
+ * 百家姓（按《百家姓》通行序取前 64 姓）：
+ * 修仙世界以真实百家姓为姓，避免武侠式生造复姓带来的“随手乱编”感。
+ * 64 姓 × 40 名/性别 = 5120 组合，配合世界内去重，重名率可忽略。
+ */
+const SURNAMES = [
+  '赵', '钱', '孙', '李', '周', '吴', '郑', '王',
+  '冯', '陈', '褚', '卫', '蒋', '沈', '韩', '杨',
+  '朱', '秦', '尤', '许', '何', '吕', '施', '张',
+  '孔', '曹', '严', '华', '金', '魏', '陶', '姜',
+  '戚', '谢', '邹', '喻', '柏', '水', '窦', '章',
+  '云', '苏', '潘', '葛', '奚', '范', '彭', '郎',
+  '鲁', '韦', '昌', '马', '苗', '凤', '花', '方',
+  '俞', '任', '袁', '柳', '酆', '鲍', '史', '唐',
+];
+
+/** 男子名库（清朗刚健；修仙语境下仍是寻常人名而非道号） */
+const MALE_GIVEN = [
+  '亦辰', '清玄', '无涯', '惊鸿', '长歌', '扶摇', '临渊', '听澜',
+  '守一', '玄策', '承影', '归尘', '忘机', '行止', '乘云', '御风',
+  '昭雪', '暮白', '怀瑾', '抱朴', '云深', '孤帆', '燕然', '问道',
+  '明心', '观澜', '听涛', '修远', '弘毅', '慎言', '子墨', '君陌',
+  '尘缘', '白羽', '惊蛰', '望舒', '泽言', '天行', '书言', '寄舟',
+];
+
+/** 女子名库（清雅柔韧） */
+const FEMALE_GIVEN = [
+  '若雪', '清漓', '云霓', '晚晴', '疏影', '流萤', '婉清', '语嫣',
+  '凝霜', '梦璃', '南枝', '半夏', '微澜', '初晴', '落霞', '青禾',
+  '芷若', '月梧', '星阑', '素问', '知微', '静姝', '采薇', '清欢',
+  '若璃', '临溪', '听雨', '惜朝', '扶苏', '念慈', '云袖', '栖迟',
+  '昭华', '未央', '春雪', '秋澄', '冬青', '芩霜', '蘅芜', '朝暮',
+];
 
 const FIVE_ELEMENTS = ['Metal', 'Wood', 'Water', 'Fire', 'Earth'] as const;
 const VARIANT_ELEMENTS = ['Thunder', 'Ice', 'Wind', 'Dark'] as const;
@@ -54,9 +85,23 @@ function pickSkill(rand: () => number, qualityPool: SkillQuality[]): Skill | und
 }
 
 export class NPCGenerator {
+  /**
+   * 按种子确定性取名（百家姓 × 性别名库）。
+   * 供世界引擎在重名时以不同 seed 重新取一个唯一名（NPC 其余属性不变）。
+   */
+  static generateName(seed: number, gender: Character['gender']): string {
+    const rand = seededRandom(seed);
+    const surname = SURNAMES[Math.floor(rand() * SURNAMES.length)] ?? '赵';
+    const givenPool = gender === 'Male' ? MALE_GIVEN : FEMALE_GIVEN;
+    const given = givenPool[Math.floor(rand() * givenPool.length)] ?? '亦辰';
+    return `${surname}${given}`;
+  }
+
   static generate(tier: number, seed: number): Character {
     const rand = seededRandom(seed);
-    const name = `${SURNAMES[Math.floor(rand() * SURNAMES.length)]}${NAMES[Math.floor(rand() * NAMES.length)]}`;
+    // 先定性别再取名（名分男女库，避免“男名女用”的违和感）
+    const gender: Character['gender'] = rand() < 0.5 ? 'Male' : 'Female';
+    const name = NPCGenerator.generateName(seed, gender);
 
     const realmTier = tier === 1 ? 'QiRefinement' :
       tier === 2 ? 'Foundation' :
@@ -119,7 +164,7 @@ export class NPCGenerator {
       id: `NPC_GEN_${seed}`,
       personalityId: resolvePersonalityId(`NPC_GEN_${seed}`),
       name,
-      gender: rand() < 0.5 ? 'Male' : 'Female',
+      gender,
       realm: `${realmTier}_${subLevel}` as RealmFullPath,
       soulState: 'Active',
       cultivation: { currentExp: 0, maxExp: 500 * tier },

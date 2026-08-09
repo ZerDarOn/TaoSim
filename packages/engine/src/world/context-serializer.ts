@@ -6,10 +6,18 @@
 // - 全部纯函数：无 I/O，可在引擎/UI/未来 AI 服务中复用
 // ============================================================
 
-import type { BigEventLog, NpcRecord, WorldState } from '@taosim/contracts';
+import type { BigEventLog, BornOrigin, NpcRecord, WorldState } from '@taosim/contracts';
 import { realmDisplay } from './world-tick-rules.js';
 
 const SEVERITY_ICON: Record<string, string> = { minor: '·', normal: '◆', major: '★', epoch: '☀' };
+
+const BORN_LABEL: Record<BornOrigin, string> = {
+  mortal: '平凡', fortune: '气运之子', reincarnated: '大能转世', inherited: '逆天传承',
+};
+
+function bornLabel(born: BornOrigin): string {
+  return BORN_LABEL[born] ?? '平凡';
+}
 
 function formatTime(e: { year: number; month: number }): string {
   return `${e.year}年${e.month}月`;
@@ -29,7 +37,7 @@ export function serializeNpcBiography(
   npcs?: Record<string, NpcRecord>,
 ): string {
   const lines: string[] = [];
-  lines.push(`【生平素材】${npc.name}（${npc.gender} · ${realmDisplay(npc.realm)} · 命格 ${npc.destiny.tier} · 气运 ${npc.destiny.luck}）`);
+  lines.push(`【生平素材】${npc.name}（${npc.gender} · ${realmDisplay(npc.realm)} · 出身 ${bornLabel(npc.destiny.born)} · 事迹认定 ${npc.destiny.tier} · 气运 ${npc.destiny.luck}）`);
   lines.push(`- 出生：${formatTime({ year: npc.birthYear, month: npc.birthMonth })}`);
   lines.push(`- 当前境界：${realmDisplay(npc.realm)}；修为 ${npc.cultivation.currentExp}/${npc.cultivation.maxExp}`);
   lines.push(`- 寿元：${Math.floor(npc.lifespan.age)}岁 / 上限 ${npc.lifespan.maxLifespan} 年（${npc.soulState}）`);

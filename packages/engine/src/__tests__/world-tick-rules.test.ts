@@ -18,7 +18,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
     gender: 'Male',
     personalityId: 'neutral',
     origin: { type: '散修' },
-    destiny: { tier: 'common', luck: 50, hidden: false },
+    destiny: { tier: 'common', born: 'mortal', luck: 50, hidden: false },
     realm: 'QiRefinement_1',
     soulState: 'Active',
     cultivation: { currentExp: 0, maxExp: 80 },
@@ -100,23 +100,23 @@ describe('world-tick-rules', () => {
     expect(npc.lifespan.maxLifespan).toBe(maxLifespanBefore - 3);
   });
 
-  it('天骄突破成功率更高', () => {
+  it('气运面板加权：高气运者突破更顺（先天出身仅塑造面板，无机制加成）', () => {
     const common = makeNpc({ cultivation: { currentExp: 80, maxExp: 80 } });
-    const prodigy = makeNpc({
-      destiny: { tier: 'prodigy', luck: 95, hidden: true },
+    const lucky = makeNpc({
+      destiny: { tier: 'common', born: 'fortune', luck: 95, hidden: true },
       cultivation: { currentExp: 80, maxExp: 80 },
     });
-    // rng 恒 0.82：common 成功率 0.7±0.18 → 约 0.52..0.88；prodigy 额外 +0.1
+    // rng 恒 0.82：common(luck50) 成功率 0.7；幸运儿(luck95) 0.7+0.18=0.88
     const commonResult = tryBreakthrough(common, () => 0.82);
-    const prodigyResult = tryBreakthrough(prodigy, () => 0.82);
+    const luckyResult = tryBreakthrough(lucky, () => 0.82);
     expect(commonResult.succeeded).toBe(false);
-    expect(prodigyResult.succeeded).toBe(true);
+    expect(luckyResult.succeeded).toBe(true);
   });
 
   it('tryWonder 天材地宝：修为增加', () => {
-    const npc = makeNpc({ destiny: { tier: 'prodigy', luck: 95, hidden: true } });
+    const npc = makeNpc({ destiny: { tier: 'common', born: 'fortune', luck: 95, hidden: true } });
     let calls = 0;
-    // 第一次 rng 触发判定（需 < 触发概率 ~0.012），第二次 type roll < 0.6 → treasure
+    // 第一次 rng 触发判定（需 < 触发概率 ~0.006），第二次 type roll < 0.6 → treasure
     const result = tryWonder(npc, () => (calls++ === 0 ? 0.001 : 0.05));
     expect(result.triggered).toBe(true);
     expect(result.type).toBe('treasure');
@@ -124,7 +124,7 @@ describe('world-tick-rules', () => {
   });
 
   it('tryWonder 秘境遇险：折损寿元', () => {
-    const npc = makeNpc({ destiny: { tier: 'prodigy', luck: 95, hidden: true } });
+    const npc = makeNpc({ destiny: { tier: 'common', born: 'fortune', luck: 95, hidden: true } });
     const maxLifespanBefore = npc.lifespan.maxLifespan;
     let calls = 0;
     // 触发 + type roll >= 0.9 → injury

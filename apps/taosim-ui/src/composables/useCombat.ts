@@ -49,6 +49,11 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
 
   const mapState = reactive(map);
   const engine = new CombatEngine(mapState, allChars);
+
+  // 战斗地图 q 列边界（逃跑难度按"距最近边缘格数"折算；原实现直接把列坐标 q 当距离，
+  // 越往敌方半场跑惩罚越重，与"靠近边缘才好逃"的直觉相反）
+  const qs = Object.values(map.tiles).map((t) => t.q);
+  const qBounds = { min: qs.length ? Math.min(...qs) : 0, max: qs.length ? Math.max(...qs) : 0 };
   const state = reactive<CombatState>({
     engine,
     map: mapState,
@@ -170,8 +175,14 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     }
 
     const skill = state.selectedSkill;
+    // AP 前置校验：行动力不足拒绝施放（原实现结算后 Math.max(0,...) 扣减，0 AP 仍可出手）
+    if (attacker.ap < skill.cost.ap) {
+      state.log.push(`行动力不足，${attacker.name} 无法施展 ${skill.name}`);
+      state.phase = 'idle';
+      return null;
+    }
     const result = calculateDamage(attacker, defender, skillToDamageSpec(skill), Math.random);
-    defender.hp -= result.finalDamage;
+    defender.hp = Math.max(0, defender.hp - result.finalDamage);
     if (result.missed) {
       state.log.push(`${attacker.name} 的攻击被 ${defender.name} 闪避`);
     } else if (result.crit) {
@@ -224,8 +235,15 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
       return null;
     }
 
+    // AP 前置校验：行动力不足拒绝普攻
+    if (attacker.ap < BASIC_ATTACK_SKILL.cost.ap) {
+      state.log.push(`行动力不足，${attacker.name} 无法出手`);
+      state.phase = 'idle';
+      return null;
+    }
+
     const result = calculateDamage(attacker, defender, skillToDamageSpec(BASIC_ATTACK_SKILL), Math.random);
-    defender.hp -= result.finalDamage;
+    defender.hp = Math.max(0, defender.hp - result.finalDamage);
     if (result.missed) {
       state.log.push(`${attacker.name} 的攻击被 ${defender.name} 闪避`);
     } else if (result.crit) {
@@ -265,7 +283,7 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
       enemyAgility: enemyChar.attributes.agility,
       enemyPersonalityId: enemyChar.personalityId,
       battleType,
-      distanceToEdge: pos ? pos.q : 0,
+      distanceToEdge: pos ? Math.min(pos.q - qBounds.min, qBounds.max - pos.q) : 0,
       rng: Math.random,
     });
     if (result === 'success') {
@@ -315,8 +333,9 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
 
     const action = NpcAI.decide(npc, playerChar, state.engine as any, state.characters);
 
-    if (action.type === 'attack' && action.targetId && action.skill) {
-      state.selectedSkill = action.skill;
+    if (action.type === 'attack' && action.targetId) {
+      // NpcAI 无可用技能时退化普攻（不带 skill）：补内置普攻 Skill 复用 attackTarget 全流程
+      state.selectedSkill = action.skill ?? BASIC_ATTACK_SKILL;
       attackTarget(action.targetId);
     } else if (action.type === 'move' && action.toQ !== undefined && action.toR !== undefined) {
       state.engine.moveCharacter(npcId, action.toQ, action.toR);

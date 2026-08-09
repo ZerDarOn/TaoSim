@@ -26,7 +26,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
     gender: 'Male',
     personalityId: 'neutral',
     origin: { type: '散修' },
-    destiny: { tier: 'common', luck: 10, hidden: false },
+    destiny: { tier: 'common', born: 'mortal', luck: 10, hidden: false },
     realm: 'QiRefinement_1',
     soulState: 'Active',
     cultivation: { currentExp: 0, maxExp: 80 },

@@ -41,6 +41,8 @@ export interface BigEventLog {
   locationId?: string;
   /** 因果链：关联事件 id（串故事线 §2.4） */
   relatedEventIds?: string[];
+  /** 来源模板键（编年史聚合/去重/监控用，如 'breakthrough.major'） */
+  templateKey?: string;
   /** AI 文学化描述（增强层，不改事实） */
   narrative?: string;
 }

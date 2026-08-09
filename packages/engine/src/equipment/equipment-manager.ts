@@ -26,10 +26,23 @@ export class EquipmentManager {
     if (stackIdx === -1) return { success: false, reason: '背包中无此物品' };
     const stack = character.inventory[stackIdx]!;
     if (stack.count <= 0) return { success: false, reason: '物品数量不足' };
+
+    // "已装备"前置校验：先于库存扣减，避免"背包唯一一件已装备、再装备同名"时
+    // 库存先被扣到 0 而返回失败 → 物品凭空消失（不可逆数据丢失）。
+    // 跨全部槽位判定（不依赖 determineSlot 归类，避免"带防御的法宝被归为 armor"时绕过校验）
+    const alreadyEquipped =
+      character.equipmentSlots.weapon?.id === item.id ||
+      character.equipmentSlots.armor?.id === item.id ||
+      character.equipmentSlots.treasures.some(t => t.id === item.id);
+    if (alreadyEquipped) {
+      return { success: false, reason: '已装备该物品' };
+    }
+    const slot = this.determineSlot(item);
+
+    // 全部前置校验通过后才扣减库存
     stack.count--;
     if (stack.count === 0) character.inventory.splice(stackIdx, 1);
 
-    const slot = this.determineSlot(item);
     if (slot === 'treasures') {
       const old = character.equipmentSlots.treasures.find(t => t.id === item.id);
       if (old) return { success: false, reason: '已装备该法宝' };

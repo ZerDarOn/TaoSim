@@ -85,28 +85,42 @@ export function calculateDamage(
   const defBonuses = EquipmentManager.getCombatBonuses(defender);
   const attackPower = atkBonuses.attack + 10;
   const baseDefense = defender.attributes.physique * 0.5;
-  // 暴击率：显式传入优先；否则用词条暴击加成；都没有时退回基础 0.05
-  const finalCritRate = critRate ?? (atkBonuses.critRate > 0 ? atkBonuses.critRate / 100 : 0.05);
+  // 暴击率：显式传入优先；否则用词条暴击加成；都没有时退回基础 0.05。钳制 [0,1] 防词条/传参越界
+  const finalCritRate = Math.min(1, Math.max(0, critRate ?? (atkBonuses.critRate > 0 ? atkBonuses.critRate / 100 : 0.05)));
 
   const atkTier = realmTier(attacker.realm);
   const defTier = realmTier(defender.realm);
 
-  // 闪避判定
-  const dodge = Math.min(
-    BATTLE_CONFIG.MAX_DODGE_RATE,
-    BATTLE_CONFIG.BASE_DODGE_RATE
-      + ((defender.attributes.agility - attacker.attributes.agility)
-        / Math.max(1, attacker.attributes.agility + defender.attributes.agility))
-      * BATTLE_CONFIG.AGILITY_DODGE_SCALE,
+  // 闪避判定（双向钳制：身法悬殊时闪避率不为负，对称于 MAX_DODGE_RATE 上限）
+  const dodge = Math.max(
+    0,
+    Math.min(
+      BATTLE_CONFIG.MAX_DODGE_RATE,
+      BATTLE_CONFIG.BASE_DODGE_RATE
+        + ((defender.attributes.agility - attacker.attributes.agility)
+          / Math.max(1, attacker.attributes.agility + defender.attributes.agility))
+        * BATTLE_CONFIG.AGILITY_DODGE_SCALE,
+    ),
   );
   const missed = rng() < dodge;
 
   // 暴击判定（未命中不判暴击）
   const crit = !missed && rng() < finalCritRate;
 
-  // 境界硬壁垒
+  // 境界壁垒（§战斗合理性）：
+  // - 跨 2 阶及以上为铁壁（低境 0 伤，如炼气 vs 金丹——根基差距不可逾越）；
+  // - ±1 阶内，若攻击方攻势（攻击力）碾压防御方护体值（> 1.3 倍），壁垒松动为三成压制，
+  //   使"天生天赋/强横法宝"成为一阶内以下犯上的合法世界内因（面板因果，非命格机制特权）。
   let barrierRate = 0;
-  if (defTier > atkTier) barrierRate = 1.0;
+  if (defTier > atkTier) {
+    const gap = defTier - atkTier;
+    const defVigor = baseDefense + defBonuses.defense;
+    if (gap === 1 && attackPower > defVigor * 1.3) {
+      barrierRate = 0.35;
+    } else {
+      barrierRate = 1.0;
+    }
+  }
 
   let damage = Math.max(0, (attackPower - baseDefense) * spec.multiplier - defBonuses.defense);
   damage = damage * (1 - barrierRate) * elementMultiplier(spec.element, getDefenseElement(defender), spec.tier);

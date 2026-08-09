@@ -65,8 +65,29 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     titlePattern: '{npcA} 与 {npcB} 结仇',
     descriptionPattern: '{npcA} 与 {npcB} 因故结下仇怨，江湖多了一对死对头' },
 
+  // ── 代际与传承（§4.13 自主性：道侣 / 子嗣 / 道统——修仙以血脉与道统延续，非繁殖）──
+  { key: 'social.couple', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 与 {npc2} 结为道侣',
+    descriptionPattern: '{npc} 与 {npc2} 情投意合，结为道侣，从此道途相携，江湖平添一段佳话' },
+  { key: 'social.sectAbdicate', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 传位于 {npc2}，执掌 {sect}',
+    descriptionPattern: '{npc} 自觉大限将至，不愿宗门随己陪葬，将宗主之位传予 {npc2}，退居长老，静候天时' },
+  { key: 'social.sectUsurp', category: 'social', severity: 'major', visibility: 'regional',
+    titlePattern: '{npc} 夺位成功，执掌 {sect}',
+    descriptionPattern: '{npc} 于宗内大比夺魁，力压 {npc2}，如愿执掌 {sect}，一朝风云变色' },
+  { key: 'social.sectUsurpFail', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 夺位失败，被逐出 {sect}',
+    descriptionPattern: '{npc} 挑战 {npc2} 宗主之位不成，颜面扫地，被逐出 {sect}' },
+  { key: 'social.child', category: 'social', severity: 'normal', visibility: 'local',
+    titlePattern: '{npc} 与 {npc2} 喜得子嗣 {child}',
+    descriptionPattern: '{child} 降世于{location}，承父母血脉与家学，{npc} 与 {npc2} 的衣钵有了传承之人' },
+  { key: 'heritage.pass', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{master} 将一身道统传给 {disciple}',
+    descriptionPattern: '{master} 寿元将尽，将一生道统尽数传给 {disciple}，衣钵相承，薪火不绝' },
+
   // ── 坊市流动（economy §4.6：灵石交易 / 突破材料流转）──
-  { key: 'market.trade', category: 'economy', severity: 'normal', visibility: 'local',
+  // 例行事件（minor）：不入全量编年史，避免流水账淹没叙事（涌现缺口 N1）
+  { key: 'market.trade', category: 'economy', severity: 'minor', visibility: 'local',
     titlePattern: '{npc} 于坊市购得 {item}',
     descriptionPattern: '{npc} 在坊市花费 {stones} 灵石购得 {item}，突破材料在市井间流转不息' },
 
@@ -93,6 +114,14 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'npc.epithet', category: 'world', severity: 'normal', visibility: 'regional',
     titlePattern: '{npc} 名动江湖',
     descriptionPattern: '{npc} 声名鹊起，江湖人称「{epithet}」' },
+  // 事迹认定（果，§命格因果）：天骄/传奇是"做到之后"被世界记下的标签，不是出生给定的
+  { key: 'npc.legend', category: 'world', severity: 'normal', visibility: 'world',
+    titlePattern: '{npc} 名动天下，世人目之为{tier}',
+    descriptionPattern: '{npc} 以一身事迹印证天资，天下修士传颂其名，目之为{tier}' },
+  // 死劫豁免（涌现缺口 N3：命格者于生死一线搏得生机——修仙人情化，非数值免疫）
+  { key: 'npc.escapedDeath', category: 'world', severity: 'major', visibility: 'regional',
+    titlePattern: '{npc} 于死劫中绝处逢生',
+    descriptionPattern: '{npc} 命悬一线，却于绝境中搏出一线生机，世人皆言其命不该绝' },
 
   // ── 遗府（§4.7：坐化后留下的新奇遇源）──
   { key: 'world.heritage', category: 'discovery', severity: 'major', visibility: 'world',
@@ -105,7 +134,8 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     descriptionPattern: '{desc}' },
 
   // ── 社会轨道（§2.2：入宗→弟子→长老→宗主）──
-  { key: 'social.joinSect', category: 'social', severity: 'normal', visibility: 'regional',
+  // 例行事件（minor）：批量拜宗不入编年史（涌现缺口 N1）；晋升/继任仍是 normal+
+  { key: 'social.joinSect', category: 'social', severity: 'minor', visibility: 'regional',
     titlePattern: '{npc} 拜入{sect}门下',
     descriptionPattern: '{npc} 经人引荐，拜入{sect}，踏上宗门修行之路' },
   { key: 'social.promote', category: 'social', severity: 'normal', visibility: 'regional',

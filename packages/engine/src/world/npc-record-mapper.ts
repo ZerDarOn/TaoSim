@@ -5,8 +5,9 @@
 // 需要完整 Character（战斗/交互）时按需展开（遭遇时）。
 // ============================================================
 
-import type { Character, CharacterRelation, NpcRecord, RelationEntry } from '@taosim/contracts';
+import type { Character, CharacterRelation, Item, NpcRecord, RelationEntry } from '@taosim/contracts';
 import { SKILL_REGISTRY } from '../data/skill-registry.js';
+import { EquipmentManager } from '../equipment/equipment-manager.js';
 
 /** 按境界档位推导 tier（1-5），用于数值换算 */
 export function realmTier(realm: string): number {
@@ -23,6 +24,12 @@ export function characterToNpcRecord(
   currentYear: number,
   currentMonth: number,
 ): NpcRecord {
+  // 装备只沉淀"战斗加成"（武器/防具/法宝词条汇总），全量物品不入档（体积可控）
+  const gear = EquipmentManager.getCombatBonuses(c);
+  const combatGear =
+    gear.attack > 0 || gear.defense > 0 || gear.critRate > 0
+      ? { attack: gear.attack, defense: gear.defense, critRate: gear.critRate }
+      : undefined;
   const relations: Record<string, RelationEntry> = {};
   for (const [targetId, rel] of Object.entries(c.relations ?? {})) {
     relations[targetId] = {
@@ -44,7 +51,7 @@ export function characterToNpcRecord(
     gender: c.gender,
     personalityId: c.personalityId ?? 'neutral',
     origin: { type: '散修' },
-    destiny: { tier: 'common', luck: c.attributes.luck, hidden: true },
+    destiny: { tier: 'common', born: 'mortal', luck: c.attributes.luck, hidden: true },
     realm: c.realm,
     soulState: c.soulState,
     cultivation: { ...c.cultivation },
@@ -55,6 +62,7 @@ export function characterToNpcRecord(
     lifespan: { ...c.lifespan },
     skillIds: c.skills.map(s => s.id),
     weaponElement: c.equipmentSlots.weapon?.element,
+    combatGear,
     spiritStones: c.spiritStones,
     birthYear: currentYear,
     birthMonth: currentMonth,
@@ -85,6 +93,46 @@ function relationTagsFromType(type: RelationEntry['type'], direction?: 'master' 
     default:
       return [];
   }
+}
+
+/**
+ * 装备加成 → 合成兵刃/防具/法宝（§战斗：寻仇斗法真实战力）。
+ * 档案只存加成汇总，展开时按需还原成可装备 Item（战斗结算只看加成数值）。
+ */
+function combatGearToItems(rec: NpcRecord): Character['equipmentSlots'] {
+  const gear = rec.combatGear;
+  const weapon: Item | undefined =
+    gear && gear.attack > 0
+      ? {
+          id: `gear_${rec.id}_weapon`,
+          name: '随身兵刃',
+          tier: realmTier(rec.realm),
+          type: 'Equipment',
+          attributes: { attack: gear.attack },
+          element: rec.weaponElement,
+        }
+      : undefined;
+  const armor: Item | undefined =
+    gear && gear.defense > 0
+      ? {
+          id: `gear_${rec.id}_armor`,
+          name: '护身法衣',
+          tier: realmTier(rec.realm),
+          type: 'Equipment',
+          attributes: { defense: gear.defense },
+        }
+      : undefined;
+  const treasure: Item | undefined =
+    gear && gear.critRate > 0
+      ? {
+          id: `gear_${rec.id}_treasure`,
+          name: '随身法宝',
+          tier: realmTier(rec.realm),
+          type: 'Equipment',
+          attributes: { critRate: gear.critRate },
+        }
+      : undefined;
+  return { weapon, armor, treasures: treasure ? [treasure] : [] };
 }
 
 /** 展开：NpcRecord → 完整 Character（战斗/交互所需，按需调用） */
@@ -125,7 +173,7 @@ export function npcRecordToCharacter(rec: NpcRecord): Character {
     ap: 2,
     canFly: tier >= 3,
     inventory: [],
-    equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
+    equipmentSlots: combatGearToItems(rec),
     skills,
     skillCooldowns: {},
     traits: [],

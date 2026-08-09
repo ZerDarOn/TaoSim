@@ -81,4 +81,17 @@ describe('EquipmentManager', () => {
     expect(bonuses.critRate).toBe(3);
     expect(bonuses.physique).toBe(2);
   });
+
+  it('重复装备已装备的法宝：失败且背包物品保留（回归：先扣库存导致物品凭空消失）', () => {
+    const player = makePlayer({
+      equipmentSlots: { weapon: undefined, armor: undefined, treasures: [treasure] },
+      inventory: [{ item: treasure, count: 1 }],
+    });
+    const result = EquipmentManager.equip(player, treasure);
+    expect(result.success).toBe(false);
+    // 修复前：库存先扣到 0 移除再返回失败 → 物品从背包消失且未装备成功
+    expect(player.inventory).toHaveLength(1);
+    expect(player.inventory[0]!.count).toBe(1);
+    expect(player.equipmentSlots.treasures).toHaveLength(1);
+  });
 });

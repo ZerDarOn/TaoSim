@@ -42,6 +42,12 @@ export class NpcAI {
       return { type: 'attack', skill: bestSkill, targetId: target.id };
     }
 
+    // 无可用技能（无技能/灵力不足/冷却中）但仍有 AP 时贴身退化普攻——
+    // 避免"近身却干瞪眼空过回合"的无效 AI
+    if (inRange && actor.ap >= 1) {
+      return { type: 'attack', targetId: target.id };
+    }
+
     if (targetPos) {
       const movePos = NpcAI.findBestMoveToward(actorPos, targetPos, engine, characters, actor);
       if (movePos) return { type: 'move', toQ: movePos.q, toR: movePos.r };

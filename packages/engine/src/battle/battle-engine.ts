@@ -299,8 +299,9 @@ export class BattleEngine {
     const attacker = this.state.characters[actorId]!;
     const defender = this.state.characters[targetId];
     if (!defender || defender.hp <= 0) return { error: 'invalid_target' };
-    // 同队不可攻击
-    if (this.state.units[actorId]!.team === this.state.units[targetId]!.team) return { error: 'invalid_target' };
+    // 同队不可攻击（targetId 不存在时同样拒绝，避免强断言崩溃）
+    const dunit = this.state.units[targetId];
+    if (!dunit || dunit.team === this.state.units[actorId]!.team) return { error: 'invalid_target' };
     const unit = this.state.units[actorId]!;
     if (unit.actionPoints < 1) return { error: 'no_ap' };
 
@@ -312,16 +313,21 @@ export class BattleEngine {
 
     unit.actionPoints -= 1;
     const result = calculateDamage(attacker, defender, { multiplier: 1, element: 'Physical', tier: 1 }, this.rng);
-    defender.hp = Math.max(0, defender.hp - result.finalDamage);
+    // 防御减伤（§战斗：Guard 不应只是 +1 AP）：被攻击单位守卫未过期 → 承伤减半。
+    // 原实现只写 guarding 标志、结算从不读取，GUARD_DAMAGE_MULTIPLIER 形同虚设
+    let finalDamage = result.finalDamage;
+    if (dunit.guarding && dunit.guarding.expiresAtActivation >= this.state.turnNumber) {
+      finalDamage = Math.round(finalDamage * BATTLE_CONFIG.GUARD_DAMAGE_MULTIPLIER);
+    }
+    defender.hp = Math.max(0, defender.hp - finalDamage);
     this.emit('damage', actorId, [targetId], {
-      amount: result.finalDamage,
+      amount: finalDamage,
       missed: result.missed,
       crit: result.crit,
       blocked: result.blockedByBarrier,
     });
     if (defender.hp <= 0) {
       defender.soulState = 'RemnantSoul';
-      const dunit = this.state.units[targetId]!;
       dunit.actionReady = false;
       this.emit('unit_down', targetId);
       this.checkVictory();

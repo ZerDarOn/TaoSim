@@ -60,6 +60,7 @@ export class EventCollector {
       involvedCharacterIds: input.involvedCharacterIds,
       locationId: input.locationId,
       relatedEventIds: input.relatedTo?.length ? input.relatedTo.map(e => e.id) : undefined,
+      templateKey: input.key,
     };
   }
 }

@@ -17,7 +17,43 @@ const globalState = reactive({
   lastSpiritDensity: 1.0,
   /** 最近一次激活的节气事件名称 */
   lastCalendarEventName: null as string | null,
+  /** 实时演算：当前世界日（1-30，月内流逝；实时模式逐日推进，满月结算一次） */
+  worldDay: 1,
+  /** 实时演算速度：0=暂停，1/4/16（1x = 1 世界日/真实秒） */
+  realtimeSpeed: 0 as 0 | 1 | 4 | 16,
 });
+
+/** 实时演算：不足一日的浮点日数累积（250ms tick × 倍速） */
+let dayAccumulator = 0;
+/** 实时演算定时器句柄 */
+let realtimeTimer: ReturnType<typeof setInterval> | null = null;
+/** 实时演算：满月结算委托（指向 useWorld 内的 advanceTime，避免模块级闭包越界） */
+let advanceRealtimeMonth: (() => void) | null = null;
+
+/** 实时演算：停表并清零累积 */
+function stopRealtime() {
+  if (realtimeTimer !== null) {
+    clearInterval(realtimeTimer);
+    realtimeTimer = null;
+  }
+  globalState.realtimeSpeed = 0;
+  dayAccumulator = 0;
+}
+
+/** 实时演算：250ms 一拍，按倍速累积世界日；满 30 日 → 推进 1 月（世界同步运转） */
+function tickRealtime() {
+  if (globalState.advancing || globalState.realtimeSpeed <= 0) return;
+  dayAccumulator += 0.25 * globalState.realtimeSpeed;
+  const whole = Math.floor(dayAccumulator);
+  dayAccumulator -= whole;
+  if (whole <= 0) return;
+  globalState.worldDay += whole;
+  while (globalState.worldDay > 30) {
+    globalState.worldDay -= 30;
+    // 实时推进跳过铁人自动存档（频率过高），世界事件照常导入
+    advanceRealtimeMonth?.();
+  }
+}
 
 export function useWorld() {
   const appStore = useAppStore();
@@ -25,15 +61,22 @@ export function useWorld() {
   const gameFlow = useGameFlowStore();
   const eventLog = useEventLogStore();
 
+  // 实时演算委托：满月结算复用统一入口 advanceTime
+  advanceRealtimeMonth = () => {
+    void advanceTime(1, 'World', { autoSave: false });
+  };
+
   /**
    * 推进时间 — 统一入口
    *
    * @param months  月数
    * @param mode    World=世界同步运转, Isolated=仅玩家
+   * @param opts    实时推进选项（autoSave=false：跳过铁人自动存档）
    */
   async function advanceTime(
     months: number,
     mode: TimeFlowMode = 'World',
+    opts?: { autoSave?: boolean },
   ): Promise<{ months: number; expGained: number; died: boolean; causeOfDeath?: string }> {
     if (!appStore.currentWorldState || !playerStore.character) {
       return { months: 0, expGained: 0, died: false };
@@ -94,8 +137,8 @@ export function useWorld() {
         }
       }
 
-      // 铁人模式自动存档（失败时给出警告，避免进度静默丢失）
-      if (playerStore.character.gameMode?.saveMode === 'Ironman') {
+      // 铁人模式自动存档（失败时给出警告，避免进度静默丢失；实时推进跳过——频率过高）
+      if (playerStore.character.gameMode?.saveMode === 'Ironman' && opts?.autoSave !== false) {
         appStore.saveGame().catch((err) => {
           // eslint-disable-next-line no-console
           console.error('[useWorld] 铁人自动存档失败:', err);
@@ -120,15 +163,29 @@ export function useWorld() {
     }
   }
 
-  /** 推进 1 月（世界模式） */
+  /** 推进 1 月（世界模式）：暂停实时演算，从月初开始 */
   function advanceMonth() {
+    stopRealtime();
+    globalState.worldDay = 1;
     return advanceTime(1, 'World');
   }
 
-  /** 闭关（隔离模式） */
+  /** 闭关（隔离模式）：暂停实时演算 */
   async function fastForward(months: number) {
+    stopRealtime();
     return advanceTime(months, 'Isolated');
   }
 
-  return { state: globalState, advanceMonth, advanceTime, fastForward };
+  /**
+   * 实时演算（世界盒子式）：世界持续演化，无需手动推进。
+   * @param speed 0=暂停，1/4/16（1x = 1 世界日/真实秒）
+   */
+  function setRealtimeSpeed(speed: 0 | 1 | 4 | 16) {
+    stopRealtime();
+    if (speed <= 0) return;
+    globalState.realtimeSpeed = speed;
+    realtimeTimer = setInterval(tickRealtime, 250);
+  }
+
+  return { state: globalState, advanceMonth, advanceTime, fastForward, setRealtimeSpeed, stopRealtime };
 }

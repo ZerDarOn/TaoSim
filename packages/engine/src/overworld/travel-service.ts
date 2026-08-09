@@ -19,6 +19,7 @@ import {
   getTeleportNodeAt,
   getContinent,
 } from './map-catalog.js';
+import { PRESET_MAP } from './preset-map.js';
 
 export interface TeleportCheckResult {
   ok: boolean;
@@ -68,6 +69,16 @@ export class TravelService {
     // 检查连接性
     if (!sourceTp.connections.includes(targetTpId)) {
       return { ok: false, reason: '该传送阵无法到达目标' };
+    }
+
+    // 目标大陆可用性：目标传送阵的落点节点必须在目标大陆真实存在（PRESET_MAP 有该大陆节点）。
+    // 西漠/南疆/紫薇为占位大陆（传送阵 nodeId 暂挂东荒节点）——放行会传进无地标/无场所的空白网格，
+    // 形成"能出不能进"的单向死路。此处统一拦截为"尚未开放"。
+    const targetAvailable = PRESET_MAP.continents.some(
+      (c) => c.id === targetTp.continentId && !!c.nodes[targetTp.nodeId],
+    );
+    if (!targetAvailable) {
+      return { ok: false, reason: '该大陆尚未开放' };
     }
 
     // 境界校验（取两端最高门槛）

@@ -97,7 +97,8 @@ const TELEPORT_NODES_RAW: TeleportNode[] = [
     name: '天机城传送阵',
     continentId: 'CONT_EAST',
     nodeId: 'NODE_CITY_TIANJI',
-    connections: ['TP_WEST_FOZONG', 'TP_SOUTH_WUGU'],
+    // 传送图双向对称（紫薇 ⇄ 东荒）：未开放大陆由 canTeleport 兜底拦截，不产生"能出不能进"孤点
+    connections: ['TP_WEST_FOZONG', 'TP_SOUTH_WUGU', 'TP_ZIWEI_XIANFU'],
     spiritStoneCost: 500,
     requiredRealm: 'YuanYing',
   },

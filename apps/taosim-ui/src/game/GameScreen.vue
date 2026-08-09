@@ -9,10 +9,16 @@ import BattleOverlay from './BattleOverlay.vue';
 import { usePlayerStore } from '@/stores/player';
 import { useGameFlowStore } from '@/stores/game-flow';
 import { useUiStore } from '@/stores/ui';
+import { onUnmounted } from 'vue';
+import { useWorld } from '@/composables/useWorld';
 
 const playerStore = usePlayerStore();
 const gameFlow = useGameFlowStore();
 const uiStore = useUiStore();
+const { stopRealtime } = useWorld();
+
+// 离开游戏界面时停止实时演算，避免定时器泄漏
+onUnmounted(() => stopRealtime());
 
 // 守卫：若无角色（不应发生），退回主菜单
 if (!playerStore.character) {

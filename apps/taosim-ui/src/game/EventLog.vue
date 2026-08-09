@@ -82,6 +82,52 @@ const selectedNpcTimeline = computed(() => {
   if (!selectedNpcId.value) return [];
   return npcTimeline(selectedNpcId.value, appStore.currentWorldState?.eventLog ?? []);
 });
+
+// ── 世界谱系（§4.13 代际：道侣/子嗣/道统）──
+const KINSHIP_TEMPLATES = new Set(['social.couple', 'social.child', 'heritage.pass']);
+
+const kinshipStats = computed(() => {
+  const ws = appStore.currentWorldState;
+  if (!ws) return { couples: 0, children: 0, heritageLines: 0 };
+  const npcs = ws.npcs;
+  const coupleKeys = new Set<string>();
+  for (const n of Object.values(npcs)) {
+    if (n.soulState === 'Active' && n.spouseId && npcs[n.spouseId]?.soulState === 'Active') {
+      coupleKeys.add([n.id, n.spouseId].sort().join('|'));
+    }
+  }
+  const children = Object.values(npcs).filter((n) => (n.parentIds?.length ?? 0) > 0).length;
+  const heritageLines = new Set(
+    Object.values(npcs).map((n) => n.heritageLineId).filter((v): v is string => v !== undefined),
+  ).size;
+  return { couples: coupleKeys.size, children, heritageLines };
+});
+
+/** 最近的代际事件（结道侣/喜得子嗣/传道统）—— 高亮世界谱系的活水 */
+const recentKinship = computed(() => {
+  const log = appStore.currentWorldState?.eventLog ?? [];
+  return log.filter((e) => e.templateKey && KINSHIP_TEMPLATES.has(e.templateKey)).slice(-6).reverse();
+});
+
+/** 选中 NPC 的亲缘网络：道侣/师承/门徒/子嗣/双亲/道统线 */
+const selectedNpcKinship = computed(() => {
+  const ws = appStore.currentWorldState;
+  if (!ws || !selectedNpcId.value) return null;
+  const n = ws.npcs[selectedNpcId.value];
+  if (!n) return null;
+  const name = (id: string) => ws.npcs[id]?.name ?? '未知';
+  const rels = Object.entries(n.relations);
+  const master = rels.find(([, r]) => r.type === 'master-disciple' && r.direction === 'disciple');
+  const disciples = rels.filter(([, r]) => r.type === 'master-disciple' && r.direction === 'master');
+  return {
+    spouse: n.spouseId ? { name: name(n.spouseId), alive: ws.npcs[n.spouseId]?.soulState === 'Active' } : null,
+    master: master ? name(master[0]) : null,
+    disciples: disciples.map(([id]) => name(id)),
+    children: (n.childrenIds ?? []).map(name),
+    parents: (n.parentIds ?? []).map(name),
+    heritageLine: n.heritageLineId ?? null,
+  };
+});
 </script>
 
 <template>
@@ -240,6 +286,34 @@ const selectedNpcTimeline = computed(() => {
 
     <!-- ═══ 编年史视角 ═══ -->
     <template v-else>
+      <!-- 世界谱系（§4.13 代际：道侣/子嗣/道统） -->
+      <div class="px-2 py-2 border-b border-slate-700 space-y-1.5">
+        <div class="text-[10px] text-slate-400 font-medium">世界谱系</div>
+        <div class="grid grid-cols-3 gap-1 text-center">
+          <div class="bg-slate-700/30 rounded p-1">
+            <div class="text-sm text-rose-300 font-semibold">{{ kinshipStats.couples }}</div>
+            <div class="text-[9px] text-slate-500">道侣</div>
+          </div>
+          <div class="bg-slate-700/30 rounded p-1">
+            <div class="text-sm text-emerald-300 font-semibold">{{ kinshipStats.children }}</div>
+            <div class="text-[9px] text-slate-500">子嗣</div>
+          </div>
+          <div class="bg-slate-700/30 rounded p-1">
+            <div class="text-sm text-amber-300 font-semibold">{{ kinshipStats.heritageLines }}</div>
+            <div class="text-[9px] text-slate-500">道统</div>
+          </div>
+        </div>
+        <div v-if="recentKinship.length" class="space-y-1 max-h-28 overflow-y-auto">
+          <div
+            v-for="evt in recentKinship" :key="evt.id"
+            class="text-[10px] text-slate-400 leading-snug"
+            :style="{ borderLeftColor: CATEGORY_META[evt.category].color }"
+          >
+            <span class="text-slate-500">{{ evt.year }}年{{ evt.month }}月</span> {{ evt.title }}
+          </div>
+        </div>
+      </div>
+
       <!-- NPC 生平浏览 -->
       <div class="px-2 py-2 border-b border-slate-700 space-y-1">
         <div class="text-[10px] text-slate-400 font-medium">NPC 生平</div>
@@ -250,6 +324,17 @@ const selectedNpcTimeline = computed(() => {
           <option :value="null">选择 NPC…</option>
           <option v-for="npc in npcCandidates" :key="npc.id" :value="npc.id">{{ npc.name }}</option>
         </select>
+        <!-- 亲缘网络：道侣/师承/门徒/子嗣/双亲/道统线 -->
+        <div v-if="selectedNpcKinship" class="space-y-1 text-[10px]">
+          <div v-if="selectedNpcKinship.spouse" class="text-rose-300">
+            道侣：{{ selectedNpcKinship.spouse.name }}{{ selectedNpcKinship.spouse.alive ? '' : '（已陨）' }}
+          </div>
+          <div v-if="selectedNpcKinship.master" class="text-amber-300">师承：{{ selectedNpcKinship.master }}</div>
+          <div v-if="selectedNpcKinship.disciples.length" class="text-amber-300">门徒：{{ selectedNpcKinship.disciples.join('、') }}</div>
+          <div v-if="selectedNpcKinship.children.length" class="text-emerald-300">子嗣：{{ selectedNpcKinship.children.join('、') }}</div>
+          <div v-if="selectedNpcKinship.parents.length" class="text-slate-400">双亲：{{ selectedNpcKinship.parents.join('、') }}</div>
+          <div v-if="selectedNpcKinship.heritageLine" class="text-cyan-300">道统：{{ selectedNpcKinship.heritageLine }}</div>
+        </div>
         <div v-if="selectedNpcTimeline.length" class="space-y-1 max-h-36 overflow-y-auto mt-1">
           <div
             v-for="evt in selectedNpcTimeline" :key="evt.id"

@@ -32,7 +32,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
     gender: 'Male',
     personalityId: 'neutral',
     origin: { type: '散修' },
-    destiny: { tier: 'common', luck: 10, hidden: false },
+    destiny: { tier: 'common', born: 'mortal', luck: 10, hidden: false },
     realm: 'QiRefinement_1',
     soulState: 'Active',
     cultivation: { currentExp: 0, maxExp: 80 },
@@ -80,7 +80,7 @@ describe('师徒传承（关系轨道末端：收徒 → 修行加速 → 出师
       socialRank: 'elder',
       factionId: 'FACT_A',
       locationId: 'VENUE_QINGYUN_HALL',
-      destiny: { tier: 'legendary', luck: 90, hidden: false },
+      destiny: { tier: 'legendary', born: 'inherited', luck: 90, hidden: false },
     });
     const disciple = makeNpc({
       id: 'NPC_DISC',
@@ -89,7 +89,7 @@ describe('师徒传承（关系轨道末端：收徒 → 修行加速 → 出师
       socialRank: 'disciple',
       factionId: 'FACT_A',
       locationId: 'VENUE_QINGYUN_HALL',
-      destiny: { tier: 'talented', luck: 80, hidden: false },
+      destiny: { tier: 'talented', born: 'mortal', luck: 80, hidden: false },
     });
     const faction = makeFaction({
       id: 'FACT_A',

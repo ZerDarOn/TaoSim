@@ -14,7 +14,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
     gender: 'Male',
     personalityId: 'neutral',
     origin: { type: '散修' },
-    destiny: { tier: 'prodigy', luck: 95, hidden: true },
+    destiny: { tier: 'prodigy', born: 'fortune', luck: 95, hidden: true },
     realm: 'GoldenCore_1',
     soulState: 'Active',
     cultivation: { currentExp: 500, maxExp: 1500 },
@@ -41,7 +41,7 @@ function makeEvent(overrides: Partial<BigEventLog> = {}): BigEventLog {
 }
 
 describe('serializeNpcBiography', () => {
-  it('输出包含真实事实：名字/境界/命格/灵根/时间线', () => {
+  it('输出包含真实事实：名字/境界/出身与事迹认定/灵根/时间线', () => {
     const npc = makeNpc({
       relations: {
         NPC_B: { type: 'enemy', bond: -40, trust: 5, events: ['结仇'], changedAt: { year: 2, month: 1 } },
@@ -51,7 +51,7 @@ describe('serializeNpcBiography', () => {
     const out = serializeNpcBiography(npc, timeline, { NPC_B: { ...makeNpc({ id: 'NPC_B', name: '影月' }) } });
     expect(out).toContain('云鹤');
     expect(out).toContain('金丹');
-    expect(out).toContain('命格 prodigy');
+    expect(out).toContain('出身 气运之子');
     expect(out).toContain('影月');
     expect(out).toContain('云鹤 突破至金丹！');
     expect(out).toContain('500/1500');

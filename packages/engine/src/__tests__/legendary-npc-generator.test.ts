@@ -22,9 +22,11 @@ describe('generateLegendaryNpcs（开局传奇 NPC — §7.4 世界背景先行�
     for (const n of npcs) expect(n.soulState).toBe('Active');
   });
 
-  it('命格为高潜质（legendary/prodigy/talented），luck 高且不隐藏', () => {
+  it('事迹认定：tier 出生一律 common（果），先天出身（因）不隐藏，luck 高', () => {
     for (const n of npcs) {
-      expect(['legendary', 'prodigy', 'talented']).toContain(n.destiny.tier);
+      // tier（果）必须由"做到的事"认定，出生不得预置天骄/传奇标签
+      expect(n.destiny.tier).toBe('common');
+      expect(n.destiny.born).toBeDefined();
       expect(n.destiny.luck).toBeGreaterThanOrEqual(70);
       expect(n.destiny.hidden).toBe(false);
     }

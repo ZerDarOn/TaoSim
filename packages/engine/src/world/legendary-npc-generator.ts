@@ -6,7 +6,7 @@
 // 采用确定性模板（非随机），保证世界背景可复现、可测试。
 // ============================================================
 
-import type { NpcDestiny, NpcOrigin, NpcRecord, RealmFullPath, RelationEntry, SkillElement, SpiritRoot } from '@taosim/contracts';
+import type { NpcAspiration, NpcDestiny, NpcOrigin, NpcRecord, RealmFullPath, RelationEntry, SkillElement, SpiritRoot } from '@taosim/contracts';
 import { resolvePersonalityId } from '../data/npc-personalities.js';
 import { SKILL_REGISTRY } from '../data/skill-registry.js';
 import { realmExpThreshold } from './world-tick-rules.js';
@@ -34,7 +34,11 @@ interface LegendaryNpcSeed {
   name: string;
   gender: NpcRecord['gender'];
   realm: RealmFullPath;
-  destinyTier: NpcDestiny['tier'];
+  /**
+   * 先天出身（因）：只塑造出生起点（面板/传承/灵石），不提供任何机制概率加成。
+   * tier（果）出生一律 common——这些强者的传说在元年之前，系统从元年起重新记其事迹。
+   */
+  born: NpcDestiny['born'];
   luck: number;
   epithet?: string;
   origin: NpcOrigin;
@@ -48,6 +52,11 @@ interface LegendaryNpcSeed {
   factionId?: string;
   /** 宗门内身份（入宗→弟子→长老→宗主；散修无） */
   socialRank?: NpcRecord['socialRank'];
+  /**
+   * 执念（§4.13 动机引擎）：老怪物的动机从一开始贴合人设——
+   * 血屠剑尊寻仇、凌霄子扬名、求道者求道……由经历写就，非随机。
+   */
+  aspiration: NpcAspiration;
   summary: string;
   milestone: { year: number; month: number; title: string };
   /** 关系事件时间统一取种子生平节点时间（changedAt 由 toNpcRecord 补齐） */
@@ -59,9 +68,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'LEGEND_1',
     name: '玄都真人',
+    aspiration: 'seekDao',
     gender: 'Male',
     realm: 'SoulFormation_1',
-    destinyTier: 'legendary',
+    born: 'inherited',
     luck: 95,
     epithet: '雷霆上人',
     origin: { type: '宗门' },
@@ -83,9 +93,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'LEGEND_2',
     name: '妙音仙子',
+    aspiration: 'seekDao',
     gender: 'Female',
     realm: 'NascentSoul_3',
-    destinyTier: 'legendary',
+    born: 'inherited',
     luck: 92,
     epithet: '云中仙',
     origin: { type: '世家' },
@@ -103,9 +114,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'LEGEND_3',
     name: '苍梧剑尊',
+    aspiration: 'seekFame',
     gender: 'Male',
     realm: 'GoldenCore_3',
-    destinyTier: 'prodigy',
+    born: 'fortune',
     luck: 88,
     epithet: '焚天剑客',
     origin: { type: '散修' },
@@ -125,9 +137,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'LEGEND_4',
     name: '幽兰仙子',
+    aspiration: 'seekDao',
     gender: 'Female',
     realm: 'GoldenCore_2',
-    destinyTier: 'talented',
+    born: 'inherited',
     luck: 82,
     epithet: '红尘客',
     origin: { type: '宗门' },
@@ -148,9 +161,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'NPC_SECT_MASTER',
     name: '云沧澜',
+    aspiration: 'seekDao',
     gender: 'Male',
     realm: 'NascentSoul_2',
-    destinyTier: 'legendary',
+    born: 'inherited',
     luck: 88,
     origin: { type: '宗门' },
     age: 160,
@@ -169,9 +183,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'LEGEND_5',
     name: '凌霄子',
+    aspiration: 'seekFame',
     gender: 'Male',
     realm: 'Foundation_3',
-    destinyTier: 'prodigy',
+    born: 'reincarnated',
     luck: 90,
     origin: { type: '遗孤' },
     age: 25,
@@ -189,9 +204,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'NPC_TIANJIAN_MASTER',
     name: '血屠剑尊',
+    aspiration: 'seekRevenge',
     gender: 'Male',
     realm: 'NascentSoul_3',
-    destinyTier: 'legendary',
+    born: 'fortune',
     luck: 90,
     epithet: '血屠',
     origin: { type: '宗门' },
@@ -212,9 +228,10 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
   {
     id: 'NPC_TIANJIAN_ELDER',
     name: '血衣真人',
+    aspiration: 'seekFame',
     gender: 'Male',
     realm: 'GoldenCore_3',
-    destinyTier: 'prodigy',
+    born: 'fortune',
     luck: 85,
     origin: { type: '散修' },
     age: 100,
@@ -257,7 +274,9 @@ function toNpcRecord(seed: LegendaryNpcSeed): NpcRecord {
     gender: seed.gender,
     personalityId: resolvePersonalityId(seed.id),
     origin: seed.origin,
-    destiny: { tier: seed.destinyTier, luck: seed.luck, hidden: false, epithet: seed.epithet },
+    // tier（果）出生一律 common：强者的传说是元年之前"做到"的（epithet/生平已记其果），
+    // 系统从元年重新记录其事迹——天骄/传奇认定由之后做到的事升级，因果不倒置。
+    destiny: { tier: 'common', born: seed.born, luck: seed.luck, hidden: false, epithet: seed.epithet },
     realm: seed.realm,
     soulState: 'Active',
     cultivation: { currentExp, maxExp },
@@ -279,6 +298,8 @@ function toNpcRecord(seed: LegendaryNpcSeed): NpcRecord {
         { ...rel, changedAt: { year: seed.milestone.year, month: seed.milestone.month } },
       ]),
     ),
+    // 执念：老怪物的动机从一开始贴合人设（§4.13）
+    aspiration: seed.aspiration,
     biography: {
       milestones: [{ eventId: `${seed.id}_M1`, year: seed.milestone.year, month: seed.milestone.month, title: seed.milestone.title, realm: seed.realm }],
       summary: seed.summary,

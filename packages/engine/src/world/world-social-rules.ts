@@ -5,9 +5,11 @@
 // 所有规则接受注入 rng；关系只沉淀进 NpcRecord.relations（事件沉淀型，不写死命运）。
 // ============================================================
 
-import type { NpcRecord, RelationEntry, RelationType } from '@taosim/contracts';
+import type { Character, Item, NpcRecord, RelationEntry, RelationType } from '@taosim/contracts';
 import type { Rng } from './world-tick-rules.js';
-import { realmTier } from './npc-record-mapper.js';
+import { realmTier, npcRecordToCharacter } from './npc-record-mapper.js';
+import { calculateDamage, type DamageSpec } from '../battle/damage-calculator.js';
+import { EquipmentManager } from '../equipment/equipment-manager.js';
 
 export interface GameTime {
   year: number;
@@ -52,17 +54,6 @@ function applyRelation(
       changedAt,
     };
   }
-}
-
-/** 实力分：境界权重 + 体质 + 功法数 + 当前修为进度（轻量胜负判定基准） */
-export function powerScore(rec: NpcRecord): number {
-  const tier = realmTier(rec.realm);
-  return (
-    tier * 100 +
-    rec.attributes.physique * 2 +
-    rec.skillIds.length * 15 +
-    Math.min(rec.cultivation.currentExp, rec.cultivation.maxExp) / 20
-  );
 }
 
 /** 洗牌后取连续对（注入 rng，同种子同配对） */
@@ -149,6 +140,74 @@ export function socialEncounter(
 
 const FEUD_CHANCE = 0.1;
 const INJURY_BASE_YEARS = 2;
+/** 寻仇斗法回合上限（势均力敌按剩余 HP% 定胜负，避免死循环） */
+const MAX_FEUD_ROUNDS = 60;
+
+/** 出手规格：装备了带五行灵属的兵刃则按该元素出手（五行相克生效），否则纯物理 */
+function attackSpecOf(c: Character): DamageSpec {
+  const el = c.equipmentSlots.weapon?.element ?? 'Physical';
+  return { multiplier: 1, element: el, tier: 1 };
+}
+
+/**
+ * 本命兵刃（§战斗合理性）：斗法双方若未佩戴攻击兵刃，按境界根基 + 悟性资质补一件随身兵刃
+ * （10 + 境界档×5 + 悟性×0.5）。两重作用：
+ * - 破防底线：杜绝高境界互搏时基础攻击（10）破不了护体防御 → 0 伤害僵局；
+ * - 天赋面板因果：悟性即天资，悟性高者本命法器威力更大——"以下犯上"只能是
+ *   天生天赋/强横法宝支撑的真实战力，而非命格机制特权。
+ */
+function ensureRealmWeapon(c: Character): Character {
+  if (EquipmentManager.getCombatBonuses(c).attack > 0) return c;
+  const tier = realmTier(c.realm);
+  const weapon: Item = {
+    id: `realm_${c.id}_weapon`,
+    name: '本命兵刃',
+    tier,
+    type: 'Equipment',
+    attributes: { attack: 10 + tier * 5 + Math.floor(c.attributes.comprehension * 0.5) },
+    element: c.equipmentSlots.weapon?.element ?? 'Physical',
+  };
+  return { ...c, equipmentSlots: { ...c.equipmentSlots, weapon } };
+}
+
+interface FeudDuel {
+  attackerWins: boolean;
+  /** 败者剩余 HP 比例 0..1 */
+  loserHpPct: number;
+  /** 胜者剩余 HP 比例 0..1 */
+  winnerHpPct: number;
+}
+
+/**
+ * 真实斗法（§战斗）：展开完整 Character（含装备加成），逐回合调用 damage-calculator 结算。
+ * 五行克制 / 闪避 / 暴击 / 境界壁垒全部生效：
+ * - 先手：寻仇者每轮先攻（主动出击）。
+ * - 境界壁垒：跨 2 阶以上 0 伤害（无变数时强者必胜）；±1 阶内战力碾压方可松动壁垒——
+ *   "以下犯上"只能由天生天赋/强横法宝支撑（面板因果），无命格机制特权。
+ * - 回合上限内未分胜负 → 按剩余 HP% 定胜负（势均力敌两败俱伤）。
+ */
+function runFeudDuel(attacker: Character, defender: Character, rng: Rng): FeudDuel {
+  const aMax = attacker.maxHp;
+  const bMax = defender.maxHp;
+  for (let round = 0; round < MAX_FEUD_ROUNDS; round++) {
+    for (const [atk, def] of [[attacker, defender], [defender, attacker]] as const) {
+      if (def.hp <= 0 || atk.hp <= 0) break;
+      const res = calculateDamage(atk, def, attackSpecOf(atk), rng);
+      def.hp = Math.max(0, def.hp - res.finalDamage);
+    }
+    if (attacker.hp <= 0 || defender.hp <= 0) break;
+  }
+  const aPct = Math.max(0, attacker.hp) / aMax;
+  const bPct = Math.max(0, defender.hp) / bMax;
+  // 势均力敌（HP 同比例，含双双未破防的 0 伤害僵局）：先手微优——
+  // 主动出击方略胜，避免"零伤害平局反判寻仇者（先手）落败并折寿"
+  const attackerWins = aPct >= bPct;
+  return {
+    attackerWins,
+    loserHpPct: attackerWins ? bPct : aPct,
+    winnerHpPct: attackerWins ? aPct : bPct,
+  };
+}
 
 export interface FeudResult {
   attackerWins: boolean;
@@ -165,39 +224,54 @@ export interface FeudResult {
 
 /**
  * 寻仇：双方存在 enemy 关系 → 概率触发斗法。
- * 轻量胜负判定：实力分差 + 气运加权；败者折寿，实力悬殊可致陨落。
+ * 真实斗法判定（§战斗）：按面板 + 装备 + 技能 + HP 逐回合结算；
+ * 境界壁垒保证"无变数时弱不胜强"，以下犯上只能由天赋/法宝等世界内因支撑。
  */
 export function tryFeud(
   attacker: NpcRecord,
   target: NpcRecord,
   now: GameTime,
   rng: Rng,
+  /** 死劫豁免回调（涌现缺口 N3）：命格者于死斗中绝处逢生（由调用方注入，保持规则集纯函数） */
+  escapeDeath?: (npc: NpcRecord) => boolean,
+  /** 触发概率：默认被动配对 0.1；动机驱动寻仇者主动出手可抬高（行为槽 §4.13） */
+  chance = FEUD_CHANCE,
 ): FeudResult | undefined {
   const aHatesB = attacker.relations[target.id]?.type === 'enemy';
   const bHatesA = target.relations[attacker.id]?.type === 'enemy';
   if (!aHatesB && !bHatesA) return undefined;
-  if (rng() >= FEUD_CHANCE) return undefined;
+  if (rng() >= chance) return undefined;
 
-  const aScore = powerScore(attacker) + attacker.destiny.luck / 10;
-  const tScore = powerScore(target) + target.destiny.luck / 10;
-  const winChance = clamp(0.5 + (aScore - tScore) / 500, 0.05, 0.95);
+  // 真实斗法：展开完整 Character（含装备加成 combatGear → 兵刃/法衣/法宝），
+  // 无攻击兵刃者按境界根基 + 悟性资质补本命兵刃（天赋面板因果，见 ensureRealmWeapon）
+  const attackerChar = ensureRealmWeapon(npcRecordToCharacter(attacker));
+  const defenderChar = ensureRealmWeapon(npcRecordToCharacter(target));
 
-  const attackerWins = rng() < winChance;
+  const outcome = runFeudDuel(attackerChar, defenderChar, rng);
+  const attackerWins = outcome.attackerWins;
   const winner = attackerWins ? attacker : target;
   const loser = attackerWins ? target : attacker;
-  const gap = Math.abs(aScore - tScore);
 
+  // 伤势按斗法实际伤害折算：败者剩余 HP 越少，伤越重（轻伤 2 年 / 重伤 5 年 / 濒死 10 年）
   let injuryYears = INJURY_BASE_YEARS;
-  if (gap > 250) injuryYears = 10;
-  else if (gap > 150) injuryYears = 5;
+  if (outcome.loserHpPct >= 0.99) injuryYears = 0; // 未能破防的势均力敌：无伤，不折寿
+  else if (outcome.loserHpPct <= 0.25) injuryYears = 10;
+  else if (outcome.loserHpPct <= 0.5) injuryYears = 5;
 
+  // 仇杀致死：胜者余力尚存（HP≥50%）且败者已油尽灯枯（HP≤20%）→ 可下杀手
   let lethal = false;
-  if (gap > 250 && rng() < 0.2) {
-    lethal = true;
-    loser.soulState = 'PrimordialSoul';
-    loser.deathYear = now.year;
-    loser.deathMonth = now.month;
-    loser.causeOfDeath = '仇杀陨落';
+  const canKill = outcome.loserHpPct <= 0.2 && outcome.winnerHpPct >= 0.5;
+  if (canKill && rng() < 0.35) {
+    // 死劫豁免（涌现缺口 N3）：命格者于生死一线搏得生机 → 重伤延寿替代陨落
+    if (escapeDeath?.(loser)) {
+      loser.lifespan.maxLifespan = Math.max(40, loser.lifespan.maxLifespan - 10);
+    } else {
+      lethal = true;
+      loser.soulState = 'PrimordialSoul';
+      loser.deathYear = now.year;
+      loser.deathMonth = now.month;
+      loser.causeOfDeath = '仇杀陨落';
+    }
   } else {
     loser.lifespan.maxLifespan = Math.max(40, loser.lifespan.maxLifespan - injuryYears);
   }
@@ -223,4 +297,15 @@ export function tryFeud(
     major: lethal,
     lootStones,
   };
+}
+
+/**
+ * 宗门权力斗法（§2.2 夺位）：与寻仇同源的真实结算（面板定胜负），
+ * 但无敌人关系前置——夺位是权力野心而非仇怨。由引擎夺位块调用：
+ * 胜者执掌宗门，败者降为长老或被逐出宗门。
+ */
+export function sectPowerDuel(challenger: NpcRecord, incumbent: NpcRecord, rng: Rng): FeudDuel {
+  const attackerChar = ensureRealmWeapon(npcRecordToCharacter(challenger));
+  const defenderChar = ensureRealmWeapon(npcRecordToCharacter(incumbent));
+  return runFeudDuel(attackerChar, defenderChar, rng);
 }

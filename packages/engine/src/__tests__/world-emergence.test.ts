@@ -7,7 +7,8 @@ import {
 import { isNearby, nodeOf } from '../world/spatial.js';
 import { rumorPool, visibleToPlayer } from '../world/chronicle.js';
 import { tryFeud } from '../world/world-social-rules.js';
-import type { NpcRecord, WorldState, BigEventLog, Character, Faction, Rng } from '@taosim/contracts';
+import type { Rng } from '../world/world-tick-rules.js';
+import type { NpcRecord, WorldState, BigEventLog, Character, Faction } from '@taosim/contracts';
 
 const baseState: WorldState = {
   currentYear: 1,
@@ -26,7 +27,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
     gender: 'Male',
     personalityId: 'neutral',
     origin: { type: '散修' },
-    destiny: { tier: 'common', luck: 10, hidden: false },
+    destiny: { tier: 'common', born: 'mortal', luck: 10, hidden: false },
     realm: 'QiRefinement_1',
     soulState: 'Active',
     cultivation: { currentExp: 0, maxExp: 80 },
@@ -45,7 +46,7 @@ function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
 
 function seqRng(values: number[]): Rng {
   let i = 0;
-  return () => values[i++ % values.length];
+  return () => values[i++ % values.length]!;
 }
 
 function makeQingyunFaction(leaderId: string, members: string[]): Faction {
@@ -92,15 +93,22 @@ function makePlayer(): Character {
     attributes: { physique: 10, comprehension: 10, perception: 10, agility: 10, luck: 10, charm: 10 },
     cultivation: { currentExp: 100, maxExp: 720 },
     lifespan: { age: 16, maxLifespan: 120 },
+    spiritEnergy: { current: 100, max: 100 },
+    monthlyActionPoints: { current: 10, max: 10 },
+    gameMode: { breakthrough: 'Simple', saveMode: 'Free' },
+    hp: 100,
+    maxHp: 100,
+    ap: 3,
+    canFly: false,
     skills: [],
-    skillIds: [],
+    skillCooldowns: {},
+    traits: [],
+    equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
     spiritStones: 100,
     inventory: [],
-    locationId: 'VENUE_TIANJI_TAVERN',
-    relationEntries: {},
-    tags: [],
-    biography: { milestones: [], summary: '' },
-    lastUpdate: { year: 1, month: 1 },
+    relations: {},
+    wantedLevels: {},
+    unlockedRecipes: [],
   };
 }
 
@@ -136,13 +144,13 @@ describe('世界局势状态机（§2.2 世界轨道）', () => {
 describe('社会轨道（§2.2：入宗→弟子→长老→宗主）', () => {
   it('身处宗门驻地的散修拜入宗门（弟子）', () => {
     const npc = makeNpc({ id: 'NPC_JOIN', name: '求道者', locationId: 'VENUE_QINGYUN_HALL' });
-    // 序列：0.9 避免世界事件/奇遇/云游（保持驻地），0.01 触发拜入
-    const engine = new WorldEngine({ ...baseState, npcs: { NPC_JOIN: npc } }, { rng: seqRng([0.9, 0.9, 0.9, 0.01]) });
+    // 序列：0.9 避免世界事件/志向随机/奇遇/云游（保持驻地），0.01 触发拜入
+    const engine = new WorldEngine({ ...baseState, npcs: { NPC_JOIN: npc } }, { rng: seqRng([0.9, 0.9, 0.9, 0.9, 0.01]) });
     const result = engine.step();
     const after = result.updatedState.npcs['NPC_JOIN']!;
     expect(after.factionId).toBe('FACT_QINGYUN');
     expect(after.socialRank).toBe('disciple');
-    expect(result.updatedState.factions!['FACT_QINGYUN'].members).toContain('NPC_JOIN');
+    expect(result.updatedState.factions!['FACT_QINGYUN']!.members).toContain('NPC_JOIN');
     expect(result.events.some(e => e.title === '求道者 拜入青云宗门下')).toBe(true);
   });
 
@@ -187,7 +195,7 @@ describe('社会轨道（§2.2：入宗→弟子→长老→宗主）', () => {
       { rng: () => 0.01 },
     );
     const result = engine.step();
-    const qingyun = result.updatedState.factions!['FACT_QINGYUN'];
+    const qingyun = result.updatedState.factions!['FACT_QINGYUN']!;
     expect(qingyun.leaderId).toBe('SECT_ELDER');
     expect(result.updatedState.npcs['SECT_ELDER']!.socialRank).toBe('sectMaster');
     expect(qingyun.members).toEqual(['SECT_ELDER']);
@@ -218,7 +226,7 @@ describe('遗府闭环（§4.7）', () => {
 
 describe('轨道咬合', () => {
   it('奇遇天材地宝 → 灵石入账（奇遇 ↔ 经济轨道）', () => {
-    const npc = makeNpc({ id: 'NPC_WONDER', name: '气运散修', destiny: { tier: 'common', luck: 10, hidden: false } });
+    const npc = makeNpc({ id: 'NPC_WONDER', name: '气运散修', destiny: { tier: 'common', born: 'mortal', luck: 10, hidden: false } });
     const engine = new WorldEngine({ ...baseState, npcs: { NPC_WONDER: npc } }, { rng: seqRng([0.001]) });
     const result = engine.step();
     expect(result.updatedState.npcs['NPC_WONDER']!.spiritStones).toBe(150);
@@ -241,7 +249,10 @@ describe('轨道咬合', () => {
       spiritStones: 1000,
       relations: { A: { type: 'enemy', bond: -50, trust: 10, events: [], changedAt: now } },
     });
-    const result = tryFeud(attacker, target, now, () => 0.01);
+    // 0.0 触发斗法；0.9/0.9 首击不闪避不暴击；耗尽 0.5 中性 → 强者胜且不致死 → 夺三成灵石
+    let i = 0;
+    const seq = [0.0, 0.9, 0.9];
+    const result = tryFeud(attacker, target, now, () => seq[i++] ?? 0.5);
     expect(result).toBeDefined();
     expect(result!.attackerWins).toBe(true);
     expect(result!.lootStones).toBe(300); // min(1000*0.3, 500)
