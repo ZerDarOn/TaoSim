@@ -10,14 +10,14 @@ import { ref, computed } from 'vue';
 import { useEventLogStore } from '@/stores/event-log';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
-import { buildChronicle, visibleToPlayer, npcTimeline } from '@taosim/engine';
+import { buildChronicle, visibleToPlayer, npcTimeline, rumorPool } from '@taosim/engine';
 import type { EventCategory } from '@taosim/contracts';
 
 const logStore = useEventLogStore();
 const appStore = useAppStore();
 const playerStore = usePlayerStore();
 
-type Perspective = 'immersive' | 'chronicle';
+type Perspective = 'immersive' | 'rumor' | 'chronicle';
 const perspective = ref<Perspective>('immersive');
 const onlyMine = ref(false);
 const selectedNpcId = ref<string | null>(null);
@@ -48,6 +48,16 @@ const immersiveEvents = computed(() => {
 
 // ── 编年史视角（上帝视角，§6.2）──
 const chronicle = computed(() => buildChronicle(appStore.currentWorldState?.eventLog ?? []));
+
+// ── 传闻视角（§4.8/§6 信息不对称）：玩家"听说"的 regional/world 事件，含传播延迟 ──
+const rumorList = computed(() => {
+  const ws = appStore.currentWorldState;
+  if (!ws) return [];
+  const now = { year: ws.currentYear, month: ws.currentMonth };
+  return rumorPool(ws.eventLog, now).sort(
+    (a, b) => b.heardAt.year - a.heardAt.year || b.heardAt.month - a.heardAt.month,
+  );
+});
 
 /** 事件流中出现过的 NPC（去重 + 名字映射），供生平浏览 */
 const npcCandidates = computed(() => {
@@ -82,6 +92,11 @@ const selectedNpcTimeline = computed(() => {
             :class="perspective === 'immersive' ? 'bg-amber-600 text-white' : 'bg-slate-700/40 text-slate-400 hover:bg-slate-700'"
             @click="perspective = 'immersive'"
           >沉浸</button>
+          <button
+            class="px-2 py-0.5 transition"
+            :class="perspective === 'rumor' ? 'bg-amber-600 text-white' : 'bg-slate-700/40 text-slate-400 hover:bg-slate-700'"
+            @click="perspective = 'rumor'"
+          >传闻</button>
           <button
             class="px-2 py-0.5 transition"
             :class="perspective === 'chronicle' ? 'bg-amber-600 text-white' : 'bg-slate-700/40 text-slate-400 hover:bg-slate-700'"
@@ -185,6 +200,37 @@ const selectedNpcTimeline = computed(() => {
       <!-- 底部统计 -->
       <div class="px-2 py-1 border-t border-slate-700 text-[10px] text-slate-500">
         共 {{ logStore.events.length }} 条{{ immersiveEvents.length !== logStore.events.length ? `（显示 ${immersiveEvents.length}）` : '' }}
+      </div>
+    </template>
+
+    <!-- ═══ 传闻视角 ═══ -->
+    <template v-else-if="perspective === 'rumor'">
+      <!-- 说明 -->
+      <div class="px-2 py-1.5 border-b border-slate-700">
+        <div class="text-[10px] text-slate-400 leading-snug">
+          江湖传闻 · 近 24 个月可"听说"的 regional/world 大事（local 不扩散）
+        </div>
+      </div>
+
+      <!-- 传闻列表（滚动区域） -->
+      <div class="flex-1 overflow-y-auto p-2 space-y-1.5">
+        <div v-if="rumorList.length === 0" class="text-xs text-slate-500 italic text-center py-4">
+          江湖太平，暂无传闻……
+        </div>
+        <div
+          v-for="r in rumorList" :key="r.event.id"
+          class="p-2 rounded bg-slate-700/30 border-l-2"
+          :style="{ borderLeftColor: CATEGORY_META[r.event.category].color }"
+        >
+          <div class="flex items-center gap-1">
+            <span class="text-[9px] text-slate-500 flex-shrink-0">听说于 {{ r.heardAt.year }}年{{ r.heardAt.month }}月</span>
+            <span v-if="r.event.isMajorEvent" class="text-[9px] text-amber-400">★</span>
+          </div>
+          <div class="text-xs text-slate-200 font-medium leading-tight">{{ r.event.title }}</div>
+          <div v-if="r.event.description" class="text-[10px] text-slate-400 mt-0.5 leading-snug">
+            {{ r.event.year }}年{{ r.event.month }}月 · {{ r.event.description }}
+          </div>
+        </div>
       </div>
     </template>
 
