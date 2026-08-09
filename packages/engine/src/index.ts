@@ -78,6 +78,9 @@ export type { WorldEventDef } from './time/calendar-event-scheduler.js';
 export { buildChronicle, visibleToPlayer, rumorPool, npcTimeline } from './world/chronicle.js';
 export type { YearChronicle, Rumor } from './world/chronicle.js';
 
+// Legendary NPCs (开局世界背景先行 — §7.4)
+export { generateLegendaryNpcs } from './world/legendary-npc-generator.js';
+
 // AI 增强层预留 (上下文序列化 — §8)
 export { serializeNpcBiography, serializeWorldDigest, serializeEventChain, buildAiNarrativePrompt } from './world/context-serializer.js';
 export type { AiEnhancementKind } from './world/context-serializer.js';

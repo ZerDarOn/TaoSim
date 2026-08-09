@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import type { WorldState, SavePayload, SaveHeader } from '@taosim/contracts';
-import { WorldEngine } from '@taosim/engine';
+import { WorldEngine, generateLegendaryNpcs } from '@taosim/engine';
 import { IndexedDBStorageAdapter, MigrationService } from '@taosim/persistence';
 import { usePlayerStore } from '@/stores/player';
 import { useMapStore } from '@/stores/map';
@@ -58,7 +58,7 @@ export const useAppStore = defineStore('app', {
         catastropheCountdownMonths: 600,
         activeContinentIds: ['CONTINENT_CANGZHOU'],
         globalFlags: {},
-        npcs: {},
+        npcs: Object.fromEntries(generateLegendaryNpcs().map((n) => [n.id, n])),
         eventLog: [],
       };
       const engine = new WorldEngine(initialState);
