@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { TimeAdvanceService, rollCalendarEvent } from '@taosim/engine';
+import { TimeAdvanceService, rollCalendarEvent, rollWorldEvent } from '@taosim/engine';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
 import { useGameFlowStore } from '@/stores/game-flow';
@@ -90,6 +90,16 @@ export function useWorld() {
         if (calendarEvent) {
           eventLog.addEvent('discovery', calendarEvent.name, calendarEvent.description, {
             isMajorEvent: calendarEvent.effectType === 'heavenly_tribulation',
+          });
+        }
+
+        // 世界大事日志（§4.10：异宝出世 / 妖潮 / 宗门大比 / 天灾等，独立于节气）
+        const worldEvent = rollWorldEvent();
+        if (worldEvent) {
+          eventLog.addEvent(worldEvent.category, worldEvent.name, worldEvent.description, {
+            isMajorEvent: true,
+            severity: worldEvent.severity,
+            visibility: worldEvent.visibility,
           });
         }
       }

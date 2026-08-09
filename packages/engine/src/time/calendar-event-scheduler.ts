@@ -7,7 +7,7 @@
  * 框架先行：先做 8 个骨架事件，后续可填充具体内容。
  */
 
-import type { CalendarEventDef } from '@taosim/contracts';
+import type { CalendarEventDef, EventCategory } from '@taosim/contracts';
 
 // ============================================================
 // 节气事件目录
@@ -104,4 +104,43 @@ export function rollCalendarEvent(
 /** 查询某月的默认节气事件（不考虑概率，用于 UI 预览） */
 export function getExpectedCalendarEvent(month: number): CalendarEventDef | undefined {
   return CALENDAR_EVENTS.find(e => e.trigger.month === month);
+}
+
+// ============================================================
+// 世界大事（§4.10 涌现规则）— 独立于节气，低概率稀有事件
+// ============================================================
+
+/** 世界事件定义（天灾 / 异宝出世 / 宗门大比等） */
+export interface WorldEventDef {
+  id: string;
+  name: string;
+  description: string;
+  /** 每月触发概率（按累计池抽样，同月最多一个） */
+  probability: number;
+  severity: 'major' | 'epoch';
+  visibility: 'regional' | 'world';
+  category: EventCategory;
+}
+
+/** 世界事件目录（累计约 1.55%/月） */
+export const WORLD_EVENTS: WorldEventDef[] = [
+  { id: 'WE_CELESTIAL_TREASURE', name: '异宝出世', description: '传闻某地灵光冲天，疑似上古异宝现世，各方修士闻风而动。', probability: 0.004, severity: 'major', visibility: 'regional', category: 'discovery' },
+  { id: 'WE_SECRET_REALM', name: '秘境开启', description: '尘封百年的秘境洞天现世，机缘与凶险并存。', probability: 0.003, severity: 'major', visibility: 'regional', category: 'discovery' },
+  { id: 'WE_DEMON_TIDE', name: '妖潮来袭', description: '深山妖兽暴动成潮，袭扰城镇，各地修士集结抵御。', probability: 0.003, severity: 'major', visibility: 'regional', category: 'combat' },
+  { id: 'WE_SECT_TOURNAMENT', name: '宗门大比', description: '正道宗门广发英雄帖，举办论道大比，胜者可获宗门秘藏。', probability: 0.002, severity: 'major', visibility: 'world', category: 'social' },
+  { id: 'WE_NATURAL_DISASTER', name: '天灾临世', description: '地火喷涌、江河倒卷，生灵涂炭，灾后灵脉或有异动。', probability: 0.0015, severity: 'major', visibility: 'regional', category: 'world' },
+  { id: 'WE_HEAVEN_FAVOR', name: '灵气复苏', description: '天地灵潮涌动，普天同庆，修炼事半功倍。', probability: 0.002, severity: 'major', visibility: 'world', category: 'world' },
+];
+
+/** 每月掷一次世界事件（独立于节气；按概率池抽样，未命中返回 undefined） */
+export function rollWorldEvent(rng: () => number = Math.random): WorldEventDef | undefined {
+  const total = WORLD_EVENTS.reduce((sum, e) => sum + e.probability, 0);
+  const roll = rng();
+  if (roll >= total) return undefined;
+  let acc = 0;
+  for (const e of WORLD_EVENTS) {
+    acc += e.probability;
+    if (roll < acc) return e;
+  }
+  return undefined;
 }
