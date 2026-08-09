@@ -55,9 +55,19 @@ export function isBigRealmEnd(realm: string): boolean {
   return realm.endsWith('_9') || realm.endsWith('_3');
 }
 
-/** 每月修为增长（与玩家公式一致：悟性 × 0.5） */
-export function cultivateNpc(rec: NpcRecord): void {
-  rec.cultivation.currentExp += rec.attributes.comprehension * 0.5;
+/** 修炼加成倍率（生态与地形因果 §4.9 + 师徒传承：灵气浓郁/师门传承 → 修为增长更快） */
+export interface CultivateMultipliers {
+  /** 区域灵气浓度系数（灵气浓郁之地修炼更快） */
+  qi?: number;
+  /** 师徒传承系数（未出师弟子随师尊修行，修为增长加成） */
+  apprentice?: number;
+}
+
+/** 每月修为增长（与玩家公式一致：悟性 × 0.5 × 环境与传承加成） */
+export function cultivateNpc(rec: NpcRecord, mult: CultivateMultipliers = {}): void {
+  const qi = mult.qi ?? 1;
+  const apprentice = mult.apprentice ?? 1;
+  rec.cultivation.currentExp += rec.attributes.comprehension * 0.5 * qi * apprentice;
   rec.cultivation.maxExp = realmExpThreshold(rec.realm);
 }
 

@@ -37,4 +37,9 @@ export interface WorldState {
   worldTurmoil?: number;
   /** 遗府名录（§4.7 新奇遇源；可选） */
   heritageSites?: Record<string, HeritageSite>;
+  /**
+   * 区域灵气浓度（nodeId → 0-100；生态与地形因果：灵气浓郁之地修炼更快，
+   * 随季节潮汐/世界事件/灵脉变迁波动；可选以兼容旧存档，默认按节点 tier 折算）
+   */
+  nodeSpiritQi?: Record<string, number>;
 }

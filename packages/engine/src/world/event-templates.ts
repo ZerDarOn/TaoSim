@@ -140,6 +140,14 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     titlePattern: '{faction} 覆灭',
     descriptionPattern: '{faction} 宗门上下死伤殆尽，山门崩塌，就此除名' },
 
+  // ── 师徒传承（关系轨道末端：长老收徒 → 修行加速 → 出师独立）──
+  { key: 'social.apprentice', category: 'social', severity: 'minor', visibility: 'local',
+    titlePattern: '{master} 收 {disciple} 为徒',
+    descriptionPattern: '{master} 于{faction}中相中根骨上佳的 {disciple}，收入门下，倾囊相授' },
+  { key: 'social.graduation', category: 'social', severity: 'normal', visibility: 'local',
+    titlePattern: '{npc} 出师，拜别师尊 {master}',
+    descriptionPattern: '{npc} 修为有成，正式出师，拜别师尊 {master}，自此独立行走江湖' },
+
   // ── 世界事件（§4.10：数据单一来源 = WORLD_EVENTS，模板自动生成）──
   ...WORLD_EVENTS.map((w) => ({
     key: w.id,

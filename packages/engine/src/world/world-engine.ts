@@ -1,4 +1,4 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { VENUE_CATALOG, getVenue } from '../overworld/map-catalog.js';
@@ -71,6 +71,27 @@ export const TURMOIL_EVENT_DELTA = 12;
 /** 高境界（金丹+）死亡推高乱世指数 */
 export const TURMOIL_HIGHREALM_DEATH_DELTA = 5;
 
+// ── 区域灵气浓度（生态与地形因果 §4.9：灵气浓郁之地修炼更快）──
+export const SPIRIT_QI_MIN = 5;
+export const SPIRIT_QI_MAX = 100;
+
+/** 灵气浓度 → 修炼倍率：灵气 0 → 0.6，灵气 100 → 1.6（灵气浓郁之地修炼更快） */
+export function spiritQiMultiplier(qi: number): number {
+  return 0.6 + qi / 100;
+}
+
+/** 初始灵气浓度（按节点 tier 折算：tier1=25 … tier5=85；无 tier 节点取 40） */
+export function createInitialNodeSpiritQi(): Record<string, number> {
+  const qi: Record<string, number> = {};
+  for (const node of Object.values(PRESET_MAP.continents[0]?.nodes ?? {})) {
+    qi[node.id] = Math.min(SPIRIT_QI_MAX, Math.max(SPIRIT_QI_MIN, node.tier * 15 + 10));
+  }
+  return qi;
+}
+
+/** 命格潜质排序权重（收徒偏好：传奇 > 天骄 > 英才 > 普通） */
+const DESTINY_RANK: Record<DestinyTier, number> = { legendary: 3, prodigy: 2, talented: 1, common: 0 };
+
 /** 乱世指数 → 世界局势阶段（§2.2 世界轨道：和平→乱世→大争→量劫） */
 export function eraFromTurmoil(turmoil: number): WorldEra {
   if (turmoil >= ERA_TURMOIL_THRESHOLDS.cataclysm) return 'cataclysm';
@@ -132,10 +153,11 @@ export class WorldEngine {
       npcs: { ...(initialState.npcs ?? {}) },
       eventLog: [...(initialState.eventLog ?? [])],
       factions: { ...(initialState.factions ?? options.factions ?? createInitialFactions()) },
-      // 世界局势/遗府：可选字段兜底默认值（兼容旧存档）
+      // 世界局势/遗府/灵气：可选字段兜底默认值（兼容旧存档）
       worldEra: initialState.worldEra ?? 'peace',
       worldTurmoil: initialState.worldTurmoil ?? 0,
       heritageSites: { ...(initialState.heritageSites ?? {}) },
+      nodeSpiritQi: { ...(initialState.nodeSpiritQi ?? createInitialNodeSpiritQi()) },
     };
     this.rng = options.rng ?? Math.random;
     this.factions = new Map(Object.entries(this.state.factions ?? {}));
@@ -163,6 +185,9 @@ export class WorldEngine {
   public step(): MonthlyTickResult {
     this.advanceCalendar();
 
+    // 区域灵气潮汐（生态与地形因果 §4.9：春生夏长、秋收冬藏 — 确定性，零 rng 消耗）
+    this.applySeasonQiShift();
+
     // 云游回归：上月云游（locationId 清空）的 NPC 本月重新落脚，
     // 避免 '__wander__' 分组随云游积累而无限膨胀（真实节点系统接入前的临时策略）
     for (const npc of Object.values(this.state.npcs)) {
@@ -188,8 +213,12 @@ export class WorldEngine {
       // 灾害/动荡类事件推高乱世指数；灵气复苏则平抑
       if (worldEvent.category === 'combat' || worldEvent.id === 'WE_NATURAL_DISASTER') {
         this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + TURMOIL_EVENT_DELTA);
+        // 天灾/兵祸：灵气最盛之地受冲击（确定性选点，零 rng）
+        this.dampenRichestQiNode();
       } else if (worldEvent.id === 'WE_HEAVEN_FAVOR') {
         this.state.worldTurmoil = Math.max(0, (this.state.worldTurmoil ?? 0) - 8);
+        // 灵气复苏：全图灵气回升
+        this.reviveAllQi();
       }
     }
     // 乱世指数缓降（世界自身恢复力）
@@ -275,8 +304,11 @@ export class WorldEngine {
         continue;
       }
 
-      // 修炼增长
-      cultivateNpc(npc);
+      // 修炼增长（灵气浓度 × 师徒传承加成：生态与地形因果 + 关系轨道咬合）
+      cultivateNpc(npc, {
+        qi: this.spiritQiMultOf(npc.locationId),
+        apprentice: this.isUndergraduateDisciple(npc) ? 1.5 : 1,
+      });
 
       // 突破判定
       const breakthrough = tryBreakthrough(npc, this.rng);
@@ -301,6 +333,32 @@ export class WorldEngine {
               locationId: npc.locationId,
             },
             [id],
+          );
+        }
+      }
+
+      // 出师：弟子修为达金丹（tier≥3）→ 出师独立（保留师徒关系，里程碑留档）
+      if (npc.socialRank === 'disciple' && realmTier(npc.realm) >= 3) {
+        const masterEntry = Object.entries(npc.relations).find(
+          ([, rel]) => rel.type === 'master-disciple' && rel.direction === 'disciple',
+        );
+        if (masterEntry && !npc.biography.milestones.some((m) => m.title === '出师')) {
+          npc.biography.milestones.push({
+            eventId: `EVT_${this.state.currentYear}_${this.state.currentMonth}`,
+            year: this.state.currentYear,
+            month: this.state.currentMonth,
+            title: '出师',
+            realm: npc.realm,
+          });
+          const master = this.state.npcs[masterEntry[0]];
+          pushNpcEvent(
+            {
+              key: 'social.graduation',
+              vars: { npc: npc.name, master: master?.name ?? '师尊' },
+              involvedCharacterIds: [npc.id, masterEntry[0]],
+              locationId: npc.locationId,
+            },
+            [npc.id],
           );
         }
       }
@@ -514,6 +572,61 @@ export class WorldEngine {
           );
         }
       }
+
+      // 师徒传承（关系轨道末端）：长老/掌门收同门潜质弟子为徒（每师至多 3 徒）
+      for (const memberId of [...faction.members]) {
+        const master = this.state.npcs[memberId];
+        if (!master || master.soulState !== 'Active') continue;
+        if (master.socialRank !== 'elder' && master.socialRank !== 'sectMaster') continue;
+        const discipleCount = Object.values(master.relations).filter(
+          (rel) => rel.type === 'master-disciple' && rel.direction === 'disciple',
+        ).length;
+        if (discipleCount >= 3) continue;
+        const candidates = faction.members
+          .map((id) => this.state.npcs[id])
+          .filter(
+            (n): n is NpcRecord =>
+              n !== undefined &&
+              n.soulState === 'Active' &&
+              n.socialRank === 'disciple' &&
+              n.id !== master.id &&
+              !Object.values(n.relations).some(
+                (rel) => rel.type === 'master-disciple' && rel.direction === 'disciple',
+              ),
+          )
+          .sort(
+            (a, b) =>
+              DESTINY_RANK[b.destiny.tier] - DESTINY_RANK[a.destiny.tier] || b.destiny.luck - a.destiny.luck,
+          );
+        const disciple = candidates[0];
+        if (disciple && this.rng() < 0.05) {
+          master.relations[disciple.id] = {
+            type: 'master-disciple',
+            bond: 40,
+            trust: 40,
+            events: ['收徒授业'],
+            changedAt: now,
+            direction: 'master',
+          };
+          disciple.relations[master.id] = {
+            type: 'master-disciple',
+            bond: 40,
+            trust: 40,
+            events: ['拜入师门'],
+            changedAt: now,
+            direction: 'disciple',
+          };
+          pushNpcEvent(
+            {
+              key: 'social.apprentice',
+              vars: { master: master.name, disciple: disciple.name, faction: faction.name },
+              involvedCharacterIds: [master.id, disciple.id],
+              locationId: master.locationId ?? disciple.locationId,
+            },
+            [master.id, disciple.id],
+          );
+        }
+      }
     }
 
     // 2d. 势力回合（势力扩张与战争：宗门地盘扩张 / 宣战 / 战争结算 / 灭门 / 叛逃）
@@ -593,6 +706,10 @@ export class WorldEngine {
           if (faction.treasurySpiritStones >= cost) {
             faction.treasurySpiritStones -= cost;
             faction.territories.push(target);
+            // 开山立派 → 新地盘灵气回升（生态与地形因果）
+            if (this.state.nodeSpiritQi && this.state.nodeSpiritQi[target] !== undefined) {
+              this.state.nodeSpiritQi[target] = Math.min(SPIRIT_QI_MAX, this.state.nodeSpiritQi[target] + 3);
+            }
             events.push(
               collector.emit({
                 key: 'faction.expand',
@@ -757,6 +874,14 @@ export class WorldEngine {
         // 灵石枯竭降级灵脉
         if (faction.spiritVeinLevel > 1) {
           faction.spiritVeinLevel--;
+          // 灵脉枯竭降级 → 驻地灵气 −5（生态与地形因果：地脉衰败）
+          const home = faction.territories[0];
+          if (home && this.state.nodeSpiritQi) {
+            this.state.nodeSpiritQi[home] = Math.max(
+              SPIRIT_QI_MIN,
+              (this.state.nodeSpiritQi[home] ?? 40) - 5,
+            );
+          }
           events.push(
             collector.emit({
               key: 'faction.veinDegrade',
@@ -791,6 +916,7 @@ export class WorldEngine {
       eventLog: [...this.state.eventLog],
       factions: this.state.factions ? { ...this.state.factions } : undefined,
       heritageSites: this.state.heritageSites ? { ...this.state.heritageSites } : undefined,
+      nodeSpiritQi: this.state.nodeSpiritQi ? { ...this.state.nodeSpiritQi } : undefined,
     };
   }
 
@@ -857,5 +983,67 @@ export class WorldEngine {
       month: this.state.currentMonth,
     };
     this.state.heritageSites = { ...(this.state.heritageSites ?? {}), [npc.id]: site };
+    // 高人气机汇聚：遗府现世 → 所在节点灵气 +3（生态与地形因果）
+    if (venue?.nodeId && this.state.nodeSpiritQi) {
+      this.state.nodeSpiritQi[venue.nodeId] = Math.min(
+        SPIRIT_QI_MAX,
+        (this.state.nodeSpiritQi[venue.nodeId] ?? 40) + 3,
+      );
+    }
+  }
+
+  /** 季节灵气潮汐（§4.9：春 +1 / 夏 +2 / 秋 −1 / 冬 −2 — 确定性，不消耗 rng） */
+  private applySeasonQiShift(): void {
+    const qi = this.state.nodeSpiritQi;
+    if (!qi) return;
+    const m = this.state.currentMonth;
+    const delta = m >= 2 && m <= 4 ? 1 : m >= 5 && m <= 7 ? 2 : m >= 8 && m <= 10 ? -1 : -2;
+    for (const key of Object.keys(qi)) {
+      const cur = qi[key] ?? 40;
+      qi[key] = Math.min(SPIRIT_QI_MAX, Math.max(SPIRIT_QI_MIN, cur + delta));
+    }
+  }
+
+  /** 灵气复苏：全图灵气 +5 */
+  private reviveAllQi(): void {
+    const qi = this.state.nodeSpiritQi;
+    if (!qi) return;
+    for (const key of Object.keys(qi)) {
+      const cur = qi[key] ?? 40;
+      qi[key] = Math.min(SPIRIT_QI_MAX, cur + 5);
+    }
+  }
+
+  /** 天灾/兵祸：灵气最盛之地 −5（资源最丰处先受冲击，确定性选点） */
+  private dampenRichestQiNode(): void {
+    const qi = this.state.nodeSpiritQi;
+    if (!qi) return;
+    const richest = Object.entries(qi).reduce<string | undefined>(
+      (acc, [k, v]) => (acc === undefined || v > (qi[acc] ?? 0) ? k : acc),
+      undefined,
+    );
+    if (richest !== undefined) {
+      const cur = qi[richest] ?? 40;
+      qi[richest] = Math.max(SPIRIT_QI_MIN, cur - 5);
+    }
+  }
+
+  /** 该地灵气浓度 → 修炼倍率（无地点/无灵气记录时按 1，不放大） */
+  private spiritQiMultOf(locationId?: string): number {
+    if (!locationId) return 1;
+    const nodeId = getVenue(locationId)?.nodeId;
+    if (!nodeId) return 1;
+    const qi = this.state.nodeSpiritQi?.[nodeId];
+    return qi === undefined ? 1 : spiritQiMultiplier(qi);
+  }
+
+  /** 是否未出师弟子（有师尊且尚未出师 → 享受师门传承加速） */
+  private isUndergraduateDisciple(npc: NpcRecord): boolean {
+    if (npc.socialRank !== 'disciple') return false;
+    const hasMaster = Object.values(npc.relations).some(
+      (rel) => rel.type === 'master-disciple' && rel.direction === 'disciple',
+    );
+    if (!hasMaster) return false;
+    return !npc.biography.milestones.some((m) => m.title === '出师');
   }
 }
