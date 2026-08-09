@@ -23,6 +23,20 @@ export const SECT_PRESETS: Faction[] = [
     diplomacy: {},
     aiPolicy: { expansionism: 0.3, aggression: 0.2 },
   },
+  // 天剑宗（第二宗门：Demonic，更富侵略性 → 与青云宗形成正邪对峙张力）
+  {
+    id: 'FACT_TIANJIAN',
+    name: '天剑宗',
+    alignment: 'Demonic',
+    leaderId: 'NPC_TIANJIAN_MASTER', // 掌门 血屠剑尊（传奇种子，socialRank: sectMaster）
+    members: ['NPC_TIANJIAN_MASTER', 'NPC_TIANJIAN_ELDER'],
+    territories: ['NODE_SECT_TIANJIAN'],
+    // 灵脉 2 阶：同青云宗稳态
+    spiritVeinLevel: 2,
+    treasurySpiritStones: 8000,
+    diplomacy: {},
+    aiPolicy: { expansionism: 0.55, aggression: 0.5 },
+  },
 ];
 
 /** 深拷贝为 Record<factionId, Faction>（避免静态数据被引擎月度维护原地改写） */

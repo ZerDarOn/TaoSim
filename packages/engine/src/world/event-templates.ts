@@ -120,6 +120,26 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     titlePattern: '{npc} 云游归来，拜访 {npc2}',
     descriptionPattern: '{npc} 云游归来，前往拜访故人 {npc2}' },
 
+  // ── 势力扩张与战争（§2.2 社会/世界轨道：宗门兴衰、地盘争夺）──
+  { key: 'faction.expand', category: 'world', severity: 'normal', visibility: 'regional',
+    titlePattern: '{faction} 扩张至{node}',
+    descriptionPattern: '{faction} 遣弟子开山立派，将{node}纳入势力范围' },
+  { key: 'faction.warDeclare', category: 'world', severity: 'major', visibility: 'world',
+    titlePattern: '{faction} 向 {target} 宣战',
+    descriptionPattern: '{faction} 与 {target} 积怨已久，于{node}一带兵戈相向，天下震动' },
+  { key: 'faction.battle', category: 'combat', severity: 'normal', visibility: 'regional',
+    titlePattern: '{attacker} 与 {defender} 交战于{node}',
+    descriptionPattern: '{attacker} 与 {defender} 两宗弟子于{node}激战，死伤枕藉' },
+  { key: 'faction.territoryLost', category: 'world', severity: 'major', visibility: 'regional',
+    titlePattern: '{faction} 失守{node}，{target} 攻占',
+    descriptionPattern: '{faction} 兵败{node}，{target} 趁势攻占，夺取该处地盘' },
+  { key: 'faction.defect', category: 'social', severity: 'minor', visibility: 'local',
+    titlePattern: '{npc} 脱离{faction}',
+    descriptionPattern: '{npc} 见{faction}势衰，黯然脱离，重归散修之路' },
+  { key: 'faction.destroyed', category: 'world', severity: 'major', visibility: 'world',
+    titlePattern: '{faction} 覆灭',
+    descriptionPattern: '{faction} 宗门上下死伤殆尽，山门崩塌，就此除名' },
+
   // ── 世界事件（§4.10：数据单一来源 = WORLD_EVENTS，模板自动生成）──
   ...WORLD_EVENTS.map((w) => ({
     key: w.id,

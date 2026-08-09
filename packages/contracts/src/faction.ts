@@ -6,6 +6,8 @@ export interface Faction {
   id: string;
   name: string;
   alignment: 'Righteous' | 'Demonic' | 'Neutral';
+  /** 势力存亡（势力扩张与战争：灭门后不再参与月度演化） */
+  status?: 'active' | 'destroyed';
   leaderId: string;
   members: string[];                             // Character ID 列表
   territories: string[];                         // OverworldNode ID 列表

@@ -2,7 +2,7 @@ import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSit
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { VENUE_CATALOG, getVenue } from '../overworld/map-catalog.js';
-import { PRESET_MAP } from '../overworld/preset-map.js';
+import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { createInitialFactions } from './sect-presets.js';
 import { characterToNpcRecord, realmTier } from './npc-record-mapper.js';
 import { EventCollector } from './event-collector.js';
@@ -444,6 +444,8 @@ export class WorldEngine {
 
     // 2c. 社会轨道（§2.2：入宗→弟子→长老→宗主 — 宗门人才吸纳/晋升/继任）
     for (const faction of this.factions.values()) {
+      // 已覆灭宗门不参与社会轨道演化
+      if (faction.status === 'destroyed') continue;
       // 宗主继任：掌门陨落 → 修为最高者临危受命
       const leader = faction.leaderId ? this.state.npcs[faction.leaderId] : undefined;
       if (!leader || leader.soulState !== 'Active') {
@@ -471,11 +473,15 @@ export class WorldEngine {
       }
 
       // 入宗：散修身处宗门驻地或出身宗门 → 拜入门下（弟子）
+      // 拜师潮流（势力扩张与战争）：兴盛宗门（灵脉高/地盘广）吸引更多散修 — 马太效应
+      const prosperity =
+        1 + (faction.spiritVeinLevel - 1) * 0.5 + Math.max(0, faction.territories.length - 1) * 0.25;
+      const joinChance = JOIN_SECT_CHANCE * prosperity;
       for (const npc of Object.values(this.state.npcs)) {
         if (npc.soulState !== 'Active' || npc.factionId) continue;
         const venue = npc.locationId ? getVenue(npc.locationId) : undefined;
         const atTerritory = venue !== undefined && faction.territories.includes(venue.nodeId);
-        if ((atTerritory || npc.origin.type === '宗门') && this.rng() < JOIN_SECT_CHANCE) {
+        if ((atTerritory || npc.origin.type === '宗门') && this.rng() < joinChance) {
           npc.factionId = faction.id;
           npc.socialRank = 'disciple';
           faction.members.push(npc.id);
@@ -508,6 +514,188 @@ export class WorldEngine {
           );
         }
       }
+    }
+
+    // 2d. 势力回合（势力扩张与战争：宗门地盘扩张 / 宣战 / 战争结算 / 灭门 / 叛逃）
+    // ── 宗门军事力量：灵脉加成 + 在世成员境界之和 ──
+    const factionPower = (f: Faction): number => {
+      let power = f.spiritVeinLevel * 5;
+      for (const memberId of f.members) {
+        const m = this.state.npcs[memberId];
+        if (m && m.soulState === 'Active') power += realmTier(m.realm);
+      }
+      return power;
+    };
+    const nodeNameOf = (nodeId: string): string =>
+      PRESET_MAP.continents[0]?.nodes[nodeId]?.name ?? nodeId;
+    /** 该节点当前归属（无人/已覆灭宗门占位视为无主） */
+    const occupiedBy = (nodeId: string): Faction | undefined => {
+      for (const f of this.factions.values()) {
+        if (f.status === 'destroyed') continue;
+        if (f.territories.includes(nodeId)) return f;
+      }
+      return undefined;
+    };
+
+    for (const faction of this.factions.values()) {
+      if (faction.status === 'destroyed') continue;
+
+      // 灭门：在世成员全灭 → 宗门覆灭，乱世指数骤升（§2.2 世界轨道咬合）
+      const activeMembers = faction.members.filter(
+        (id) => this.state.npcs[id]?.soulState === 'Active',
+      );
+      if (activeMembers.length === 0) {
+        faction.status = 'destroyed';
+        this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 10);
+        events.push(
+          collector.emit({
+            key: 'faction.destroyed',
+            vars: { faction: faction.name },
+            involvedCharacterIds: [],
+          }),
+        );
+        continue;
+      }
+
+      // 叛逃：宗门衰弱（金库枯竭或灵脉 1 阶）→ 弟子流失（马太效应：弱宗留不住人）
+      if (faction.treasurySpiritStones < 1000 || faction.spiritVeinLevel <= 1) {
+        for (const memberId of [...faction.members]) {
+          const m = this.state.npcs[memberId];
+          if (!m || m.soulState !== 'Active' || m.socialRank === 'sectMaster' || m.socialRank === 'elder') continue;
+          if (this.rng() < 0.02) {
+            m.factionId = undefined;
+            m.socialRank = undefined;
+            faction.members = faction.members.filter((id) => id !== memberId);
+            pushNpcEvent(
+              {
+                key: 'faction.defect',
+                vars: { npc: m.name, faction: faction.name },
+                involvedCharacterIds: [memberId],
+                locationId: m.locationId,
+              },
+              [memberId],
+            );
+          }
+        }
+      }
+
+      // 扩张：向邻接节点开拓（概率 = expansionism；无主之地直接占领，他宗地盘 → 可能宣战）
+      if (faction.members.length > 0 && this.rng() < faction.aiPolicy.expansionism) {
+        const neighbors = new Set<string>();
+        for (const t of faction.territories) {
+          for (const n of getNeighbors(t)) neighbors.add(n);
+        }
+        const border = [...neighbors].filter((n) => !faction.territories.includes(n));
+        const unclaimed = border.filter((n) => occupiedBy(n) === undefined);
+        if (unclaimed.length > 0) {
+          const target = unclaimed[Math.floor(this.rng() * unclaimed.length)]!;
+          const cost = 500 * (PRESET_MAP.continents[0]?.nodes[target]?.tier ?? 1);
+          if (faction.treasurySpiritStones >= cost) {
+            faction.treasurySpiritStones -= cost;
+            faction.territories.push(target);
+            events.push(
+              collector.emit({
+                key: 'faction.expand',
+                vars: { faction: faction.name, node: nodeNameOf(target) },
+                involvedCharacterIds: [],
+              }),
+            );
+          }
+        } else if (this.rng() < faction.aiPolicy.aggression) {
+          // 邻接皆为他宗地盘且好斗 → 宣战（无邻接边界则跳过）
+          const disputed = border.filter((n) => occupiedBy(n) !== undefined);
+          const targetNode = disputed[Math.floor(this.rng() * disputed.length)];
+          if (targetNode === undefined) continue;
+          const targetFaction = occupiedBy(targetNode)!;
+          if (targetFaction !== faction && faction.diplomacy[targetFaction.id] !== 'War') {
+            faction.diplomacy[targetFaction.id] = 'War';
+            targetFaction.diplomacy[faction.id] = 'War';
+            this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 6);
+            events.push(
+              collector.emit({
+                key: 'faction.warDeclare',
+                vars: { faction: faction.name, target: targetFaction.name, node: nodeNameOf(targetNode) },
+                involvedCharacterIds: [],
+              }),
+            );
+          }
+        }
+      }
+    }
+
+    // 战争结算：处于 War 的宗门对（去重，只结算一次）按力量对比分胜负
+    const warPairs: [Faction, Faction][] = [];
+    for (const f of this.factions.values()) {
+      if (f.status === 'destroyed') continue;
+      for (const [otherId, rel] of Object.entries(f.diplomacy)) {
+        const other = this.factions.get(otherId);
+        if (!other || other.status === 'destroyed') continue;
+        if (rel === 'War' && f.id < other.id) warPairs.push([f, other]);
+      }
+    }
+    for (const [a, b] of warPairs) {
+      if (a.status === 'destroyed' || b.status === 'destroyed') continue;
+      const pa = factionPower(a);
+      const pb = factionPower(b);
+      if (pa + pb <= 0) continue;
+      const aWins = this.rng() < pa / (pa + pb);
+      const winner = aWins ? a : b;
+      const loser = aWins ? b : a;
+
+      // 战场取双方交界节点（无交界则取 loser 任一头衔地）
+      const loserBorders = loser.territories.filter((t) =>
+        winner.territories.some((wt) => getNeighbors(wt).includes(t)),
+      );
+      const contested = loserBorders.length > 0 ? loserBorders : loser.territories;
+      const lostNode = contested[Math.floor(this.rng() * contested.length)];
+      if (lostNode) {
+        loser.territories = loser.territories.filter((t) => t !== lostNode);
+        winner.territories.push(lostNode);
+        events.push(
+          collector.emit({
+            key: 'faction.battle',
+            vars: { attacker: winner.name, defender: loser.name, node: nodeNameOf(lostNode) },
+            involvedCharacterIds: [],
+          }),
+        );
+        events.push(
+          collector.emit({
+            key: 'faction.territoryLost',
+            vars: { faction: loser.name, node: nodeNameOf(lostNode), target: winner.name },
+            involvedCharacterIds: [],
+          }),
+        );
+      }
+
+      // 战利灵石：胜方夺败方部分库存
+      const loot = Math.min(loser.treasurySpiritStones, Math.floor(loser.treasurySpiritStones * 0.2) + 200);
+      loser.treasurySpiritStones -= loot;
+      winner.treasurySpiritStones += loot;
+
+      // 伤亡：双方低阶弟子战死（掌门不参战陨落）
+      for (const side of [loser, winner]) {
+        const casualties = [...side.members].filter((id) => {
+          const m = this.state.npcs[id];
+          return (
+            m !== undefined &&
+            m.soulState === 'Active' &&
+            m.socialRank !== 'sectMaster' &&
+            this.rng() < 0.1
+          );
+        });
+        for (const id of casualties) {
+          const m = this.state.npcs[id]!;
+          m.soulState = 'RemnantSoul';
+          m.causeOfDeath = '宗门之战陨落';
+          m.deathYear = this.state.currentYear;
+          m.deathMonth = this.state.currentMonth;
+          npcPopulationChanged = true;
+        }
+        side.members = side.members.filter((id) => !casualties.includes(id));
+      }
+
+      // 战争加剧乱世（§2.2 世界轨道咬合）
+      this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 4);
     }
 
     // 3. 清理已湮灭的 NPC（死亡超过宽限期 → 转 Oblivion 后除名）
@@ -557,6 +745,7 @@ export class WorldEngine {
 
     // 5. 宗门月度维护（§2.2 经济轨道：灵脉产出 水龙头 − 维护成本；枯竭则降级灵脉）
     for (const [, faction] of this.factions) {
+      if (faction.status === 'destroyed') continue;
       faction.treasurySpiritStones += EconomyEngine.calculateSpiritStoneIncome(
         factionNodeTier(faction),
         faction.spiritVeinLevel,

@@ -202,6 +202,21 @@ export const VENUE_CATALOG: VenueDef[] = [
     description: '青云宗练功场，闭关修行的圣地。',
     nodeId: 'NODE_SECT_QINGYUN',
   },
+  // 天剑宗场所（势力扩张与战争：第二宗门驻地）
+  {
+    id: 'VENUE_TIANJIAN_HALL',
+    name: '天剑阁',
+    type: 'sect_hall',
+    description: '天剑宗主殿，剑意冲霄，杀伐之气弥漫。',
+    nodeId: 'NODE_SECT_TIANJIAN',
+  },
+  {
+    id: 'VENUE_TIANJIAN_TRAINING',
+    name: '剑冢',
+    type: 'training_ground',
+    description: '天剑宗历代剑修埋剑之所，剑气纵横，凶险亦机缘。',
+    nodeId: 'NODE_SECT_TIANJIAN',
+  },
 ];
 
 // ============================================================
