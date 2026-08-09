@@ -1,6 +1,7 @@
 import type { Character, Skill } from '@taosim/contracts';
 import { hexDistance } from '@taosim/contracts';
 import type { CombatEngine } from './combat-engine.js';
+import { skillRange } from '../battle/skill-range.js';
 
 export interface NpcAction {
   type: 'attack' | 'move' | 'skip';
@@ -26,7 +27,8 @@ export class NpcAI {
     });
 
     const bestSkill = availableSkills[0] ?? null;
-    const skillRange = 1;
+    // 技能射程取自身 Geometry 原子（风刃术 range 2 等），普攻默认 1
+    const attackRange = bestSkill ? skillRange(bestSkill) : 1;
 
     const actorPos = engine.findCharacterPosition(actor.id);
     const targetPos = engine.findCharacterPosition(target.id);
@@ -35,7 +37,7 @@ export class NpcAI {
     let inRange = false;
     if (targetPos) {
       const dist = hexDistance(actorPos.q, actorPos.r, targetPos.q, targetPos.r);
-      inRange = dist <= skillRange;
+      inRange = dist <= attackRange;
     }
 
     if (inRange && bestSkill) {

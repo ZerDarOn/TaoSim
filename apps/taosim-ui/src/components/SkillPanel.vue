@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Character, Skill } from '@taosim/contracts';
+import { skillRange } from '@taosim/engine';
 
 const props = defineProps<{
   skills: Skill[];
@@ -14,8 +15,19 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
-/** 技能射程：当前引擎统一 1 格（Phase B 精细化） */
-const SKILL_RANGE = 1;
+/** 技能射程：取自身 Geometry 原子（风刃术 range 2 等），普攻 1 */
+function rangeOf(skill: Skill): number {
+  return skillRange(skill);
+}
+
+/** 五行元素标签：只有五行技能才有元素（雷/冰/风/暗与 Physical 不显示） */
+const ELEMENT_LABEL: Record<string, string> = {
+  Metal: '金', Wood: '木', Water: '水', Fire: '火', Earth: '土',
+};
+
+function elementTag(skill: Skill): string | null {
+  return skill.element ? ELEMENT_LABEL[skill.element] ?? null : null;
+}
 
 function isOnCooldown(skill: Skill): boolean {
   if (!props.actor) return false;
@@ -52,7 +64,7 @@ function disabled(skill: Skill): boolean {
         :key="skill.id"
         @click="emit('select', skill)"
         :disabled="disabled(skill)"
-        :title="`${skill.name}｜AP ${skill.cost.ap}｜灵力 ${skill.cost.spiritEnergy}｜射程 ${SKILL_RANGE} 格｜冷却 ${skill.cooldownTurns} 回合｜${skill.type}`"
+        :title="`${skill.name}｜AP ${skill.cost.ap}｜灵力 ${skill.cost.spiritEnergy}｜射程 ${rangeOf(skill)} 格｜冷却 ${skill.cooldownTurns} 回合｜${skill.type}${elementTag(skill) ? `｜五行 ${elementTag(skill)}` : ''}`"
         :class="[
           'relative px-3 py-2 rounded text-xs font-semibold transition border text-left',
           selectedId === skill.id
@@ -64,7 +76,11 @@ function disabled(skill: Skill): boolean {
       >
         <div class="flex items-center justify-between">
           <span class="truncate">{{ skill.name }}</span>
-          <span class="text-[10px] opacity-60 ml-1">AP{{ skill.cost.ap }}</span>
+          <span class="text-[10px] opacity-60 ml-1">{{ elementTag(skill) ?? `AP${skill.cost.ap}` }}</span>
+        </div>
+        <div v-if="elementTag(skill)" class="flex items-center gap-1 mt-0.5">
+          <span class="text-[9px] leading-none px-1 py-px rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">{{ elementTag(skill) }}</span>
+          <span class="text-[9px] opacity-60">AP{{ skill.cost.ap }}</span>
         </div>
         <!-- 冷却角标 -->
         <span

@@ -59,7 +59,7 @@ describe('useCombat basicAttack/defend', () => {
     const result = combat.basicAttack('e');
     const p = combat.state.characters['p']!;
     const e = combat.state.characters['e']!;
-    expect(result).toEqual({ defenderId: 'e', damage: 5, blockedByBarrier: false });
+    expect(result).toEqual({ defenderId: 'e', damage: 5, blockedByBarrier: false, crit: false, missed: false, guarded: false });
     expect(e.hp).toBe(95);
     expect(p.ap).toBe(2);
     expect(combat.state.currentTurn).toBeNull();
@@ -95,5 +95,93 @@ describe('useCombat basicAttack/defend', () => {
     combat.state.characters['p']!.ap = MAX_AP;
     combat.defend();
     expect(combat.state.characters['p']!.ap).toBe(MAX_AP);
+  });
+
+  it('防御：设置守卫标记（本回合至下回合受击减半）', () => {
+    combat.state.turnNumber = 3;
+    combat.defend();
+    expect(combat.state.guards['p']).toBe(4);
+  });
+
+  it('守卫生效：防御者受击伤害减半（guarded=true 且血量少扣）', () => {
+    // 玩家防御后，敌方回合攻击玩家：守卫在 turnNumber=4 时仍有效
+    combat.state.currentTurn = 'e';
+    combat.state.turnNumber = 4;
+    combat.state.guards['p'] = 4;
+    combat.state.selectedSkill = {
+      id: 'e_atk', name: '妖术', quality: 'Huang', type: 'Active',
+      primitives: [], cost: { ap: 1, spiritEnergy: 0 }, cooldownTurns: 0,
+    };
+    stubRng(0.5, 0.5);
+    const result = combat.attackTarget('p');
+    expect(result).not.toBeNull();
+    expect(result!.guarded).toBe(true);
+    // 基础伤害 5 减半 → 3（Math.round(2.5)=3）
+    expect(combat.state.characters['p']!.hp).toBe(97);
+  });
+
+  it('守卫过期：超过有效期回合不再减伤', () => {
+    combat.state.currentTurn = 'e';
+    combat.state.turnNumber = 5;
+    combat.state.guards['p'] = 4; // 已过期
+    combat.state.selectedSkill = {
+      id: 'e_atk', name: '妖术', quality: 'Huang', type: 'Active',
+      primitives: [], cost: { ap: 1, spiritEnergy: 0 }, cooldownTurns: 0,
+    };
+    stubRng(0.5, 0.5);
+    const result = combat.attackTarget('p');
+    expect(result).not.toBeNull();
+    expect(result!.guarded).toBe(false);
+    expect(combat.state.characters['p']!.hp).toBe(95);
+  });
+
+  it('技能攻击：远射程技能（range 2）在距离 2 处命中', () => {
+    combat.state.engine!.moveCharacter('e', 1, 3); // 距离 2
+    const skill = {
+      id: 'wind_blade', name: '风刃术', quality: 'Huang' as const, type: 'Active' as const,
+      primitives: [{ id: 'a1', category: 'Geometry' as const, params: { type: 'Single' as const, range: 2 }, costBudget: 10 }],
+      cost: { ap: 1, spiritEnergy: 5 }, cooldownTurns: 0,
+    };
+    combat.state.selectedSkill = skill;
+    combat.state.currentTurn = 'p';
+    stubRng(0.5, 0.5);
+    const result = combat.attackTarget('e');
+    expect(result).not.toBeNull();
+    expect(combat.state.characters['e']!.hp).toBeLessThan(100); // 已命中
+    expect(combat.state.log.some(l => l.includes('造成'))).toBe(true);
+  });
+
+  it('技能攻击：超出技能射程（距离 2 但 range 1）拒绝施放', () => {
+    combat.state.engine!.moveCharacter('e', 1, 3); // 距离 2
+    const skill = {
+      id: 'slash', name: '斩击', quality: 'Huang' as const, type: 'Active' as const,
+      primitives: [{ id: 'a1', category: 'Geometry' as const, params: { type: 'Single' as const, range: 1 }, costBudget: 10 }],
+      cost: { ap: 1, spiritEnergy: 0 }, cooldownTurns: 0,
+    };
+    combat.state.selectedSkill = skill;
+    combat.state.currentTurn = 'p';
+    stubRng(0.5, 0.5);
+    const result = combat.attackTarget('e');
+    expect(result).toBeNull();
+    expect(combat.state.characters['e']!.hp).toBe(100); // 未结算
+    expect(combat.state.currentTurn).toBe('p'); // 回合未消耗
+  });
+
+  it('暴击：rng 判定命中且暴击时返回 crit=true', () => {
+    combat.state.currentTurn = 'p';
+    stubRng(0.9, 0.04); // 命中 0.9（高于 0.05 基础闪避）、暴击 0.04（低于 0.05 基础暴击）
+    const result = combat.basicAttack('e');
+    expect(result).not.toBeNull();
+    expect(result!.crit).toBe(true);
+  });
+
+  it('闪避：rng 判定未命中时返回 missed=true 且不扣血', () => {
+    combat.state.currentTurn = 'p';
+    stubRng(0.01); // 命中判定 0.01 低于闪避阈值 → 未命中
+    const hpBefore = combat.state.characters['e']!.hp;
+    const result = combat.basicAttack('e');
+    expect(result).not.toBeNull();
+    expect(result!.missed).toBe(true);
+    expect(combat.state.characters['e']!.hp).toBe(hpBefore);
   });
 });

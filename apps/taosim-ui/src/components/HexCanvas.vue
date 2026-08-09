@@ -282,7 +282,13 @@ function spawnFloatTexts() {
     const { x, y } = hexToPixel(f.q, f.r);
     const t = new Text(f.text, {
       fontSize: f.kind === 'crit' ? 16 : 13,
-      fill: f.kind === 'info' ? 0x94a3b8 : f.kind === 'damage' ? 0xffd700 : 0xef4444,
+      // crit 暴击橙红大字 / damage 金色伤害 / dodge 蓝色闪避 / block 白色格挡 / info 灰色提示
+      fill: f.kind === 'info' ? 0x94a3b8
+        : f.kind === 'damage' ? 0xffd700
+        : f.kind === 'crit' ? 0xff6b35
+        : f.kind === 'dodge' ? 0x60a5fa
+        : f.kind === 'block' ? 0xe2e8f0
+        : 0xef4444,
       fontWeight: 'bold', fontFamily: 'sans-serif',
     });
     t.anchor.set(0.5);

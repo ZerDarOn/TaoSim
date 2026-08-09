@@ -13,6 +13,7 @@ import BattleCommandBar from '@/components/BattleCommandBar.vue';
 import type { Character } from '@taosim/contracts';
 import { MapGenerator, resolveBattleOutcome } from '@taosim/engine';
 import type { BattleOutcome } from '@taosim/engine';
+import { formatRealm, formatSpiritRootGrade, formatSpiritElement } from '@/utils/i18n-game';
 
 const timers: number[] = [];
 function later(fn: () => void, ms: number) {
@@ -72,6 +73,14 @@ const hoverInfo = ref<{ q: number; r: number; characterId?: string } | null>(nul
 const hoverCharacter = computed(() =>
   hoverInfo.value?.characterId ? state.characters[hoverInfo.value.characterId] ?? null : null,
 );
+
+/** 灵根展示：品阶 + 五行，如"黄阶·火" */
+function spiritRootLabel(c: Character): string {
+  const elements = c.spiritRoot?.elements?.length
+    ? c.spiritRoot.elements.map(formatSpiritElement).join('/')
+    : '无';
+  return `${formatSpiritRootGrade(c.spiritRoot?.grade ?? 'Yellow')}阶·${elements}`;
+}
 
 const availableSkills = computed(() => {
   const p = state.characters[player.value.id];
@@ -263,12 +272,32 @@ watch(() => state.currentTurn, (newTurn) => {
 
         <!-- 目标悬停详情（设计文档 §6.4） -->
         <div v-if="hoverCharacter"
-          class="absolute top-2 left-2 z-10 bg-slate-800/95 border border-slate-600 rounded-lg px-3 py-2 text-xs space-y-0.5 pointer-events-none">
+          class="absolute top-2 left-2 z-10 bg-slate-800/95 border border-slate-600 rounded-lg px-3 py-2 text-xs space-y-1 pointer-events-none w-60">
           <div class="font-bold" :class="hoverCharacter.id === player.id ? 'text-amber-300' : 'text-red-300'">
             {{ hoverCharacter.name }}
           </div>
-          <div class="text-slate-400">气血 {{ Math.max(0, Math.ceil(hoverCharacter.hp)) }}/{{ hoverCharacter.maxHp }}</div>
-          <div class="text-slate-400">灵力 {{ hoverCharacter.spiritEnergy.current }}/{{ hoverCharacter.spiritEnergy.max }}</div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">境界</span>
+            <span class="text-slate-200">{{ formatRealm(hoverCharacter.realm) }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">灵根</span>
+            <span class="text-slate-200">{{ spiritRootLabel(hoverCharacter) }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">气血</span>
+            <span class="text-slate-200">{{ Math.max(0, Math.ceil(hoverCharacter.hp)) }}/{{ hoverCharacter.maxHp }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">灵力</span>
+            <span class="text-slate-200">{{ hoverCharacter.spiritEnergy.current }}/{{ hoverCharacter.spiritEnergy.max }}</span>
+          </div>
+          <div v-if="hoverCharacter.skills.length" class="pt-1 border-t border-slate-700 space-y-0.5">
+            <div v-for="s in hoverCharacter.skills" :key="s.id" class="flex justify-between text-slate-300">
+              <span>{{ s.name }}</span>
+              <span v-if="(hoverCharacter.skillCooldowns[s.id] ?? 0) > 0" class="text-amber-300">冷却 {{ hoverCharacter.skillCooldowns[s.id] }}</span>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import { ref, computed, watch } from 'vue';
 import type { Skill, HexBattleMap } from '@taosim/contracts';
+import { skillRange } from '@taosim/engine';
 import type { BattleUIPhase, FloatingText, ReachableTile, AttackTargetTile } from '@/battle/types';
 import { computeMoveRange, computeAttackTargets, findOccupant } from '@/battle/hex-utils';
 import { ATTACK_RANGE } from './useCombat';
@@ -36,10 +37,13 @@ export function useBattleUI(combat: Combat, playerId: string) {
     return computeMoveRange(combat.state.map, pos, combat.state.movePoints, player.value.canFly);
   });
 
-  // 攻击高亮：targeting 时射程内目标（普攻固定射程 1；技能当前统一 1）
+  // 攻击高亮：targeting 时射程内目标（普攻固定射程 1；技能用自身 Geometry 原子射程）
   const attackRange = computed<AttackTargetTile[]>(() => {
     if ((phase.value !== 'targeting-attack' && phase.value !== 'targeting-skill') || !player.value) return [];
-    return computeAttackTargets(combat.state.map, playerId, ATTACK_RANGE);
+    const range = phase.value === 'targeting-skill' && selectedSkill.value
+      ? skillRange(selectedSkill.value)
+      : ATTACK_RANGE;
+    return computeAttackTargets(combat.state.map, playerId, range);
   });
 
   function pushFloat(q: number, r: number, text: string, kind: FloatingText['kind']) {
@@ -110,11 +114,19 @@ export function useBattleUI(combat: Combat, playerId: string) {
     // 其他状态点击不处理
   }
 
-  /** 结算后：目标格生成伤害飘字并回 idle */
-  function finishAction(res: { defenderId: string; damage: number } | null) {
+  /** 结算后：目标格生成类型化飘字（暴击/闪避/格挡/伤害）并回 idle */
+  function finishAction(res: { defenderId: string; damage: number; crit?: boolean; missed?: boolean; guarded?: boolean } | null) {
     const defenderPos = res ? findOccupant(combat.state.map, res.defenderId) : null;
     if (res && defenderPos) {
-      pushFloat(defenderPos.q, defenderPos.r, `-${res.damage}`, 'damage');
+      if (res.missed) {
+        pushFloat(defenderPos.q, defenderPos.r, '闪避', 'dodge');
+      } else if (res.crit) {
+        pushFloat(defenderPos.q, defenderPos.r, `-${res.damage}`, 'crit');
+      } else if (res.guarded) {
+        pushFloat(defenderPos.q, defenderPos.r, `-${res.damage}`, 'block');
+      } else {
+        pushFloat(defenderPos.q, defenderPos.r, `-${res.damage}`, 'damage');
+      }
     }
     selectedSkill.value = null;
     phase.value = 'idle';

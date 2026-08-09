@@ -73,4 +73,19 @@ describe('NpcAI', () => {
     const action = NpcAI.decide(enemy2, player, engine, { PLAYER: player, E2: enemy2 });
     expect(action.type === 'move' || action.type === 'skip').toBe(true);
   });
+
+  it('\u8fdc\u5c04\u7a0b\u6280\u80fd\uff08range 2\uff09\u5728\u8ddd\u79bb 2 \u65f6\u5373\u53ef\u653b\u51fb\uff0c\u4e0d\u5fc5\u8d34\u8eab', () => {
+    const enemy2 = makeChar('E2', {
+      skills: [{
+        id: 'wind_blade', name: '\u98ce\u5203\u672f', quality: 'Huang', type: 'Active',
+        primitives: [{ id: 'a1', category: 'Geometry', params: { type: 'Single', range: 2 }, costBudget: 10 }],
+        cost: { ap: 1, spiritEnergy: 5 }, cooldownTurns: 0,
+      }],
+    });
+    engine.placeCharacter('E2', 2, 0); // hexDistance(2,0,0,0)=2
+    const action = NpcAI.decide(enemy2, player, engine, { PLAYER: player, E2: enemy2 });
+    expect(action.type).toBe('attack');
+    expect(action.skill?.id).toBe('wind_blade');
+    expect(action.targetId).toBe('PLAYER');
+  });
 });

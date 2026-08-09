@@ -1,8 +1,9 @@
 import { reactive, onScopeDispose } from 'vue';
 import type { Character, HexBattleMap, Skill } from '@taosim/contracts';
 import { hexKey, hexDistance } from '@taosim/contracts';
-import { CombatEngine, NpcAI, calculateDamage, skillToDamageSpec } from '@taosim/engine';
+import { CombatEngine, NpcAI, calculateDamage, skillToDamageSpec, skillRange, BATTLE_CONFIG } from '@taosim/engine';
 import { attemptFlee, type FleeResult } from '@taosim/engine';
+import type { DamageResult } from '@taosim/engine';
 
 interface CombatState {
   engine: CombatEngine | null;
@@ -17,6 +18,10 @@ interface CombatState {
   // 本回合移动池：由身法决定，每次移动消耗实际距离
   movePoints: number;
   maxMovePoints: number;
+  // 回合计数：每分配一个新行动者 +1（守卫过期判定基准，语义同 v2 引擎）
+  turnNumber: number;
+  // 守卫标记：characterId → 有效截止回合（>= turnNumber 时受击减半）
+  guards: Record<string, number>;
 }
 
 /** ATB 行动条推进间隔（毫秒） */
@@ -38,7 +43,27 @@ export const BASIC_ATTACK_SKILL: Skill = {
   cooldownTurns: 0,
 };
 
-/** 每回合移动池 = 2 + ⌊身法/5⌋（身法 5→3 格、10→4 格、15→5 格、20→6 格） */
+/** 攻击结算结果（供 UI 飘字：暴击/闪避/格挡/伤害） */
+export interface AttackResult {
+  defenderId: string;
+  damage: number;
+  crit: boolean;
+  missed: boolean;
+  blockedByBarrier: boolean;
+  guarded: boolean; // 防御减伤触发
+}
+
+/** 对目标造成伤害的统一结算：应用守卫减伤并返回完整结果（含飘字需要的类型标记） */
+function applyHit(defender: Character, attacker: Character, result: DamageResult, guardActive: boolean): number {
+  let finalDamage = result.finalDamage;
+  if (guardActive) {
+    finalDamage = Math.round(finalDamage * BATTLE_CONFIG.GUARD_DAMAGE_MULTIPLIER);
+  }
+  defender.hp = Math.max(0, defender.hp - finalDamage);
+  return finalDamage;
+}
+
+  /** 每回合移动池 = 2 + ⌊身法/5⌋（身法 5→3 格、10→4 格、15→5 格、20→6 格） */
 export function calcMovePoints(agility: number): number {
   return Math.max(2, 2 + Math.floor(agility / 5));
 }
@@ -65,6 +90,8 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     atb: {},
     movePoints: 0,
     maxMovePoints: 0,
+    turnNumber: 0,
+    guards: {},
   });
 
   /** 同步引擎 ATB 行动条到响应式镜像（供 ATBBar 渲染行动值） */
@@ -105,6 +132,7 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     const ready = state.engine!.getReadyUnits();
     if (ready.length > 0 && state.currentTurn === null) {
       const unit = ready[0]!;
+      state.turnNumber += 1; // 每个新行动者分配一个新回合号（守卫判定基准）
       state.currentTurn = unit.characterId;
       beginTurn(unit.characterId);
       if (unit.characterId !== playerId) {
@@ -159,22 +187,23 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     state.phase = 'targeting';
   }
 
-  function attackTarget(targetId: string): { defenderId: string; damage: number; blockedByBarrier: boolean } | null {
+  function attackTarget(targetId: string): AttackResult | null {
     if (!state.currentTurn || !state.selectedSkill) return null;
     const attacker = state.characters[state.currentTurn];
     const defender = state.characters[targetId];
     if (!attacker || !defender) return null;
 
-    // 射程校验
+    const skill = state.selectedSkill;
+    // 射程校验：技能用自身 Geometry 原子射程（风刃术 range 2 等），普攻内置 1
+    const range = skillRange(skill);
     const aPos = state.engine!.findCharacterPosition(attacker.id);
     const dPos = state.engine!.findCharacterPosition(targetId);
-    if (aPos && dPos && hexDistance(aPos.q, aPos.r, dPos.q, dPos.r) > ATTACK_RANGE) {
+    if (aPos && dPos && hexDistance(aPos.q, aPos.r, dPos.q, dPos.r) > range) {
       state.log.push(`距离过远，${attacker.name} 无法命中 ${defender.name}`);
       state.phase = 'idle';
       return null;
     }
 
-    const skill = state.selectedSkill;
     // AP 前置校验：行动力不足拒绝施放（原实现结算后 Math.max(0,...) 扣减，0 AP 仍可出手）
     if (attacker.ap < skill.cost.ap) {
       state.log.push(`行动力不足，${attacker.name} 无法施展 ${skill.name}`);
@@ -182,17 +211,22 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
       return null;
     }
     const result = calculateDamage(attacker, defender, skillToDamageSpec(skill), Math.random);
-    defender.hp = Math.max(0, defender.hp - result.finalDamage);
+    const guardExpire = state.guards[targetId];
+    const guardActive = guardExpire !== undefined && guardExpire >= state.turnNumber;
+    const finalDamage = applyHit(defender, attacker, result, guardActive);
     if (result.missed) {
       state.log.push(`${attacker.name} 的攻击被 ${defender.name} 闪避`);
     } else if (result.crit) {
-      state.log.push(`${attacker.name} 对 ${defender.name} 造成暴击 ${result.finalDamage} 点伤害`);
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成暴击 ${finalDamage} 点伤害`);
     } else {
-      state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${finalDamage} 点伤害`);
     }
 
     if (result.blockedByBarrier) {
       state.log.push(`境界壁垒触发！${defender.name} 毫发无伤`);
+    }
+    if (guardActive && finalDamage > 0) {
+      state.log.push(`${defender.name} 举盾格挡，伤害减半`);
     }
 
     // 消耗 AP 与灵力
@@ -214,14 +248,21 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     state.selectedSkill = null;
     state.phase = 'idle';
     state.currentTurn = null;
-    return { defenderId: targetId, damage: result.finalDamage, blockedByBarrier: result.blockedByBarrier };
+    return {
+      defenderId: targetId,
+      damage: finalDamage,
+      crit: result.crit,
+      missed: result.missed,
+      blockedByBarrier: result.blockedByBarrier,
+      guarded: guardActive,
+    };
   }
 
   /**
    * 普攻：不依赖技能，射程 1，消耗 1 AP。
    * 返回结算结果供 UI 飘字；失败返回 null。
    */
-  function basicAttack(targetId: string): { defenderId: string; damage: number; blockedByBarrier: boolean } | null {
+  function basicAttack(targetId: string): AttackResult | null {
     if (state.currentTurn !== playerId) return null;
     const attacker = state.characters[state.currentTurn];
     const defender = state.characters[targetId];
@@ -243,16 +284,21 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     }
 
     const result = calculateDamage(attacker, defender, skillToDamageSpec(BASIC_ATTACK_SKILL), Math.random);
-    defender.hp = Math.max(0, defender.hp - result.finalDamage);
+    const guardExpire = state.guards[targetId];
+    const guardActive = guardExpire !== undefined && guardExpire >= state.turnNumber;
+    const finalDamage = applyHit(defender, attacker, result, guardActive);
     if (result.missed) {
       state.log.push(`${attacker.name} 的攻击被 ${defender.name} 闪避`);
     } else if (result.crit) {
-      state.log.push(`${attacker.name} 对 ${defender.name} 造成暴击 ${result.finalDamage} 点伤害`);
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成暴击 ${finalDamage} 点伤害`);
     } else {
-      state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${result.finalDamage} 点伤害`);
+      state.log.push(`${attacker.name} 对 ${defender.name} 造成 ${finalDamage} 点伤害`);
     }
     if (result.blockedByBarrier) {
       state.log.push(`境界壁垒触发！${defender.name} 毫发无伤`);
+    }
+    if (guardActive && finalDamage > 0) {
+      state.log.push(`${defender.name} 举盾格挡，伤害减半`);
     }
 
     attacker.ap = Math.max(0, attacker.ap - BASIC_ATTACK_SKILL.cost.ap);
@@ -267,7 +313,14 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     state.selectedSkill = null;
     state.phase = 'idle';
     state.currentTurn = null;
-    return { defenderId: targetId, damage: result.finalDamage, blockedByBarrier: result.blockedByBarrier };
+    return {
+      defenderId: targetId,
+      damage: finalDamage,
+      crit: result.crit,
+      missed: result.missed,
+      blockedByBarrier: result.blockedByBarrier,
+      guarded: guardActive,
+    };
   }
 
   /** 逃跑尝试：不消耗玩家回合；hit/caught/escape-hit 时敌方免费攻击一次 */
@@ -314,13 +367,14 @@ export function useCombat(map: HexBattleMap, playerId: string, player: Character
     return result;
   }
 
-  /** 防御：回复 1 AP（封顶 MAX_AP）并结束回合 */
+  /** 防御：回复 1 AP（封顶 MAX_AP）+ 本回合至下次行动前获得 50% 减伤（同 v2 引擎语义），并结束回合 */
   function defend(): void {
     if (state.currentTurn !== playerId) return;
     const c = state.characters[state.currentTurn];
     if (!c) return;
     c.ap = Math.min(MAX_AP, c.ap + 1);
-    state.log.push(`${c.name} 防御，回复 1 点行动力`);
+    state.guards[playerId] = state.turnNumber + 1; // 覆盖本回合剩余 + 下一行动者回合（受击减半）
+    state.log.push(`${c.name} 防御，回复 1 点行动力，举盾减伤`);
     endTurn();
   }
 
