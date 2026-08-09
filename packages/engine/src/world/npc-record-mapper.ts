@@ -55,6 +55,7 @@ export function characterToNpcRecord(
     lifespan: { ...c.lifespan },
     skillIds: c.skills.map(s => s.id),
     weaponElement: c.equipmentSlots.weapon?.element,
+    spiritStones: c.spiritStones,
     birthYear: currentYear,
     birthMonth: currentMonth,
     relations,
@@ -131,7 +132,7 @@ export function npcRecordToCharacter(rec: NpcRecord): Character {
     factionId: rec.factionId,
     personalityId: rec.personalityId,
     relations,
-    spiritStones: 0,
+    spiritStones: rec.spiritStones ?? 0,
     wantedLevels: {},
     unlockedRecipes: [],
   };

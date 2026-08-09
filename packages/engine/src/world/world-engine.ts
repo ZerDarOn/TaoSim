@@ -33,6 +33,12 @@ export const EPITHET_MAJOR_THRESHOLD = 3;
 /** 量劫纪元间隔（月）：倒计时归零触发世界级事件后重置 */
 export const TRIBULATION_INTERVAL_MONTHS = 600;
 
+/** 坊市流动（§4.6）：坊市场所 NPC 月度参与灵石交易的概率 */
+export const MARKET_TRADE_PROBABILITY = 0.4;
+
+/** 坊市流通的突破材料（叙事实体，与玩家突破材料同源同名） */
+const MARKET_MATERIALS = ['聚气丹', '凝神花', '妖丹', '玄铁精', '灵植种子', '筑基丹'] as const;
+
 /** 江湖绰号池（成名正反馈授予，注入 rng 保证同种子同绰号） */
 const EPITHET_POOL = ['云中仙', '焚天剑客', '孤月真人', '雷霆上人', '玄龟散人', '红尘客', '碧落仙君', '青莲剑仙'];
 
@@ -281,6 +287,34 @@ export class WorldEngine {
           if (feud.lethal) npcPopulationChanged = true;
         }
       }
+    }
+
+    // 2b. 坊市流动（§4.6：灵石交易 / 突破材料流转 — 与玩家经济同一套数据）
+    // 收入：境界俸禄水龙头（realmMonthlyIncome，与玩家一致）；交易：仅坊市场所参与，概率采购
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState !== 'Active') continue;
+      const stones = (npc.spiritStones ?? 0) + EconomyEngine.realmMonthlyIncome(npc.realm);
+      if (!npc.locationId) continue;
+      const venue = VENUE_CATALOG.find((v) => v.id === npc.locationId);
+      if (!venue || venue.type !== 'shop') {
+        npc.spiritStones = stones;
+        continue;
+      }
+      if (this.rng() >= MARKET_TRADE_PROBABILITY) {
+        npc.spiritStones = stones;
+        continue;
+      }
+      const item = MARKET_MATERIALS[Math.floor(this.rng() * MARKET_MATERIALS.length)]!;
+      const spend = Math.min(EconomyEngine.realmMonthlyIncome(npc.realm) * 2, stones);
+      if (spend <= 0) {
+        npc.spiritStones = stones;
+        continue;
+      }
+      npc.spiritStones = stones - spend;
+      pushNpcEvent(
+        { key: 'market.trade', vars: { npc: npc.name, item, stones: String(spend) }, involvedCharacterIds: [id], locationId: npc.locationId },
+        [id],
+      );
     }
 
     // 3. 清理已湮灭的 NPC（死亡超过宽限期 → 转 Oblivion 后除名）

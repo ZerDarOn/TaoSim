@@ -64,6 +64,11 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     titlePattern: '{npcA} 与 {npcB} 结仇',
     descriptionPattern: '{npcA} 与 {npcB} 因故结下仇怨，江湖多了一对死对头' },
 
+  // ── 坊市流动（economy §4.6：灵石交易 / 突破材料流转）──
+  { key: 'market.trade', category: 'economy', severity: 'normal', visibility: 'local',
+    titlePattern: '{npc} 于坊市购得 {item}',
+    descriptionPattern: '{npc} 在坊市花费 {stones} 灵石购得 {item}，突破材料在市井间流转不息' },
+
   // ── 寻仇斗法（combat）──
   { key: 'combat.feed.win', category: 'combat', severity: 'normal', visibility: 'local',
     titlePattern: '{winner} 击伤 {loser}',

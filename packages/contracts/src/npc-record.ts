@@ -81,6 +81,8 @@ export interface NpcRecord {
   lifespan: { age: number; maxLifespan: number };
   skillIds: string[];
   weaponElement?: SkillElement;
+  /** 灵石积蓄（经济轨道 §2.2 / 坊市流动 §4.6；可选，老档案默认 0） */
+  spiritStones?: number;
 
   // 出生与死亡（生平端点）
   birthYear: number;
