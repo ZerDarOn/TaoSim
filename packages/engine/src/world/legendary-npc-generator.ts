@@ -44,6 +44,10 @@ interface LegendaryNpcSeed {
   attributes: NpcRecord['attributes'];
   weaponElement?: SkillElement;
   locationId: string;
+  /** 所属宗门（社会轨道 §2.2；引用 SECT_PRESETS 的 id） */
+  factionId?: string;
+  /** 宗门内身份（入宗→弟子→长老→宗主；散修无） */
+  socialRank?: NpcRecord['socialRank'];
   summary: string;
   milestone: { year: number; month: number; title: string };
   /** 关系事件时间统一取种子生平节点时间（changedAt 由 toNpcRecord 补齐） */
@@ -66,6 +70,8 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
     attributes: { physique: 22, comprehension: 30, perception: 28, agility: 20, luck: 26, charm: 24 },
     weaponElement: 'Thunder',
     locationId: 'VENUE_QINGYUN_HALL',
+    factionId: 'FACT_QINGYUN',
+    socialRank: 'elder',
     summary: '化神期太上长老，曾于东海独斩妖潮，庇护一方百年安宁。',
     milestone: { year: -120, month: 4, title: '东海独斩妖潮' },
     relations: {
@@ -107,6 +113,8 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
     attributes: { physique: 26, comprehension: 28, perception: 24, agility: 30, luck: 20, charm: 20 },
     weaponElement: 'Metal',
     locationId: 'VENUE_QINGYUN_HALL',
+    factionId: 'FACT_QINGYUN',
+    socialRank: 'elder',
     summary: '散修出身的一代剑修，快剑无双，如今为宗门客卿长老。',
     milestone: { year: -30, month: 6, title: '剑开天门，横扫同辈' },
     relations: {
@@ -127,10 +135,34 @@ const LEGENDARY_SEEDS: LegendaryNpcSeed[] = [
     attributes: { physique: 20, comprehension: 30, perception: 26, agility: 22, luck: 24, charm: 28 },
     weaponElement: 'Wood',
     locationId: 'VENUE_QINGYUN_TRAINING',
+    factionId: 'FACT_QINGYUN',
+    socialRank: 'elder',
     summary: '宗门丹道魁首，一手炼丹术名动州郡。',
     milestone: { year: -22, month: 11, title: '丹道大会夺魁' },
     relations: {
       LEGEND_2: { type: 'rival', bond: -30, trust: 10, events: ['百年前论道争锋，至今互不相让'] },
+      NPC_SECT_MASTER: { type: 'friend', bond: 50, trust: 60, events: ['同门多年，共守青云'] },
+    },
+  },
+  {
+    id: 'NPC_SECT_MASTER',
+    name: '云沧澜',
+    gender: 'Male',
+    realm: 'NascentSoul_2',
+    destinyTier: 'legendary',
+    luck: 88,
+    origin: { type: '宗门' },
+    age: 160,
+    spiritRoot: { grade: 'Heaven', elements: ['Wood'], isVariant: false },
+    attributes: { physique: 24, comprehension: 30, perception: 26, agility: 22, luck: 24, charm: 30 },
+    weaponElement: 'Wood',
+    locationId: 'VENUE_QINGYUN_HALL',
+    factionId: 'FACT_QINGYUN',
+    socialRank: 'sectMaster',
+    summary: '执掌青云宗的掌门，每年开春亲手种一株桃树——满山桃树，是他早逝道侣生前最爱。',
+    milestone: { year: -60, month: 3, title: '执掌青云宗，广植桃树' },
+    relations: {
+      LEGEND_4: { type: 'friend', bond: 50, trust: 60, events: ['同门多年，共守青云'] },
     },
   },
   {
@@ -184,6 +216,8 @@ function toNpcRecord(seed: LegendaryNpcSeed): NpcRecord {
     soulState: 'Active',
     cultivation: { currentExp, maxExp },
     locationId: seed.locationId,
+    factionId: seed.factionId,
+    socialRank: seed.socialRank,
     spiritRoot: seed.spiritRoot,
     attributes: { ...seed.attributes },
     lifespan: { age: seed.age, maxLifespan: MAX_LIFESPAN_BY_REALM[majorRealm]! },

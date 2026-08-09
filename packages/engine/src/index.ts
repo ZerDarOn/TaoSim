@@ -77,9 +77,13 @@ export type { WorldEventDef } from './time/calendar-event-scheduler.js';
 // World Emergence (涌现叙事：事件模板/出口/编年史/传闻/生平 — §5/§6)
 export { buildChronicle, visibleToPlayer, rumorPool, npcTimeline } from './world/chronicle.js';
 export type { YearChronicle, Rumor } from './world/chronicle.js';
+export { isNearby, nodeOf } from './world/spatial.js';
 
 // Legendary NPCs (开局世界背景先行 — §7.4)
 export { generateLegendaryNpcs } from './world/legendary-npc-generator.js';
+
+// Sect Presets (宗门预设 — 社会轨道 §2.2)
+export { SECT_PRESETS, createInitialFactions } from './world/sect-presets.js';
 
 // AI 增强层预留 (上下文序列化 — §8)
 export { serializeNpcBiography, serializeWorldDigest, serializeEventChain, buildAiNarrativePrompt } from './world/context-serializer.js';

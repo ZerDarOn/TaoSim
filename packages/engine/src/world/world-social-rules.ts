@@ -159,6 +159,8 @@ export interface FeudResult {
   /** 实力悬殊 → 陨落（仇杀） */
   lethal: boolean;
   major: boolean;
+  /** 夺走的灵石（§2.2 轨道咬合：实力 ↔ 经济；陨落则尽取其物） */
+  lootStones: number;
 }
 
 /**
@@ -200,6 +202,16 @@ export function tryFeud(
     loser.lifespan.maxLifespan = Math.max(40, loser.lifespan.maxLifespan - injuryYears);
   }
 
+  // 夺宝（§2.2 轨道咬合）：胜者劫走败者部分灵石；陨落则尽取其物
+  let lootStones = 0;
+  if ((loser.spiritStones ?? 0) > 0) {
+    lootStones = lethal
+      ? loser.spiritStones!
+      : Math.min(Math.floor((loser.spiritStones ?? 0) * 0.3), 500);
+    loser.spiritStones = (loser.spiritStones ?? 0) - lootStones;
+    winner.spiritStones = (winner.spiritStones ?? 0) + lootStones;
+  }
+
   applyRelation(winner, loser.id, 'enemy', -5, attackerWins ? '寻仇得手' : '寻仇未果', now);
   applyRelation(loser, winner.id, 'enemy', -8, attackerWins ? '寻仇落败' : '寻仇报复', now);
 
@@ -209,5 +221,6 @@ export function tryFeud(
     injuryYears,
     lethal,
     major: lethal,
+    lootStones,
   };
 }

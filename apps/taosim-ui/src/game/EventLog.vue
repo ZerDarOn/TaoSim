@@ -10,12 +10,14 @@ import { ref, computed } from 'vue';
 import { useEventLogStore } from '@/stores/event-log';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
+import { useMapStore } from '@/stores/map';
 import { buildChronicle, visibleToPlayer, npcTimeline, rumorPool } from '@taosim/engine';
 import type { EventCategory } from '@taosim/contracts';
 
 const logStore = useEventLogStore();
 const appStore = useAppStore();
 const playerStore = usePlayerStore();
+const mapStore = useMapStore();
 
 type Perspective = 'immersive' | 'rumor' | 'chronicle';
 const perspective = ref<Perspective>('immersive');
@@ -41,9 +43,11 @@ function isFilterActive(cat: EventCategory): boolean {
 
 // ── 沉浸视角 ──
 const player = computed(() => playerStore.character);
+// §6.3 空间维度：玩家所处场所（同场所/同节点的 local 事件可感知）
+const playerLocationId = computed(() => mapStore.activeVenueId ?? undefined);
 const immersiveEvents = computed(() => {
   if (!onlyMine.value || !player.value) return logStore.filteredEvents;
-  return logStore.filteredEvents.filter(e => visibleToPlayer(e, player.value!));
+  return logStore.filteredEvents.filter(e => visibleToPlayer(e, player.value!, playerLocationId.value));
 });
 
 // ── 编年史视角（上帝视角，§6.2）──
@@ -54,7 +58,7 @@ const rumorList = computed(() => {
   const ws = appStore.currentWorldState;
   if (!ws) return [];
   const now = { year: ws.currentYear, month: ws.currentMonth };
-  return rumorPool(ws.eventLog, now).sort(
+  return rumorPool(ws.eventLog, now, 24, playerLocationId.value).sort(
     (a, b) => b.heardAt.year - a.heardAt.year || b.heardAt.month - a.heardAt.month,
   );
 });

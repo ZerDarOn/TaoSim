@@ -1,10 +1,13 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
-import { VENUE_CATALOG } from '../overworld/map-catalog.js';
+import { VENUE_CATALOG, getVenue } from '../overworld/map-catalog.js';
+import { PRESET_MAP } from '../overworld/preset-map.js';
+import { createInitialFactions } from './sect-presets.js';
 import { characterToNpcRecord, realmTier } from './npc-record-mapper.js';
 import { EventCollector } from './event-collector.js';
 import type { EmitInput } from './event-collector.js';
+import { rollWorldEvent } from '../time/calendar-event-scheduler.js';
 import type { Rng } from './world-tick-rules.js';
 import {
   cultivateNpc,
@@ -41,6 +44,50 @@ const MARKET_MATERIALS = ['聚气丹', '凝神花', '妖丹', '玄铁精', '灵�
 
 /** 江湖绰号池（成名正反馈授予，注入 rng 保证同种子同绰号） */
 const EPITHET_POOL = ['云中仙', '焚天剑客', '孤月真人', '雷霆上人', '玄龟散人', '红尘客', '碧落仙君', '青莲剑仙'];
+
+/** 世界局势跃迁阈值（§2.2 世界轨道：乱世指数 → 和平/乱世/大争/量劫） */
+export const ERA_TURMOIL_THRESHOLDS = { turbulent: 30, warring: 60, cataclysm: 85 } as const;
+
+/** 世界局势阶段名称/描述（模板 world.era 变量） */
+const ERA_NAMES: Record<WorldEra, string> = {
+  peace: '太平盛世',
+  turbulent: '乱世初显',
+  warring: '大争之世',
+  cataclysm: '量劫将至',
+};
+const ERA_DESC: Record<WorldEra, string> = {
+  peace: '四海升平，修士各安其道',
+  turbulent: '局势渐紧，纷争四起，修士人心浮动',
+  warring: '群雄并起，战火连绵，大争之世',
+  cataclysm: '天地大变，灵气紊乱，量劫将至',
+};
+
+/** 散修拜入宗门概率（身处宗门驻地或出身宗门，§2.2 社会轨道） */
+export const JOIN_SECT_CHANCE = 0.04;
+
+/** 灾害/动荡类世界事件推高乱世指数（§2.2 世界轨道） */
+export const TURMOIL_EVENT_DELTA = 12;
+
+/** 高境界（金丹+）死亡推高乱世指数 */
+export const TURMOIL_HIGHREALM_DEATH_DELTA = 5;
+
+/** 乱世指数 → 世界局势阶段（§2.2 世界轨道：和平→乱世→大争→量劫） */
+export function eraFromTurmoil(turmoil: number): WorldEra {
+  if (turmoil >= ERA_TURMOIL_THRESHOLDS.cataclysm) return 'cataclysm';
+  if (turmoil >= ERA_TURMOIL_THRESHOLDS.warring) return 'warring';
+  if (turmoil >= ERA_TURMOIL_THRESHOLDS.turbulent) return 'turbulent';
+  return 'peace';
+}
+
+/** 宗门驻地最高节点 tier（灵脉产出计算依据，§2.2 经济轨道） */
+function factionNodeTier(faction: Faction): number {
+  let max = 1;
+  for (const nodeId of faction.territories) {
+    const node = PRESET_MAP.continents[0]?.nodes[nodeId];
+    if (node && node.tier > max) max = node.tier;
+  }
+  return max;
+}
 
 /**
  * 事件流归档策略：超限时保留最近 max 条，并把更早的 major/epoch 大事
@@ -84,7 +131,11 @@ export class WorldEngine {
       ...initialState,
       npcs: { ...(initialState.npcs ?? {}) },
       eventLog: [...(initialState.eventLog ?? [])],
-      factions: { ...(initialState.factions ?? options.factions ?? {}) },
+      factions: { ...(initialState.factions ?? options.factions ?? createInitialFactions()) },
+      // 世界局势/遗府：可选字段兜底默认值（兼容旧存档）
+      worldEra: initialState.worldEra ?? 'peace',
+      worldTurmoil: initialState.worldTurmoil ?? 0,
+      heritageSites: { ...(initialState.heritageSites ?? {}) },
     };
     this.rng = options.rng ?? Math.random;
     this.factions = new Map(Object.entries(this.state.factions ?? {}));
@@ -128,6 +179,32 @@ export class WorldEngine {
         collector.emit({ key: 'world.tribulation', vars: {}, involvedCharacterIds: [] }),
       );
       this.state.catastropheCountdownMonths = TRIBULATION_INTERVAL_MONTHS;
+    }
+
+    // 世界事件（§4.10）：独立于节气，月度稀有事件 → 驱动世界局势（§2.2 世界轨道）
+    const worldEvent = rollWorldEvent(this.rng);
+    if (worldEvent) {
+      events.push(collector.emit({ key: worldEvent.id, vars: {}, involvedCharacterIds: [] }));
+      // 灾害/动荡类事件推高乱世指数；灵气复苏则平抑
+      if (worldEvent.category === 'combat' || worldEvent.id === 'WE_NATURAL_DISASTER') {
+        this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + TURMOIL_EVENT_DELTA);
+      } else if (worldEvent.id === 'WE_HEAVEN_FAVOR') {
+        this.state.worldTurmoil = Math.max(0, (this.state.worldTurmoil ?? 0) - 8);
+      }
+    }
+    // 乱世指数缓降（世界自身恢复力）
+    this.state.worldTurmoil = Math.max(0, (this.state.worldTurmoil ?? 0) - 1);
+    // 世界局势状态机跃迁（§2.2：和平→乱世→大争→量劫）
+    const nextEra = eraFromTurmoil(this.state.worldTurmoil);
+    if (nextEra !== this.state.worldEra) {
+      this.state.worldEra = nextEra;
+      events.push(
+        collector.emit({
+          key: 'world.era',
+          vars: { era: ERA_NAMES[nextEra], desc: ERA_DESC[nextEra] },
+          involvedCharacterIds: [],
+        }),
+      );
     }
 
     let npcPopulationChanged = false;
@@ -177,10 +254,24 @@ export class WorldEngine {
         npc.deathMonth = this.state.currentMonth;
         npc.causeOfDeath = '寿元耗尽';
         npcPopulationChanged = true;
-        pushNpcEvent(
-          { key: 'death.natural', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
-          [id],
-        );
+        if (tier >= 3) {
+          // §4.7 坐化升级：金丹及以上坐化为 major 叙事 + 必留遗府（死亡→新机缘 物质循环闭环）
+          this.registerHeritage(npc);
+          pushNpcEvent(
+            {
+              key: 'world.heritage',
+              vars: { npc: npc.name, venue: this.venueNameOf(npc.locationId) },
+              involvedCharacterIds: [id],
+              locationId: npc.locationId,
+            },
+            [id],
+          );
+        } else {
+          pushNpcEvent(
+            { key: 'death.natural', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
+            [id],
+          );
+        }
         continue;
       }
 
@@ -222,6 +313,11 @@ export class WorldEngine {
           heritage: 'wonder.heritage',
           injury: 'wonder.injury',
         };
+        // §2.2 轨道咬合：天材地宝 → 灵石入账（奇遇 ↔ 经济轨道）
+        if (wonder.type === 'treasure') {
+          const stonesGain = Math.floor(100 + npc.destiny.luck * 5);
+          npc.spiritStones = (npc.spiritStones ?? 0) + stonesGain;
+        }
         pushNpcEvent(
           {
             key: wonderKeys[wonder.type] ?? 'wonder.treasure',
@@ -233,12 +329,32 @@ export class WorldEngine {
         );
       }
 
-      // 云游判定
+      // 云游判定（§4.2 目的地优先投奔关系）
       if (tryWander(npc, this.rng)) {
-        pushNpcEvent(
-          { key: 'travel.wander', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
-          [id],
+        const friendEntry = Object.entries(npc.relations).find(
+          ([, rel]) =>
+            rel.bond >= 30 &&
+            (rel.type === 'friend' || rel.type === 'benefactor' || rel.type === 'master-disciple'),
         );
+        const friend = friendEntry ? this.state.npcs[friendEntry[0]] : undefined;
+        if (friend && friend.soulState === 'Active' && this.rng() < 0.5) {
+          // 投奔故人：落脚于好友所在处（关系轨道 → 空间轨道咬合）
+          npc.locationId = friend.locationId;
+          pushNpcEvent(
+            {
+              key: 'travel.visit',
+              vars: { npc: npc.name, npc2: friend.name },
+              involvedCharacterIds: [id, friend.id],
+              locationId: npc.locationId,
+            },
+            [id, friend.id],
+          );
+        } else {
+          pushNpcEvent(
+            { key: 'travel.wander', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
+            [id],
+          );
+        }
       }
     }
 
@@ -278,13 +394,22 @@ export class WorldEngine {
           pushNpcEvent(
             {
               key: feud.templateKey,
-              vars: { winner: winnerName, loser: loserName, years: String(feud.injuryYears) },
+              vars: {
+                winner: winnerName,
+                loser: loserName,
+                years: String(feud.injuryYears),
+                loot: String(feud.lootStones),
+              },
               involvedCharacterIds: [a.id, b.id],
               locationId: a.locationId ?? b.locationId,
             },
             [a.id, b.id],
           );
-          if (feud.lethal) npcPopulationChanged = true;
+          if (feud.lethal) {
+            npcPopulationChanged = true;
+            // 仇杀陨落 → 世界伤亡累积（§2.2 世界轨道）
+            this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 2);
+          }
         }
       }
     }
@@ -317,6 +442,74 @@ export class WorldEngine {
       );
     }
 
+    // 2c. 社会轨道（§2.2：入宗→弟子→长老→宗主 — 宗门人才吸纳/晋升/继任）
+    for (const faction of this.factions.values()) {
+      // 宗主继任：掌门陨落 → 修为最高者临危受命
+      const leader = faction.leaderId ? this.state.npcs[faction.leaderId] : undefined;
+      if (!leader || leader.soulState !== 'Active') {
+        const successor = faction.members
+          .map((id) => this.state.npcs[id])
+          .filter(
+            (n): n is NpcRecord => n !== undefined && n.soulState === 'Active' && n.socialRank === 'elder',
+          )
+          .sort(
+            (a, b) => realmTier(b.realm) - realmTier(a.realm) || b.cultivation.currentExp - a.cultivation.currentExp,
+          )[0];
+        if (successor) {
+          faction.leaderId = successor.id;
+          successor.socialRank = 'sectMaster';
+          pushNpcEvent(
+            {
+              key: 'social.sectSuccession',
+              vars: { npc: successor.name, sect: faction.name },
+              involvedCharacterIds: [successor.id],
+              locationId: successor.locationId,
+            },
+            [successor.id],
+          );
+        }
+      }
+
+      // 入宗：散修身处宗门驻地或出身宗门 → 拜入门下（弟子）
+      for (const npc of Object.values(this.state.npcs)) {
+        if (npc.soulState !== 'Active' || npc.factionId) continue;
+        const venue = npc.locationId ? getVenue(npc.locationId) : undefined;
+        const atTerritory = venue !== undefined && faction.territories.includes(venue.nodeId);
+        if ((atTerritory || npc.origin.type === '宗门') && this.rng() < JOIN_SECT_CHANCE) {
+          npc.factionId = faction.id;
+          npc.socialRank = 'disciple';
+          faction.members.push(npc.id);
+          pushNpcEvent(
+            {
+              key: 'social.joinSect',
+              vars: { npc: npc.name, sect: faction.name },
+              involvedCharacterIds: [npc.id],
+              locationId: npc.locationId,
+            },
+            [npc.id],
+          );
+        }
+      }
+
+      // 晋升：弟子 修为达金丹（tier≥3）→ 长老
+      for (const memberId of [...faction.members]) {
+        const npc = this.state.npcs[memberId];
+        if (!npc || npc.soulState !== 'Active' || npc.socialRank !== 'disciple') continue;
+        if (realmTier(npc.realm) >= 3 && this.rng() < 0.5) {
+          npc.socialRank = 'elder';
+          pushNpcEvent(
+            {
+              key: 'social.promote',
+              vars: { npc: npc.name, sect: faction.name, rank: '长老' },
+              involvedCharacterIds: [npc.id],
+              locationId: npc.locationId,
+            },
+            [npc.id],
+          );
+        }
+      }
+    }
+
     // 3. 清理已湮灭的 NPC（死亡超过宽限期 → 转 Oblivion 后除名）
     const toRemove: string[] = [];
     for (const [id, npc] of Object.entries(this.state.npcs)) {
@@ -341,6 +534,13 @@ export class WorldEngine {
       }
       npcPopulationChanged = true;
     }
+    // 同步宗门成员表：仅保留在世成员（死者除名，避免悬空引用）
+    for (const faction of this.factions.values()) {
+      faction.members = faction.members.filter((memberId) => {
+        const m = this.state.npcs[memberId];
+        return m !== undefined && m.soulState === 'Active';
+      });
+    }
 
     // 4. NPC 人口补充（低于 800 则生成散修，复用 NPCGenerator 的真实数据模型）
     if (Object.keys(this.state.npcs).length < 800) {
@@ -355,8 +555,12 @@ export class WorldEngine {
       }
     }
 
-    // 5. 宗门月度维护
+    // 5. 宗门月度维护（§2.2 经济轨道：灵脉产出 水龙头 − 维护成本；枯竭则降级灵脉）
     for (const [, faction] of this.factions) {
+      faction.treasurySpiritStones += EconomyEngine.calculateSpiritStoneIncome(
+        factionNodeTier(faction),
+        faction.spiritVeinLevel,
+      );
       const maintenance = EconomyEngine.spiritVeinMaintenanceCost(faction.spiritVeinLevel);
       faction.treasurySpiritStones -= maintenance;
       if (faction.treasurySpiritStones < 0) {
@@ -397,6 +601,7 @@ export class WorldEngine {
       npcs: { ...this.state.npcs },
       eventLog: [...this.state.eventLog],
       factions: this.state.factions ? { ...this.state.factions } : undefined,
+      heritageSites: this.state.heritageSites ? { ...this.state.heritageSites } : undefined,
     };
   }
 
@@ -443,5 +648,25 @@ export class WorldEngine {
   private pickVenueId(): string | undefined {
     if (VENUE_CATALOG.length === 0) return undefined;
     return VENUE_CATALOG[Math.floor(this.rng() * VENUE_CATALOG.length)]!.id;
+  }
+
+  /** 场所 id → 场所名（遗府叙事用；无场所回退"无名之地"） */
+  private venueNameOf(locationId?: string): string {
+    return locationId ? getVenue(locationId)?.name ?? '无名之地' : '无名之地';
+  }
+
+  /** §4.7 遗府登记：金丹及以上死亡必留遗府（死亡→新机缘 物质循环闭环；同步推高乱世指数） */
+  private registerHeritage(npc: NpcRecord): void {
+    this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + TURMOIL_HIGHREALM_DEATH_DELTA);
+    const venue = npc.locationId ? getVenue(npc.locationId) : undefined;
+    const site: HeritageSite = {
+      npcId: npc.id,
+      npcName: npc.name,
+      venueId: venue?.id,
+      venueName: venue?.name ?? '无名之地',
+      year: this.state.currentYear,
+      month: this.state.currentMonth,
+    };
+    this.state.heritageSites = { ...(this.state.heritageSites ?? {}), [npc.id]: site };
   }
 }

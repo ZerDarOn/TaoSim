@@ -68,7 +68,10 @@ export interface NpcRecord {
   cultivation: { currentExp: number; maxExp: number };
   /** 当前所在地图节点 id（引用真实节点） */
   locationId?: string;
+  /** 所属宗门 id（引用 Faction） */
   factionId?: string;
+  /** 宗门内身份（社会轨道 §2.2：入宗→弟子→长老→宗主；可选，散修无） */
+  socialRank?: 'disciple' | 'elder' | 'sectMaster';
   spiritRoot: SpiritRoot;
   attributes: {
     physique: number;

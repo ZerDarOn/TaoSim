@@ -7,6 +7,7 @@
 // ============================================================
 
 import type { BigEventLog, Character, EventSeverity } from '@taosim/contracts';
+import { isNearby } from './spatial.js';
 
 export interface YearChronicle {
   year: number;
@@ -64,15 +65,22 @@ const SEVERITY_LEVEL: Record<EventSeverity, number> = { minor: 0, normal: 1, maj
 /**
  * 沉浸视角可见性（§6.3）：
  * - 玩家直接参与 → 可见
+ * - 与玩家邻近（§4.8 同场所/同节点）→ 可见（空间维度信息不对称）
  * - world 事件且 major+ → 可见
  * - regional 事件且 normal+ → 可见
  * - 其余（local / 影响力不足）→ 不可见（信息不对称）
  */
-export function visibleToPlayer(event: BigEventLog, player: Character): boolean {
+export function visibleToPlayer(
+  event: BigEventLog,
+  player: Character,
+  playerLocationId?: string,
+): boolean {
   // 玩家自身产生的事件必可知（含 local 级别——玩家当然知晓自己的经历）
   if (event.source === 'player') return true;
   if (event.involvedCharacterIds.includes(player.id)) return true;
   const sev = SEVERITY_LEVEL[event.severity];
+  // §6.3 邻近分支：同处一地的 local 事件也可感知（信息不对称的空间维度）
+  if (event.locationId && playerLocationId && isNearby(event.locationId, playerLocationId)) return true;
   if (event.visibility === 'world' && sev >= SEVERITY_LEVEL.major) return true;
   if (event.visibility === 'regional' && sev >= SEVERITY_LEVEL.normal) return true;
   return false;
@@ -87,12 +95,20 @@ export interface Rumor {
 /**
  * 传闻池：近 windowMonths 月内可被"听说"的 regional/world 事件。
  * local 事件不扩散；已过窗口的事件自然淡出江湖。
+ * 提供知晓位置（locationId）时，仅扩散到邻近地区的事件可闻（§4.8 传闻按半径扩散）。
  */
-export function rumorPool(eventLog: BigEventLog[], now: GameTime, windowMonths = 24): Rumor[] {
+export function rumorPool(
+  eventLog: BigEventLog[],
+  now: GameTime,
+  windowMonths = 24,
+  locationId?: string,
+): Rumor[] {
   const cutoff = monthIndex(now) - windowMonths;
   const result: Rumor[] = [];
   for (const e of eventLog) {
     if (e.visibility === 'local') continue;
+    // §4.8 空间维度：知晓位置时，仅邻近地区的事件扩散成可闻传闻
+    if (locationId && e.locationId && !isNearby(e.locationId, locationId)) continue;
     const heardAt = addMonths({ year: e.year, month: e.month }, e.visibility === 'world' ? 0 : 1);
     if (monthIndex(heardAt) > cutoff) {
       result.push({ event: e, heardAt });

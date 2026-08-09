@@ -6,6 +6,19 @@ import type { NpcRecord } from './npc-record.js';
 import type { BigEventLog } from './event-log.js';
 import type { Faction } from './faction.js';
 
+/** 世界局势阶段（世界轨道 §2.2：和平→乱世→大争→量劫） */
+export type WorldEra = 'peace' | 'turbulent' | 'warring' | 'cataclysm';
+
+/** 遗府（§4.7：坐化/陨落后留下的新奇遇源，引用真实实体） */
+export interface HeritageSite {
+  npcId: string;
+  npcName: string;
+  venueId?: string;
+  venueName: string;
+  year: number;
+  month: number;
+}
+
 export interface WorldState {
   currentYear: number;
   currentMonth: number;
@@ -18,4 +31,10 @@ export interface WorldState {
   eventLog: BigEventLog[];
   /** 宗门档案（月度维护数据源；可选以兼容旧存档） */
   factions?: Record<string, Faction>;
+  /** 世界局势阶段（§2.2 世界轨道；可选以兼容旧存档，默认 peace） */
+  worldEra?: WorldEra;
+  /** 乱世指数 0-100（世界事件/伤亡累积，驱动局势跃迁；可选） */
+  worldTurmoil?: number;
+  /** 遗府名录（§4.7 新奇遇源；可选） */
+  heritageSites?: Record<string, HeritageSite>;
 }

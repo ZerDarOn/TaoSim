@@ -6,6 +6,7 @@
 // ============================================================
 
 import type { EventCategory, EventSeverity, EventVisibility } from '@taosim/contracts';
+import { WORLD_EVENTS } from '../time/calendar-event-scheduler.js';
 
 export interface EventTemplate {
   /** 唯一模板键（category.key 约定） */
@@ -72,7 +73,7 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   // ── 寻仇斗法（combat）──
   { key: 'combat.feed.win', category: 'combat', severity: 'normal', visibility: 'local',
     titlePattern: '{winner} 击伤 {loser}',
-    descriptionPattern: '{winner} 与 {loser} 斗法一场，{loser} 负伤遁走，折损 {years} 年寿元' },
+    descriptionPattern: '{winner} 与 {loser} 斗法一场，{loser} 负伤遁走，折损 {years} 年寿元，{winner} 夺走 {loot} 灵石' },
   { key: 'combat.feed.lethal', category: 'combat', severity: 'major', visibility: 'world',
     titlePattern: '{loser} 陨落于 {winner} 之手',
     descriptionPattern: '{winner} 与 {loser} 的恩怨了结，{loser} 陨落当场，江湖震动' },
@@ -92,6 +93,42 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'npc.epithet', category: 'world', severity: 'normal', visibility: 'regional',
     titlePattern: '{npc} 名动江湖',
     descriptionPattern: '{npc} 声名鹊起，江湖人称「{epithet}」' },
+
+  // ── 遗府（§4.7：坐化后留下的新奇遇源）──
+  { key: 'world.heritage', category: 'discovery', severity: 'major', visibility: 'world',
+    titlePattern: '{npc} 坐化，遗府现世于{venue}',
+    descriptionPattern: '{npc} 于{venue}坐化，留下一座遗府，灵光冲天，引四方修士觊觎' },
+
+  // ── 世界局势（§2.2 世界轨道：和平→乱世→大争→量劫）──
+  { key: 'world.era', category: 'world', severity: 'epoch', visibility: 'world',
+    titlePattern: '{era}',
+    descriptionPattern: '{desc}' },
+
+  // ── 社会轨道（§2.2：入宗→弟子→长老→宗主）──
+  { key: 'social.joinSect', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 拜入{sect}门下',
+    descriptionPattern: '{npc} 经人引荐，拜入{sect}，踏上宗门修行之路' },
+  { key: 'social.promote', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 晋升为{sect}{rank}',
+    descriptionPattern: '{npc} 修为与功绩并重，晋升为{sect}{rank}' },
+  { key: 'social.sectSuccession', category: 'social', severity: 'major', visibility: 'world',
+    titlePattern: '{npc} 继任{sect}宗主',
+    descriptionPattern: '{sect} 前任宗主陨落，{npc} 临危受命，执掌宗门' },
+
+  // ── 云游投奔（§4.2：目的地优先投奔关系）──
+  { key: 'travel.visit', category: 'travel', severity: 'normal', visibility: 'local',
+    titlePattern: '{npc} 云游归来，拜访 {npc2}',
+    descriptionPattern: '{npc} 云游归来，前往拜访故人 {npc2}' },
+
+  // ── 世界事件（§4.10：数据单一来源 = WORLD_EVENTS，模板自动生成）──
+  ...WORLD_EVENTS.map((w) => ({
+    key: w.id,
+    category: w.category,
+    severity: w.severity,
+    visibility: w.visibility,
+    titlePattern: w.name,
+    descriptionPattern: w.description,
+  })),
 ];
 
 /** 渲染模板：替换 {key} 占位符（缺失变量原样保留，便于排查） */
