@@ -69,6 +69,8 @@ const SEVERITY_LEVEL: Record<EventSeverity, number> = { minor: 0, normal: 1, maj
  * - 其余（local / 影响力不足）→ 不可见（信息不对称）
  */
 export function visibleToPlayer(event: BigEventLog, player: Character): boolean {
+  // 玩家自身产生的事件必可知（含 local 级别——玩家当然知晓自己的经历）
+  if (event.source === 'player') return true;
   if (event.involvedCharacterIds.includes(player.id)) return true;
   const sev = SEVERITY_LEVEL[event.severity];
   if (event.visibility === 'world' && sev >= SEVERITY_LEVEL.major) return true;

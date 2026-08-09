@@ -14,6 +14,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { BigEventLog, EventCategory } from '@taosim/contracts';
+import { trimEventLog } from '@taosim/engine';
 import { useAppStore } from '@/stores/app';
 
 const MAX_EVENTS = 200;
@@ -87,6 +88,15 @@ export const useEventLogStore = defineStore('eventLog', () => {
     events.value.unshift(evt);
     if (events.value.length > MAX_EVENTS) {
       events.value = events.value.slice(0, MAX_EVENTS);
+    }
+
+    // 同步进世界事件流（编年史/上帝视角的数据基础），
+    // 保证玩家事件（突破/战斗/交易等）不出席编年史与 NPC 生平
+    if (appStore.currentWorldState) {
+      appStore.currentWorldState.eventLog = trimEventLog([
+        ...appStore.currentWorldState.eventLog,
+        evt,
+      ]);
     }
   }
 

@@ -31,6 +31,11 @@ export function characterToNpcRecord(
       trust: 50,
       events: [],
       changedAt: { year: currentYear, month: currentMonth },
+      direction: rel.tags.includes('Master')
+        ? 'master'
+        : rel.tags.includes('Disciple')
+          ? 'disciple'
+          : undefined,
     };
   }
   return {
@@ -66,12 +71,12 @@ function relationTypeFromTags(tags: string[]): RelationEntry['type'] {
   return 'friend';
 }
 
-function relationTagsFromType(type: RelationEntry['type']): CharacterRelation['tags'] {
+function relationTagsFromType(type: RelationEntry['type'], direction?: 'master' | 'disciple'): CharacterRelation['tags'] {
   switch (type) {
     case 'dao-companion':
       return ['TaoistPartner'];
     case 'master-disciple':
-      return ['Master'];
+      return direction === 'disciple' ? ['Disciple'] : ['Master'];
     case 'enemy':
       return ['Enemy'];
     case 'clan':
@@ -97,7 +102,7 @@ export function npcRecordToCharacter(rec: NpcRecord): Character {
       favorability: entry.bond,
       hatred: entry.bond < 0 ? -entry.bond : 0,
       jealousy: 0,
-      tags: relationTagsFromType(entry.type),
+      tags: relationTagsFromType(entry.type, entry.direction),
     };
   }
 

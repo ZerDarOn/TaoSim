@@ -4,6 +4,7 @@
 
 import type { NpcRecord } from './npc-record.js';
 import type { BigEventLog } from './event-log.js';
+import type { Faction } from './faction.js';
 
 export interface WorldState {
   currentYear: number;
@@ -15,4 +16,6 @@ export interface WorldState {
   npcs: Record<string, NpcRecord>;
   /** 全量事件流（编年史/传闻的数据基础）— 世界涌现叙事设计 §5 */
   eventLog: BigEventLog[];
+  /** 宗门档案（月度维护数据源；可选以兼容旧存档） */
+  factions?: Record<string, Faction>;
 }

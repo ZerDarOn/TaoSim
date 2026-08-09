@@ -60,4 +60,19 @@ describe('npc-record-mapper', () => {
     expect(expanded.spiritRoot.grade).toBe(character.spiritRoot.grade);
     expect(expanded.attributes).toEqual(character.attributes);
   });
+
+  it('往返：师徒关系方向保留（Master/Disciple 不丢失）', () => {
+    const character: Character = NPCGenerator.generate(1, 99);
+    character.relations = {
+      master: { targetId: 'master', favorability: 80, hatred: 0, jealousy: 0, tags: ['Master'] },
+      disciple: { targetId: 'disciple', favorability: 60, hatred: 0, jealousy: 0, tags: ['Disciple'] },
+    };
+    const record = characterToNpcRecord(character, 3, 6);
+    const expanded = npcRecordToCharacter(record);
+
+    expect(expanded.relations.master!.tags).toContain('Master');
+    expect(expanded.relations.master!.tags).not.toContain('Disciple');
+    expect(expanded.relations.disciple!.tags).toContain('Disciple');
+    expect(expanded.relations.disciple!.tags).not.toContain('Master');
+  });
 });

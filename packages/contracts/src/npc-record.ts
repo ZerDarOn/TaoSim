@@ -42,6 +42,8 @@ export interface RelationEntry {
   /** 关系事件链（结仇/报恩/倾心/背叛...） */
   events: string[];
   changedAt: { year: number; month: number };
+  /** 师徒方向（仅 master-disciple 使用，归档时保留，展开时还原 tag） */
+  direction?: 'master' | 'disciple';
 }
 
 /** 生平：引擎聚合关键节点 + 预留 AI 文学化增强 */

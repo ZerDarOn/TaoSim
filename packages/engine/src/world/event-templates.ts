@@ -79,6 +79,14 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'faction.veinDegrade', category: 'world', severity: 'major', visibility: 'regional',
     titlePattern: '{faction} 灵脉降级',
     descriptionPattern: '{faction} 灵石耗尽，灵脉降至 {level} 阶' },
+
+  // ── 世界大事 / 成名（world）──
+  { key: 'world.tribulation', category: 'world', severity: 'epoch', visibility: 'world',
+    titlePattern: '天道量劫降临',
+    descriptionPattern: '天地大变，灵气紊乱，天灾四起，修仙界迎来大争之世' },
+  { key: 'npc.epithet', category: 'world', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 名动江湖',
+    descriptionPattern: '{npc} 声名鹊起，江湖人称「{epithet}」' },
 ];
 
 /** 渲染模板：替换 {key} 占位符（缺失变量原样保留，便于排查） */

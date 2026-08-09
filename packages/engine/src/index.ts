@@ -3,7 +3,7 @@
 // ============================================================
 
 // World Engine (月度 Tick 驱动)
-export { WorldEngine } from './world/world-engine.js';
+export { WorldEngine, trimEventLog, EVENT_LOG_MAX } from './world/world-engine.js';
 
 // Combat Engine (Hex 战棋)
 export { CombatEngine } from './combat/combat-engine.js';

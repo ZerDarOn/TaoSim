@@ -89,7 +89,7 @@ export const useAppStore = defineStore('app', {
         worldState: toPlain(this.currentWorldState),
         player: toPlain(player),
         activeNPCs: {},
-        factions: {},
+        factions: toPlain(this.currentWorldState.factions ?? {}),
         overworldMap: { continents: [] },
         graveyard: [],
         marketInventories: {},

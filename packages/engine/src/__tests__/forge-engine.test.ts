@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ForgeEngine } from '../crafting/forge-engine.js';
 import type { Character } from '@taosim/contracts';
 
@@ -52,30 +52,39 @@ describe('ForgeEngine', () => {
 
   it('加入辅材提升属性', () => {
     // 固定随机数避免 flaky: craft 成功率判定用 random()[0]，品质 roll 用 random()[1]
-    const origRandom = Math.random;
     let calls = 0;
-    Math.random = () => { calls++; return calls === 1 ? 0.0 : 0.5; }; // 第一次强制成功, 后续 Common 品质
-    const player = makePlayer();
-    const result = ForgeEngine.craft(player, '灵蕴剑', ['MAT_SPIRIT_STONE']);
-    Math.random = origRandom;
-    expect(result.success).toBe(true);
-    // 基础 critRate=5, Common 品质 ×1.0, 断言保留
-    expect(result.equipment!.attributes.critRate!).toBeGreaterThanOrEqual(5);
+    const spy = vi.spyOn(Math, 'random').mockImplementation(() => {
+      calls++;
+      return calls === 1 ? 0.0 : 0.5; // 第一次强制成功, 后续 Common 品质
+    });
+    try {
+      const player = makePlayer();
+      const result = ForgeEngine.craft(player, '灵蕴剑', ['MAT_SPIRIT_STONE']);
+      expect(result.success).toBe(true);
+      // 基础 critRate=5, Common 品质 ×1.0, 断言保留
+      expect(result.equipment!.attributes.critRate!).toBeGreaterThanOrEqual(5);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('根骨影响炼制成功率', () => {
     // 固定随机数避免 flaky：成功判定用第 1 次 random()，0.9 介于默认根骨成功率 0.75 与高根骨 0.95 之间
-    const origRandom = Math.random;
     let calls = 0;
-    Math.random = () => { calls++; return calls % 2 === 1 ? 0.9 : 0.5; };
+    const spy = vi.spyOn(Math, 'random').mockImplementation(() => {
+      calls++;
+      return calls % 2 === 1 ? 0.9 : 0.5;
+    });
+    try {
+      const strong = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 } });
+      const strongResult = ForgeEngine.craft(strong, '灵蕴剑');
+      const weak = makePlayer();
+      const weakResult = ForgeEngine.craft(weak, '灵蕴剑');
 
-    const strong = makePlayer({ attributes: { physique: 100, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 } });
-    const strongResult = ForgeEngine.craft(strong, '灵蕴剑');
-    const weak = makePlayer();
-    const weakResult = ForgeEngine.craft(weak, '灵蕴剑');
-    Math.random = origRandom;
-
-    expect(strongResult.success).toBe(true); // physique 100 → 成功率 0.95 ≥ 0.9
-    expect(weakResult.success).toBe(false);  // 默认 physique 10 → 成功率 0.75 < 0.9
+      expect(strongResult.success).toBe(true); // physique 100 → 成功率 0.95 ≥ 0.9
+      expect(weakResult.success).toBe(false);  // 默认 physique 10 → 成功率 0.75 < 0.9
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

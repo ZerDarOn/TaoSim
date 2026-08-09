@@ -6,7 +6,7 @@
 // - 后续 TimeAdvanceService 聚合：世界事件 + 玩家生命周期事件 + 经济事件
 // ============================================================
 
-import type { BigEventLog, EventSeverity, EventVisibility } from '@taosim/contracts';
+import type { BigEventLog } from '@taosim/contracts';
 import { findTemplate, renderTemplate } from './event-templates.js';
 
 export interface EmitInput {
@@ -61,12 +61,5 @@ export class EventCollector {
       locationId: input.locationId,
       relatedEventIds: input.relatedTo?.length ? input.relatedTo.map(e => e.id) : undefined,
     };
-  }
-
-  /** 便捷：将严重度映射为模板的 isMajor 语义一致（保留给外部自定义严重度时用） */
-  static severityToVisibility(severity: EventSeverity): EventVisibility {
-    if (severity === 'epoch') return 'world';
-    if (severity === 'major') return 'regional';
-    return 'local';
   }
 }
