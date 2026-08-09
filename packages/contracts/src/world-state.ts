@@ -42,4 +42,8 @@ export interface WorldState {
    * 随季节潮汐/世界事件/灵脉变迁波动；可选以兼容旧存档，默认按节点 tier 折算）
    */
   nodeSpiritQi?: Record<string, number>;
+  /**
+   * 氛围层人口（NPC 地图呈现设计 §spec 3.1；key: "q,r"；可选以兼容旧存档）
+   */
+  populationGrid?: import('./population.js').PopulationGrid;
 }
