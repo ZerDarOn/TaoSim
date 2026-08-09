@@ -1,10 +1,15 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
-import { VENUE_CATALOG, getVenue } from '../overworld/map-catalog.js';
+import { VENUE_CATALOG, getVenue, getVenuesByNode } from '../overworld/map-catalog.js';
 import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
+import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
+import { deriveNpcHexPos, npcHexPos } from '../overworld/npc-spatial.js';
+import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
+import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
 import { characterToNpcRecord, realmTier } from './npc-record-mapper.js';
+import { resolvePersonalityId } from '../data/npc-personalities.js';
 import { EventCollector } from './event-collector.js';
 import type { EmitInput } from './event-collector.js';
 import { rollWorldEvent } from '../time/calendar-event-scheduler.js';
@@ -16,7 +21,14 @@ import {
   tryWander,
   tryWonder,
 } from './world-tick-rules.js';
-import { samplePairs, socialEncounter, tryFeud } from './world-social-rules.js';
+import { samplePairs, sectPowerDuel, socialEncounter, tryFeud } from './world-social-rules.js';
+import {
+  chooseBehavior,
+  evolveAspiration,
+  hasHeritageDisciple,
+  motivationPressuresOf,
+  rollInitialAspiration,
+} from './world-motivation.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
@@ -38,6 +50,33 @@ export const TRIBULATION_INTERVAL_MONTHS = 600;
 
 /** 坊市流动（§4.6）：坊市场所 NPC 月度参与灵石交易的概率 */
 export const MARKET_TRADE_PROBABILITY = 0.4;
+
+/** 动机寻仇触发概率（行为槽 §4.13：深仇者主动出手，高于被动配对 0.1） */
+export const REVENGE_DUEL_CHANCE = 0.25;
+
+/** 逍遥/扬名者主动云游概率（行为槽：常年在路上，远高于被动偶遇 0.02） */
+export const WANDER_ACTIVE_CHANCE = 0.35;
+
+/** 求道卡关/求寿者主动访缘加成（行为槽：寻觅机缘次数 ×3，高于被动偶遇） */
+export const SEEKER_WONDER_BOOST = 3;
+
+/** 道侣生育间隔（年）：修仙子嗣金贵，防逐年生育刷屏 */
+export const CHILD_COOLDOWN_YEARS = 8;
+
+/** 道侣每月生育概率（修仙以传承替代繁殖：少量、低频、重血脉） */
+export const CHILD_CHANCE_PER_MONTH = 0.02;
+
+/** 求偶接受基础概率（面板因果：魅力高者更易结缘） */
+export const COURTSHIP_BASE_CHANCE = 0.25;
+
+/** 道统收徒概率（行为槽：寿元将尽者觅徒传衣钵） */
+export const HERITAGE_TEACH_CHANCE = 0.15;
+
+/** 夺位出手概率（权力斗争：野心长老非见异思迁，蓄势良久方一搏；一旦出手即真斗法） */
+export const USURP_CHANCE = 0.15;
+
+/** 让贤：寿元>85% 的宗主每月萌生退意的基准概率（压力越大越笃定） */
+export const ABDICATE_BASE_CHANCE = 0.2;
 
 /** 坊市流通的突破材料（叙事实体，与玩家突破材料同源同名） */
 const MARKET_MATERIALS = ['聚气丹', '凝神花', '妖丹', '玄铁精', '灵植种子', '筑基丹'] as const;
@@ -65,11 +104,11 @@ const ERA_DESC: Record<WorldEra, string> = {
 /** 散修拜入宗门概率（身处宗门驻地或出身宗门，§2.2 社会轨道） */
 export const JOIN_SECT_CHANCE = 0.04;
 
-/** 灾害/动荡类世界事件推高乱世指数（§2.2 世界轨道） */
-export const TURMOIL_EVENT_DELTA = 12;
+/** 灾害/动荡类世界事件推高乱世指数（§2.2 世界轨道）；单次 +5，靠积累而非速爆（N2） */
+export const TURMOIL_EVENT_DELTA = 5;
 
-/** 高境界（金丹+）死亡推高乱世指数 */
-export const TURMOIL_HIGHREALM_DEATH_DELTA = 5;
+/** 高境界（金丹+）死亡推高乱世指数（遗府登记时同步；+1 累积而非暴增，防量劫早爆 N2） */
+export const TURMOIL_HIGHREALM_DEATH_DELTA = 1;
 
 // ── 区域灵气浓度（生态与地形因果 §4.9：灵气浓郁之地修炼更快）──
 export const SPIRIT_QI_MIN = 5;
@@ -89,8 +128,16 @@ export function createInitialNodeSpiritQi(): Record<string, number> {
   return qi;
 }
 
-/** 命格潜质排序权重（收徒偏好：传奇 > 天骄 > 英才 > 普通） */
-const DESTINY_RANK: Record<DestinyTier, number> = { legendary: 3, prodigy: 2, talented: 1, common: 0 };
+/** 事迹认定层级权重（果：tier 由 major 事迹累计升级，认定线见 LEGEND_TIER_THRESHOLDS） */
+const TIER_RANK: Record<DestinyTier, number> = { legendary: 3, prodigy: 2, talented: 1, common: 0 };
+
+/** 事迹认定（果）阈值：major 事件累计到线，世界方以英才/天骄/传奇记之——"先做到，后成名" */
+export const LEGEND_TIER_THRESHOLDS = { talented: 2, prodigy: 5, legendary: 9 } as const;
+
+/** 认定层级中文名（npc.legend 模板变量） */
+const TIER_NAMES: Record<DestinyTier, string> = {
+  common: '', talented: '英才', prodigy: '天骄', legendary: '传奇',
+};
 
 /** 乱世指数 → 世界局势阶段（§2.2 世界轨道：和平→乱世→大争→量劫） */
 export function eraFromTurmoil(turmoil: number): WorldEra {
@@ -143,6 +190,8 @@ export class WorldEngine {
   private lastEventByNpc = new Map<string, BigEventLog>();
   /** 成名正反馈（§7.3）：每 NPC major/epoch 事件计数 */
   private majorCountByNpc = new Map<string, number>();
+  /** 世界内已用名字（百家姓取名去重：同一世界不重名；除名时归还，代际可复用） */
+  private usedNames = new Set<string>();
 
   constructor(
     initialState: WorldState,
@@ -168,6 +217,10 @@ export class WorldEngine {
       if (m) maxCounter = Math.max(maxCounter, Number(m[1]));
     }
     this.npcCounter = maxCounter;
+    // 名字去重恢复：从现存 NPC 重建已用名集合（跨会话保持世界内不重名）
+    for (const npc of Object.values(this.state.npcs)) {
+      this.usedNames.add(npc.name);
+    }
     // 因果链 + 成名正反馈恢复：从事件流重建每 NPC 最近事件与 major 计数（正序，后者覆盖）
     for (const e of this.state.eventLog) {
       if (e.isMajorEvent) {
@@ -194,6 +247,10 @@ export class WorldEngine {
       if (npc.soulState !== 'Active' || npc.locationId !== undefined) continue;
       npc.locationId = this.pickVenueId();
     }
+
+    // 空间与氛围层（NPC 地图呈现 §spec 3.2）：
+    // hexPos 维护（独立 rng，与主事件序列解耦）
+    this.maintainNpcPositions();
 
     const collector = new EventCollector(this.state.currentYear, this.state.currentMonth);
     const events: BigEventLog[] = [];
@@ -246,13 +303,37 @@ export class WorldEngine {
       const event = collector.emit({ ...input, relatedTo: related ? [related] : undefined });
       events.push(event);
       for (const id of npcIds) {
-        this.lastEventByNpc.set(id, event);
+        // 因果链（§2.4）：minor 例行事件不打断故事线（涌现缺口 N1：流水账不污染叙事链）
+        if (event.severity !== 'minor') {
+          this.lastEventByNpc.set(id, event);
+        }
         if (event.isMajorEvent) {
           const npc = this.state.npcs[id];
-          if (!npc || npc.destiny.epithet) continue;
+          if (!npc) continue;
           const count = (this.majorCountByNpc.get(id) ?? 0) + 1;
           this.majorCountByNpc.set(id, count);
-          if (count >= EPITHET_MAJOR_THRESHOLD) {
+          // 事迹认定（果）：天骄/传奇是"做到之后"被世界记下的标签，不是出生给定的。
+          // 认定线：英才 ≥2 件 major → 天骄 ≥5 → 传奇 ≥9（先做到，后成名；升级产出 npc.legend）
+          const nextTier: DestinyTier =
+            count >= LEGEND_TIER_THRESHOLDS.legendary
+              ? 'legendary'
+              : count >= LEGEND_TIER_THRESHOLDS.prodigy
+                ? 'prodigy'
+                : count >= LEGEND_TIER_THRESHOLDS.talented
+                  ? 'talented'
+                  : 'common';
+          if (TIER_RANK[nextTier] > TIER_RANK[npc.destiny.tier]) {
+            npc.destiny.tier = nextTier;
+            events.push(
+              collector.emit({
+                key: 'npc.legend',
+                vars: { npc: npc.name, tier: TIER_NAMES[nextTier] },
+                involvedCharacterIds: [id],
+                locationId: npc.locationId,
+              }),
+            );
+          }
+          if (!npc.destiny.epithet && count >= EPITHET_MAJOR_THRESHOLD) {
             const epithet = EPITHET_POOL[Math.floor(this.rng() * EPITHET_POOL.length)]!;
             npc.destiny.epithet = epithet;
             events.push(
@@ -277,6 +358,15 @@ export class WorldEngine {
 
       // 寿元耗尽 → 坐化（按境界分流：金丹及以上留一念，低阶魂散为残魂）
       if (npc.lifespan.age >= npc.lifespan.maxLifespan) {
+        // 死劫豁免（涌现缺口 N3，修仙人情化）：命格者寿元将尽时于死关搏得一线生机（顿悟延寿）
+        if (this.escapeDeath(npc)) {
+          npc.lifespan.age -= 10;
+          pushNpcEvent(
+            { key: 'npc.escapedDeath', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
+            [id],
+          );
+          continue;
+        }
         const tier = realmTier(npc.realm);
         npc.soulState = tier >= 3 ? 'PrimordialSoul' : 'RemnantSoul';
         npc.deathYear = this.state.currentYear;
@@ -304,10 +394,21 @@ export class WorldEngine {
         continue;
       }
 
-      // 修炼增长（灵气浓度 × 师徒传承加成：生态与地形因果 + 关系轨道咬合）
+      // 自主性（§4.13 需求状态机）：志向缺省则按心性补掷；经历塑形（寿元/仇恨/姻缘/传承）。
+      // 志向演化零 rng（纯状态决定），初掷仅一次；行为选择零 rng（缺口压力决定）——
+      // NPC 行为由"缺口"驱动，不再是对所有人机械掷骰。
+      npc.aspiration = npc.aspiration
+        ? evolveAspiration(npc)
+        : rollInitialAspiration(npc, this.rng);
+      const behavior = chooseBehavior(npc);
+
+      // 修炼增长（灵气浓度 × 师徒传承 × 行为槽：闭关苦修用功加倍；道侣双修相携相助）
+      const coupleBonus =
+        npc.spouseId && this.state.npcs[npc.spouseId]?.soulState === 'Active' ? 1.15 : 1;
       cultivateNpc(npc, {
         qi: this.spiritQiMultOf(npc.locationId),
         apprentice: this.isUndergraduateDisciple(npc) ? 1.5 : 1,
+        focus: (behavior.type === 'seclude' ? 1.5 : 1) * coupleBonus,
       });
 
       // 突破判定
@@ -363,8 +464,8 @@ export class WorldEngine {
         }
       }
 
-      // 奇遇判定
-      const wonder = tryWonder(npc, this.rng);
+      // 奇遇判定（行为槽 §4.13：求道卡关/求寿者主动访缘，寻觅机缘次数 ×3；其余被动偶遇）
+      const wonder = tryWonder(npc, this.rng, behavior.type === 'seekWonder' ? SEEKER_WONDER_BOOST : 1);
       if (wonder.triggered) {
         const wonderKeys: Record<string, string> = {
           treasure: 'wonder.treasure',
@@ -387,8 +488,8 @@ export class WorldEngine {
         );
       }
 
-      // 云游判定（§4.2 目的地优先投奔关系）
-      if (tryWander(npc, this.rng)) {
+      // 云游判定（§4.2 目的地优先投奔关系；逍遥/扬名者主动云游，常年在路上）
+      if (tryWander(npc, this.rng, behavior.type === 'wander' ? WANDER_ACTIVE_CHANCE : 0.02)) {
         const friendEntry = Object.entries(npc.relations).find(
           ([, rel]) =>
             rel.bond >= 30 &&
@@ -418,6 +519,38 @@ export class WorldEngine {
 
     // 2. 社交相遇 + 寻仇（同地点/云游配对，关系轨道 §4.3/§4.4 — 阶段 1b）
     const now = { year: this.state.currentYear, month: this.state.currentMonth };
+
+    // 寻仇斗法统一出口（配对偶遇与动机寻仇共用）：真实斗法结算 + 事件 + 伤亡/遗府/乱世指数副作用
+    // chance：被动配对 0.1；动机驱动（深仇主动出手）可抬高（行为槽 §4.13）
+    const handleFeud = (a: NpcRecord, b: NpcRecord, chance = 0.1): void => {
+      const feud = tryFeud(a, b, now, this.rng, (n) => this.escapeDeath(n), chance);
+      if (!feud) return;
+      const winnerName = feud.attackerWins ? a.name : b.name;
+      const loserName = feud.attackerWins ? b.name : a.name;
+      pushNpcEvent(
+        {
+          key: feud.templateKey,
+          vars: {
+            winner: winnerName,
+            loser: loserName,
+            years: String(feud.injuryYears),
+            loot: String(feud.lootStones),
+          },
+          involvedCharacterIds: [a.id, b.id],
+          locationId: a.locationId ?? b.locationId,
+        },
+        [a.id, b.id],
+      );
+      if (feud.lethal) {
+        npcPopulationChanged = true;
+        // 仇杀陨落 → 世界伤亡累积（§2.2 世界轨道）
+        this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 2);
+        // 遗府闭环（涌现缺口 N4）：高境界（金丹+）仇杀陨落亦留遗府（死亡→新机缘 物质循环）
+        const loserNpc = feud.attackerWins ? b : a;
+        if (realmTier(loserNpc.realm) >= 3) this.registerHeritage(loserNpc);
+      }
+    };
+
     const groups = new Map<string, NpcRecord[]>();
     for (const npc of Object.values(this.state.npcs)) {
       if (npc.soulState !== 'Active') continue;
@@ -445,30 +578,75 @@ export class WorldEngine {
             [a.id, b.id],
           );
         }
-        const feud = tryFeud(a, b, now, this.rng);
-        if (feud) {
-          const winnerName = feud.attackerWins ? a.name : b.name;
-          const loserName = feud.attackerWins ? b.name : a.name;
-          pushNpcEvent(
-            {
-              key: feud.templateKey,
-              vars: {
-                winner: winnerName,
-                loser: loserName,
-                years: String(feud.injuryYears),
-                loot: String(feud.lootStones),
-              },
-              involvedCharacterIds: [a.id, b.id],
-              locationId: a.locationId ?? b.locationId,
-            },
-            [a.id, b.id],
-          );
-          if (feud.lethal) {
-            npcPopulationChanged = true;
-            // 仇杀陨落 → 世界伤亡累积（§2.2 世界轨道）
-            this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 2);
-          }
-        }
+        handleFeud(a, b);
+      }
+    }
+
+    // 动机寻仇（§4.13 行为槽：深仇者主动出手——实力足以一战才出手，否则苦修蓄势）
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState !== 'Active' || npc.aspiration !== 'seekRevenge') continue;
+      if (motivationPressuresOf(npc).grudge <= 0) continue;
+      const enemy = this.strongestEnemy(npc);
+      if (!enemy) {
+        // 仇人已陨/仇怨已淡 → 执念放下，转求道（经历塑形）
+        npc.aspiration = 'seekDao';
+        continue;
+      }
+      if (!this.canAffordChallenge(npc, enemy)) continue; // 实力未足 → 本月苦修蓄势
+      handleFeud(npc, enemy, REVENGE_DUEL_CHANCE); // 深仇主动出手：触发概率高于被动配对
+    }
+
+    // 2a. 代际与传承（§4.13 自主性 + 代际链：求缘→道侣→双修→子嗣；寿元将尽→传道统）
+    // 求偶（孤独驱动）：seekPartner 且无在世道侣/非守丧 → 寻觅道侣；结为道侣后转求道
+    const takenThisMonth = new Set<string>();
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState !== 'Active' || npc.aspiration !== 'seekPartner') continue;
+      if (takenThisMonth.has(id) || this.isCommitted(npc)) continue;
+      const candidate = this.findMateCandidate(npc, takenThisMonth);
+      if (!candidate) continue;
+      if (this.rng() >= this.courtshipAcceptChance(npc, candidate)) continue;
+      this.formCouple(npc, candidate, now, pushNpcEvent);
+      takenThisMonth.add(id);
+      takenThisMonth.add(candidate.id);
+    }
+    // 子嗣（代际更替）：已成道侣且双方在世 → 生育（8 年冷却；由 id 较小者掷骰，避免同月双生）
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState !== 'Active' || !npc.spouseId) continue;
+      const spouse = this.state.npcs[npc.spouseId];
+      if (!spouse || spouse.soulState !== 'Active' || id >= spouse.id) continue;
+      const lastChild = npc.childbearing?.lastChildYear;
+      if (lastChild !== undefined && this.state.currentYear - lastChild < CHILD_COOLDOWN_YEARS) continue;
+      if (this.rng() >= CHILD_CHANCE_PER_MONTH) continue;
+      const child = this.spawnChild(npc, spouse);
+      this.state.npcs[child.id] = child;
+      npcPopulationChanged = true;
+      npc.childbearing = { lastChildYear: this.state.currentYear };
+      spouse.childbearing = { lastChildYear: this.state.currentYear };
+      pushNpcEvent(
+        {
+          key: 'social.child',
+          vars: {
+            npc: npc.name,
+            npc2: spouse.name,
+            child: child.name,
+            location: this.venueNameOf(child.locationId),
+          },
+          involvedCharacterIds: [npc.id, spouse.id, child.id],
+          locationId: child.locationId,
+        },
+        [npc.id, spouse.id],
+      );
+    }
+    // 道统传承（传承压力）：寿元将尽者收徒传衣钵，跨世代（师祖→师→徒）
+    for (const [id, npc] of Object.entries(this.state.npcs)) {
+      if (npc.soulState !== 'Active' || npc.aspiration !== 'seekSuccessor') continue;
+      if (hasHeritageDisciple(npc)) {
+        npc.aspiration = 'seekDao'; // 已有传人 → 了却心愿，转求道
+        continue;
+      }
+      const disciple = this.findHeritageDisciple(npc);
+      if (disciple && this.rng() < HERITAGE_TEACH_CHANCE) {
+        this.passHeritage(npc, disciple, now, pushNpcEvent);
       }
     }
 
@@ -530,6 +708,32 @@ export class WorldEngine {
         }
       }
 
+      // 主动让贤（权力斗争 §2.2）：寿元将尽的宗主体面交班——非死亡驱动的继任
+      if (leader && leader.soulState === 'Active' && this.isAbdicatingLeader(leader)) {
+        const successor = faction.members
+          .map((id) => this.state.npcs[id])
+          .filter(
+            (n): n is NpcRecord => n !== undefined && n.soulState === 'Active' && n.socialRank === 'elder',
+          )
+          .sort(
+            (a, b) => realmTier(b.realm) - realmTier(a.realm) || b.cultivation.currentExp - a.cultivation.currentExp,
+          )[0];
+        if (successor && successor.id !== leader.id) {
+          faction.leaderId = successor.id;
+          successor.socialRank = 'sectMaster';
+          leader.socialRank = 'elder';
+          pushNpcEvent(
+            {
+              key: 'social.sectAbdicate',
+              vars: { npc: leader.name, npc2: successor.name, sect: faction.name },
+              involvedCharacterIds: [leader.id, successor.id],
+              locationId: leader.locationId,
+            },
+            [leader.id, successor.id],
+          );
+        }
+      }
+
       // 入宗：散修身处宗门驻地或出身宗门 → 拜入门下（弟子）
       // 拜师潮流（势力扩张与战争）：兴盛宗门（灵脉高/地盘广）吸引更多散修 — 马太效应
       const prosperity =
@@ -573,6 +777,52 @@ export class WorldEngine {
         }
       }
 
+      // 夺位（权力斗争 §2.2）：野心长老（seekFame）修为超越宗主 → 赌一把
+      // 真实斗法（面板定胜负，非机制钦定）：胜者执掌宗门，败者降为长老；夺位失败者被逐出宗门
+      const currentLeader = faction.leaderId ? this.state.npcs[faction.leaderId] : undefined;
+      if (currentLeader && currentLeader.soulState === 'Active') {
+        for (const memberId of [...faction.members]) {
+          const challenger = this.state.npcs[memberId];
+          if (!challenger || challenger.soulState !== 'Active') continue;
+          if (challenger.id === currentLeader.id || challenger.socialRank === 'sectMaster') continue;
+          if (challenger.aspiration !== 'seekFame') continue; // 无心者不妄动
+          if (realmTier(challenger.realm) < realmTier(currentLeader.realm)) continue; // 实力不足不找死
+          if (this.rng() >= USURP_CHANCE) continue; // 蓄势良久，方一搏
+          // 真实斗法（面板定胜负，非机制钦定）：一旦出手即真刀真枪，无临阵退缩
+          const duel = sectPowerDuel(challenger, currentLeader, this.rng);
+          if (duel.attackerWins) {
+            // 夺位成功：新宗主继位，败者降为长老（性命仍在，宗门仍认其人）
+            faction.leaderId = challenger.id;
+            challenger.socialRank = 'sectMaster';
+            currentLeader.socialRank = 'elder';
+            pushNpcEvent(
+              {
+                key: 'social.sectUsurp',
+                vars: { npc: challenger.name, npc2: currentLeader.name, sect: faction.name },
+                involvedCharacterIds: [challenger.id, currentLeader.id],
+                locationId: challenger.locationId,
+              },
+              [challenger.id, currentLeader.id],
+            );
+          } else {
+            // 夺位失败：颜面扫地，被逐出宗门（流放）
+            challenger.factionId = undefined;
+            challenger.socialRank = undefined;
+            faction.members = faction.members.filter((id) => id !== challenger.id);
+            pushNpcEvent(
+              {
+                key: 'social.sectUsurpFail',
+                vars: { npc: challenger.name, npc2: currentLeader.name, sect: faction.name },
+                involvedCharacterIds: [challenger.id, currentLeader.id],
+                locationId: challenger.locationId,
+              },
+              [challenger.id],
+            );
+          }
+          // duel undefined：斗法未成（被劝和/另有变故）→ 本月作罢
+        }
+      }
+
       // 师徒传承（关系轨道末端）：长老/掌门收同门潜质弟子为徒（每师至多 3 徒）
       for (const memberId of [...faction.members]) {
         const master = this.state.npcs[memberId];
@@ -596,7 +846,7 @@ export class WorldEngine {
           )
           .sort(
             (a, b) =>
-              DESTINY_RANK[b.destiny.tier] - DESTINY_RANK[a.destiny.tier] || b.destiny.luck - a.destiny.luck,
+              realmTier(b.realm) - realmTier(a.realm) || b.attributes.comprehension - a.attributes.comprehension,
           );
         const disciple = candidates[0];
         if (disciple && this.rng() < 0.05) {
@@ -659,7 +909,7 @@ export class WorldEngine {
       );
       if (activeMembers.length === 0) {
         faction.status = 'destroyed';
-        this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 10);
+        this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 4);
         events.push(
           collector.emit({
             key: 'faction.destroyed',
@@ -727,7 +977,7 @@ export class WorldEngine {
           if (targetFaction !== faction && faction.diplomacy[targetFaction.id] !== 'War') {
             faction.diplomacy[targetFaction.id] = 'War';
             targetFaction.diplomacy[faction.id] = 'War';
-            this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 6);
+            this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 2);
             events.push(
               collector.emit({
                 key: 'faction.warDeclare',
@@ -797,22 +1047,33 @@ export class WorldEngine {
             m !== undefined &&
             m.soulState === 'Active' &&
             m.socialRank !== 'sectMaster' &&
-            this.rng() < 0.1
+            // 伤亡率随境界递减：炼气弟子最易战死，金丹+ 长老已非杂兵
+            this.rng() < this.casualtyChanceOf(m)
           );
         });
         for (const id of casualties) {
           const m = this.state.npcs[id]!;
+          // 死劫豁免（涌现缺口 N3）：命格者于乱军之中搏得一线生机
+          if (this.escapeDeath(m)) {
+            pushNpcEvent(
+              { key: 'npc.escapedDeath', vars: { npc: m.name }, involvedCharacterIds: [id], locationId: m.locationId },
+              [id],
+            );
+            continue;
+          }
           m.soulState = 'RemnantSoul';
           m.causeOfDeath = '宗门之战陨落';
           m.deathYear = this.state.currentYear;
           m.deathMonth = this.state.currentMonth;
           npcPopulationChanged = true;
+          // 遗府闭环（涌现缺口 N4）：高境界战死亦留遗府（死亡→新机缘 物质循环）
+          if (realmTier(m.realm) >= 3) this.registerHeritage(m);
         }
         side.members = side.members.filter((id) => !casualties.includes(id));
       }
 
       // 战争加剧乱世（§2.2 世界轨道咬合）
-      this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 4);
+      this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 1);
     }
 
     // 3. 清理已湮灭的 NPC（死亡超过宽限期 → 转 Oblivion 后除名）
@@ -833,6 +1094,9 @@ export class WorldEngine {
     }
     if (toRemove.length > 0) {
       for (const id of toRemove) {
+        const gone = this.state.npcs[id];
+        // 名字归还天下（记忆消散，后人可再取此名——代际复用，避免名字库枯竭）
+        if (gone) this.usedNames.delete(gone.name);
         delete this.state.npcs[id];
         this.lastEventByNpc.delete(id);
         this.majorCountByNpc.delete(id);
@@ -894,7 +1158,14 @@ export class WorldEngine {
     }
 
     // 事件流持久化（编年史/传闻的数据基础）+ 归档裁剪（避免无上限增长）
-    this.state.eventLog = trimEventLog([...this.state.eventLog, ...events]);
+    // 分层（涌现缺口 N1）：minor 例行事件只进实时流（result.events，沉浸视角细节），
+    // 不进全量 eventLog（上帝视角编年史只留 normal+ 叙事）
+    const chronicleEvents = events.filter((e) => e.severity !== 'minor');
+    this.state.eventLog = trimEventLog([...this.state.eventLog, ...chronicleEvents]);
+
+    // 氛围层（§spec 3.1）：人口增长 + 凡人升格（独立 rng；放末尾——
+    // 升格 NPC 下月才参与 NPC 循环，避免干扰本月主 rng 序列）
+    this.tickAtmosphere();
 
     return { updatedState: this.getState(), events, npcPopulationChanged };
   }
@@ -931,43 +1202,179 @@ export class WorldEngine {
     }
   }
 
-  /** 生成一个散修 NPC 并归档为 NpcRecord（境界分布：炼气为主、少量筑基/金丹） */
-  private spawnWildCultivator(): NpcRecord {
+  /** 生成一个散修 NPC 并归档为 NpcRecord（境界分布：炼气为主、少量筑基/金丹；rng 可注入） */
+  private spawnWildCultivator(rng: Rng = this.rng): NpcRecord {
     this.npcCounter++;
     const id = `NPC_${this.state.currentYear}_${this.state.currentMonth}_${this.npcCounter}`;
-    const tierRoll = this.rng();
+    const tierRoll = rng();
     const tier = tierRoll < 0.75 ? 1 : tierRoll < 0.95 ? 2 : 3;
-    const seed = Math.floor(this.rng() * 1_000_000);
+    const seed = Math.floor(rng() * 1_000_000);
     const character = NPCGenerator.generate(tier, seed);
+    // 世界内名字去重（百家姓 × 性别名库共 5120 组合）：重名则换种子重取名，最多重试 32 次
+    let name = character.name;
+    let nameGuard = 0;
+    while (this.usedNames.has(name) && nameGuard < 32) {
+      nameGuard++;
+      name = NPCGenerator.generateName(seed + nameGuard * 7919, character.gender);
+    }
+    this.usedNames.add(name);
 
     const record = characterToNpcRecord(
-      { ...character, id, name: character.name },
+      { ...character, id, name },
       this.state.currentYear,
       this.state.currentMonth,
     );
     // 真实地点引用：落脚于预设场所（社交配对按地点分组的数据基础）
-    record.locationId = this.pickVenueId();
+    record.locationId = this.pickVenueId(rng);
 
-    // 命格（阶段 1 起影响奇遇/突破/死劫加权）：0.5% 天骄、2.5% 英才
-    const destinyRoll = this.rng();
-    record.destiny =
-      destinyRoll < 0.005
-        ? { tier: 'prodigy', luck: 95, hidden: true }
-        : destinyRoll < 0.03
-          ? { tier: 'talented', luck: 80, hidden: true }
-          : { tier: 'common', luck: record.attributes.luck, hidden: false };
+    // 先天出身（因）：塑造出生起点（面板/初始条件），之后世界演化完全由面板与经历驱动，
+    // 不提供任何机制概率加成。1% 气运之子、0.5% 大能转世、2.5% 逆天传承，其余平凡。
+    const bornRoll = rng();
+    let born: BornOrigin = 'mortal';
+    if (bornRoll < 0.01) born = 'fortune';
+    else if (bornRoll < 0.015) born = 'reincarnated';
+    else if (bornRoll < 0.04) born = 'inherited';
+    // tier（果）出生一律 common：天骄/传奇只能由之后做到的事迹认定
+    record.destiny = { tier: 'common', born, luck: record.attributes.luck, hidden: born !== 'mortal' };
+    // 出身面板因果：气运之子改运（luck 拔高 → 奇遇/突破/死劫面板加权）；
+    // 大能转世天资聪颖（悟性 +6 → 修炼更快）；逆天传承开局身家（灵石 +500）。
+    // 只调"起点"，不碰任何概率机制——之后的世界演化完全看面板与世界经历。
+    if (born === 'fortune') record.destiny.luck = Math.min(95, record.attributes.luck + 60);
+    if (born === 'reincarnated') record.attributes.comprehension = Math.min(40, record.attributes.comprehension + 6);
+    if (born === 'inherited') record.spiritStones = (record.spiritStones ?? 0) + 500;
+    // 自主性（§4.13）：出生即有心性塑造的志向（旧档案缺省则由月度循环补掷）
+    record.aspiration = rollInitialAspiration(record, rng);
+    // 空间与亲和（NPC 地图呈现 §spec 3.2/3.3.1）：出生即定 hexPos 与兼容性种子
+    record.hexPos = npcHexPos(record.locationId, this.gridOf()) ?? undefined;
+    record.moveState = 'resident';
+    record.affinityMatrixSeed = rng();
     return record;
   }
 
-  /** 从预设场所中随机取一个地点 id（无预设场所时返回 undefined） */
-  private pickVenueId(): string | undefined {
+  // ============================================================
+  // 空间与氛围层（NPC 地图呈现 §spec 3.1/3.2：独立 rng，不干扰主事件序列）
+  // ============================================================
+
+  /** hex 网格缓存（当前仅东荒大陆有 PRESET_MAP 地标；多大陆接入后按大陆分片） */
+  private gridCache = new Map<string, ReturnType<typeof generateWorldGrid>>();
+
+  private gridOf(): ReturnType<typeof generateWorldGrid> {
+    const id = 'CONT_EAST';
+    let g = this.gridCache.get(id);
+    if (!g) {
+      g = generateWorldGrid(id);
+      this.gridCache.set(id, g);
+    }
+    return g;
+  }
+
+  /** 月度 hexPos 维护：所有 Active NPC 锚定场所格 / 向游历目标漂移（§spec 3.2.2） */
+  private maintainNpcPositions(): void {
+    const grid = this.gridOf();
+    // 独立 rng：移动目标生成与主事件序列解耦（防既有测试的 rng 注入偏移）
+    const moveRng = createSeededRng(this.state.currentYear * 977 + this.state.currentMonth * 31 + 13);
+    for (const npc of Object.values(this.state.npcs)) {
+      if (npc.soulState !== 'Active') continue;
+      if (npc.moveState === 'secluded') {
+        // 闭关：不动，剩余月数递减，出关转 resident
+        npc.secludeMonths = (npc.secludeMonths ?? 12) - 1;
+        if (npc.secludeMonths <= 0) {
+          npc.moveState = 'resident';
+          npc.secludeMonths = undefined;
+        }
+        if (!npc.hexPos) {
+          npc.hexPos = npcHexPos(npc.locationId, grid) ?? { q: 10, r: 10 };
+        }
+        continue;
+      }
+      const result = deriveNpcHexPos(npc.hexPos, npc.locationId, npc.moveTarget, grid);
+      npc.hexPos = result.hexPos;
+      npc.moveState = result.moveState;
+      if (result.reached) npc.moveTarget = undefined;
+      // 无场所云游中且无目标：给一个方向感目标（2-4 格外）
+      if (npc.locationId === undefined && npc.moveState === 'wandering' && !npc.moveTarget) {
+        npc.moveTarget = {
+          q: npc.hexPos.q + Math.floor(moveRng() * 5) - 2,
+          r: npc.hexPos.r + Math.floor(moveRng() * 5) - 2,
+        };
+      }
+    }
+  }
+
+  /** 月度氛围层：人口增长 + 凡人升格为档案 NPC（§spec 3.1.2；独立 rng） */
+  private tickAtmosphere(): void {
+    const grid = this.gridOf();
+    if (!this.state.populationGrid || Object.keys(this.state.populationGrid).length === 0) {
+      this.state.populationGrid = initializePopulationGrid(grid);
+    }
+    const pop = this.state.populationGrid;
+    const ascRng = createSeededRng(this.state.currentYear * 977 + this.state.currentMonth * 31 + 7);
+    // 升格率 0.0002：全大陆每月约 0.9 名凡人入册（修士稀少；且不超名字库容量压力）
+    const result = tickPopulation(pop, ascRng, { ascensionChance: 0.0002 });
+    // 升格上限防爆：单月最多 8 名凡人入册
+    const candidates = Math.min(result.ascensionCandidates, 8);
+    for (let i = 0; i < candidates; i++) {
+      const keys = Object.keys(pop);
+      if (keys.length === 0) break;
+      const key = keys[Math.floor(ascRng() * keys.length)]!;
+      const asc = applyAscension(pop, key);
+      if (!asc) continue;
+      const record = this.spawnWildCultivator(ascRng);
+      // 升格者落脚于升格格对应场所（若该格是地标且有场所）；否则随机场所（散修）
+      const hex = grid.hexes.get(asc.hexKey);
+      if (hex?.landmarkId) {
+        const venues = getVenuesByNode(hex.landmarkId);
+        if (venues.length > 0) record.locationId = venues[Math.floor(ascRng() * venues.length)]!.id;
+        else record.locationId = this.pickVenueId(ascRng);
+      } else {
+        record.locationId = this.pickVenueId(ascRng);
+      }
+      record.hexPos = { q: asc.q, r: asc.r };
+      record.moveState = 'resident';
+      record.moveTarget = undefined;
+      // 升阶叙事：凡人出身者入册即记下"自凡人踏上修途"里程碑（传记/编年史可查）
+      record.biography.milestones.push({
+        eventId: `ASC_${record.id}`,
+        year: this.state.currentYear,
+        month: this.state.currentMonth,
+        title: '自凡人踏上修途',
+        realm: record.realm,
+      });
+      this.state.npcs[record.id] = record;
+    }
+  }
+
+  /** 从预设场所中随机取一个地点 id（无预设场所时返回 undefined；rng 可注入） */
+  private pickVenueId(rng: Rng = this.rng): string | undefined {
     if (VENUE_CATALOG.length === 0) return undefined;
-    return VENUE_CATALOG[Math.floor(this.rng() * VENUE_CATALOG.length)]!.id;
+    return VENUE_CATALOG[Math.floor(rng() * VENUE_CATALOG.length)]!.id;
   }
 
   /** 场所 id → 场所名（遗府叙事用；无场所回退"无名之地"） */
   private venueNameOf(locationId?: string): string {
     return locationId ? getVenue(locationId)?.name ?? '无名之地' : '无名之地';
+  }
+
+  /**
+   * 宗门战伤亡率：境界越高越难战死（炼气 4% → 筑基 2% → 金丹 0.8% → 化神+ 0.4%）。
+   * 宗门战每月结算（War 关系逐月拉锯），故单场概率取低值，
+   * 使金丹+ 长老在混战中仍大概率保全（修仙人情化：长老非杂兵，且有死劫豁免兜底）。
+   */
+  private casualtyChanceOf(npc: NpcRecord): number {
+    const tier = realmTier(npc.realm);
+    if (tier >= 4) return 0.004;
+    if (tier === 3) return 0.008;
+    if (tier === 2) return 0.02;
+    return 0.04;
+  }
+
+  /** 绝处逢生（涌现缺口 N3，修仙人情化）：死劫一线能否搏得生机，
+   *  由 气运（面板 luck）+ 心性（悟性）决定——面板因果，非命格机制特权 */
+  private escapeDeath(npc: NpcRecord): boolean {
+    const luckP = (npc.destiny.luck / 100) * 0.6; // 气运：满分 0.6
+    const compP = (npc.attributes.comprehension / 40) * 0.3; // 心性：满分 0.3
+    const p = Math.min(0.85, luckP + compP);
+    return this.rng() < p;
   }
 
   /** §4.7 遗府登记：金丹及以上死亡必留遗府（死亡→新机缘 物质循环闭环；同步推高乱世指数） */
@@ -992,12 +1399,13 @@ export class WorldEngine {
     }
   }
 
-  /** 季节灵气潮汐（§4.9：春 +1 / 夏 +2 / 秋 −1 / 冬 −2 — 确定性，不消耗 rng） */
+  /** 季节灵气潮汐（§4.9：春 +1 / 夏 +2 / 秋 −1 / 冬 −2 — 确定性，不消耗 rng）。
+   *  月份窗口与 season-system.getSeason 同边界：1-3 春 / 4-6 夏 / 7-9 秋 / 10-12 冬 */
   private applySeasonQiShift(): void {
     const qi = this.state.nodeSpiritQi;
     if (!qi) return;
     const m = this.state.currentMonth;
-    const delta = m >= 2 && m <= 4 ? 1 : m >= 5 && m <= 7 ? 2 : m >= 8 && m <= 10 ? -1 : -2;
+    const delta = m <= 3 ? 1 : m <= 6 ? 2 : m <= 9 ? -1 : -2;
     for (const key of Object.keys(qi)) {
       const cur = qi[key] ?? 40;
       qi[key] = Math.min(SPIRIT_QI_MAX, Math.max(SPIRIT_QI_MIN, cur + delta));
@@ -1045,5 +1453,229 @@ export class WorldEngine {
     );
     if (!hasMaster) return false;
     return !npc.biography.milestones.some((m) => m.title === '出师');
+  }
+
+  // ── §4.13 自主性 / 代际链：动机驱动的辅助方法 ──
+
+  /** 最恨之敌（enemy/rival 中 bond 最低且在世者；无则在世仇敌返回 undefined） */
+  private strongestEnemy(npc: NpcRecord): NpcRecord | undefined {
+    let best: NpcRecord | undefined;
+    let worstBond = 0;
+    for (const [id, rel] of Object.entries(npc.relations)) {
+      if ((rel.type !== 'enemy' && rel.type !== 'rival') || rel.bond >= worstBond) continue;
+      const target = this.state.npcs[id];
+      if (target && target.soulState === 'Active') {
+        worstBond = rel.bond;
+        best = target;
+      }
+    }
+    return best;
+  }
+
+  /** 实力足以一战：境界差距 ≤1 阶（真实斗法由面板定胜负；跨 2 阶以上壁垒难破 → 苦修蓄势） */
+  private canAffordChallenge(seeker: NpcRecord, enemy: NpcRecord): boolean {
+    return realmTier(seeker.realm) >= realmTier(enemy.realm) - 1;
+  }
+
+  /** 让贤判定（§2.2 权力斗争）：寿元>85% 的宗主萌生退意，压力越大越笃定 */
+  private isAbdicatingLeader(leader: NpcRecord): boolean {
+    const longevity = leader.lifespan.age / leader.lifespan.maxLifespan;
+    if (longevity <= 0.85) return false;
+    const chance = Math.min(0.3, ((longevity - 0.85) / 0.15) * ABDICATE_BASE_CHANCE);
+    return this.rng() < chance;
+  }
+
+  /** 是否已有在世道侣（或丧偶守丧 3 年内——情义深重，不急于再续） */
+  private isCommitted(npc: NpcRecord): boolean {
+    if (!npc.spouseId) return false;
+    const spouse = this.state.npcs[npc.spouseId];
+    if (spouse && spouse.soulState === 'Active') return true;
+    if (spouse?.deathYear !== undefined && this.state.currentYear - spouse.deathYear < 3) return true;
+    return false;
+  }
+
+  /** 寻觅道侣候选（异性、无在世道侣、年岁相差 ≤40、本月未被牵走；同地优先，先近后远） */
+  private findMateCandidate(seeker: NpcRecord, taken: Set<string>): NpcRecord | undefined {
+    const candidates = Object.values(this.state.npcs).filter(
+      (c) =>
+        c.soulState === 'Active' &&
+        c.gender !== seeker.gender &&
+        !taken.has(c.id) &&
+        !this.isCommitted(c) &&
+        Math.abs(c.lifespan.age - seeker.lifespan.age) <= 40,
+    );
+    if (candidates.length === 0) return undefined;
+    const sameLoc = candidates.filter((c) => c.locationId === seeker.locationId && c.locationId !== undefined);
+    const pool = sameLoc.length > 0 ? sameLoc : candidates;
+    return pool[Math.floor(this.rng() * pool.length)]!;
+  }
+
+  /** 求偶接受概率（面板因果：双方魅力越高越易结缘） */
+  private courtshipAcceptChance(a: NpcRecord, b: NpcRecord): number {
+    const charm = (a.attributes.charm + b.attributes.charm) / 2;
+    return Math.min(0.6, Math.max(0.05, COURTSHIP_BASE_CHANCE * (1 + (charm - 50) / 100)));
+  }
+
+  /** 结为道侣：双向绑定 + 关系沉淀 + 志向转迁（成家后专心道途）+ 里程碑/事件 */
+  private formCouple(
+    a: NpcRecord,
+    b: NpcRecord,
+    now: { year: number; month: number },
+    push: (input: Omit<EmitInput, 'relatedTo'>, npcIds: string[]) => BigEventLog,
+  ): void {
+    const changedAt = { year: now.year, month: now.month };
+    a.spouseId = b.id;
+    b.spouseId = a.id;
+    a.relations[b.id] = { type: 'spouse', bond: 70, trust: 60, events: ['结为道侣'], changedAt };
+    b.relations[a.id] = { type: 'spouse', bond: 70, trust: 60, events: ['结为道侣'], changedAt };
+    a.aspiration = 'seekDao';
+    b.aspiration = 'seekDao';
+    a.biography.milestones.push({ eventId: `EVT_${now.year}_${now.month}`, year: now.year, month: now.month, title: '结为道侣', realm: a.realm });
+    b.biography.milestones.push({ eventId: `EVT_${now.year}_${now.month}`, year: now.year, month: now.month, title: '结为道侣', realm: b.realm });
+    push(
+      {
+        key: 'social.couple',
+        vars: { npc: a.name, npc2: b.name },
+        involvedCharacterIds: [a.id, b.id],
+        locationId: a.locationId ?? b.locationId,
+      },
+      [a.id, b.id],
+    );
+  }
+
+  /** 子嗣降生：修仙以传承替代繁殖——世家子弟出山，继承父母血脉灵根与家学（面板因果，非机制特权） */
+  private spawnChild(parentA: NpcRecord, parentB: NpcRecord): NpcRecord {
+    this.npcCounter++;
+    const id = `NPC_${this.state.currentYear}_${this.state.currentMonth}_${this.npcCounter}`;
+    const gender: NpcRecord['gender'] = this.rng() < 0.5 ? 'Male' : 'Female';
+    const father = parentA.gender === 'Male' ? parentA : parentB;
+    const seed = Math.floor(this.rng() * 1_000_000);
+    // 子承父姓（百家姓同源），名由性别名库取；世界内去重（重名换种子重取）
+    let name = father.name[0]! + NPCGenerator.generateName(seed, gender).slice(1);
+    let nameGuard = 0;
+    while (this.usedNames.has(name) && nameGuard < 32) {
+      nameGuard++;
+      name = father.name[0]! + NPCGenerator.generateName(seed + nameGuard * 7919, gender).slice(1);
+    }
+    this.usedNames.add(name);
+    const changedAt = { year: this.state.currentYear, month: this.state.currentMonth };
+    const record: NpcRecord = {
+      id,
+      name,
+      gender,
+      personalityId: resolvePersonalityId(id),
+      origin: { type: '世家' },
+      // 世家子弟出身（因）：家学渊源（悟性/灵石起步高），tier 仍从零认定（果）
+      destiny: {
+        tier: 'common',
+        born: 'inherited',
+        luck: Math.round((parentA.attributes.luck + parentB.attributes.luck) / 2),
+        hidden: true,
+      },
+      realm: 'QiRefinement_1',
+      soulState: 'Active',
+      cultivation: { currentExp: 0, maxExp: 80 },
+      locationId: father.locationId,
+      factionId: father.factionId,
+      spiritRoot: {
+        grade: this.inheritRootGrade(parentA.spiritRoot.grade, parentB.spiritRoot.grade),
+        elements: this.inheritRootElements(parentA.spiritRoot, parentB.spiritRoot),
+        isVariant: this.rng() < 0.05,
+      },
+      attributes: {
+        physique: this.inheritAttribute(parentA.attributes.physique, parentB.attributes.physique),
+        comprehension: this.inheritAttribute(parentA.attributes.comprehension, parentB.attributes.comprehension),
+        perception: this.inheritAttribute(parentA.attributes.perception, parentB.attributes.perception),
+        agility: this.inheritAttribute(parentA.attributes.agility, parentB.attributes.agility),
+        luck: Math.round((parentA.attributes.luck + parentB.attributes.luck) / 2),
+        charm: this.inheritAttribute(parentA.attributes.charm, parentB.attributes.charm),
+      },
+      lifespan: { age: 16 + Math.floor(this.rng() * 5), maxLifespan: 100 },
+      skillIds: [],
+      // 家传底蕴（出生起点，面板因果）：世家子弟开局身家
+      spiritStones: 500,
+      birthYear: this.state.currentYear,
+      birthMonth: this.state.currentMonth,
+      parentIds: [parentA.id, parentB.id],
+      relations: {
+        [parentA.id]: { type: 'clan', bond: 80, trust: 70, events: ['血脉至亲'], changedAt },
+        [parentB.id]: { type: 'clan', bond: 80, trust: 70, events: ['血脉至亲'], changedAt },
+      },
+      biography: {
+        milestones: [{ eventId: `EVT_${this.state.currentYear}_${this.state.currentMonth}`, year: this.state.currentYear, month: this.state.currentMonth, title: '降世', realm: 'QiRefinement_1' }],
+        summary: '',
+      },
+      lastUpdate: { year: this.state.currentYear, month: this.state.currentMonth },
+    };
+    record.aspiration = rollInitialAspiration(record, this.rng);
+    parentA.childrenIds = [...(parentA.childrenIds ?? []), id];
+    parentB.childrenIds = [...(parentB.childrenIds ?? []), id];
+    return record;
+  }
+
+  /** 灵根品级继承（父母灵根好 → 子嗣资质好；3 成概率更进一品，面板因果） */
+  private inheritRootGrade(ga: SpiritRootGrade, gb: SpiritRootGrade): SpiritRootGrade {
+    const rank = (a: SpiritRootGrade): number => (a === 'Heaven' ? 4 : a === 'Earth' ? 3 : a === 'Profound' ? 2 : 1);
+    const avg = (rank(ga) + rank(gb)) / 2;
+    const gradeRank = Math.min(4, Math.max(1, Math.round(avg + (this.rng() < 0.3 ? 1 : 0))));
+    return (['Yellow', 'Profound', 'Earth', 'Heaven'] as const)[gradeRank - 1]!;
+  }
+
+  /** 灵根元素继承（父母元素池洗牌取 1-2 个，血脉延续） */
+  private inheritRootElements(a: SpiritRoot, b: SpiritRoot): SpiritRoot['elements'] {
+    const pool = [...new Set([...a.elements, ...b.elements])];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rng() * (i + 1));
+      [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+    }
+    const count = this.rng() < 0.4 ? 2 : 1;
+    return pool.slice(0, Math.min(count, pool.length)) as SpiritRoot['elements'];
+  }
+
+  /** 属性继承（父母均值 + 波动，血脉传承带随机性） */
+  private inheritAttribute(va: number, vb: number): number {
+    return Math.max(1, Math.round((va + vb) / 2 + (this.rng() * 8 - 4)));
+  }
+
+  /** 寻觅道统传人（悟性尚可、境界低于己、无师门者；同地优先，次选悟性最高——慧眼识珠） */
+  private findHeritageDisciple(master: NpcRecord): NpcRecord | undefined {
+    const candidates = Object.values(this.state.npcs).filter(
+      (c) =>
+        c.soulState === 'Active' &&
+        c.id !== master.id &&
+        c.attributes.comprehension >= 12 &&
+        realmTier(c.realm) < realmTier(master.realm) &&
+        !Object.values(c.relations).some((rel) => rel.type === 'master-disciple' && rel.direction === 'disciple'),
+    );
+    if (candidates.length === 0) return undefined;
+    const sameLoc = candidates.filter((c) => c.locationId === master.locationId);
+    const pool = sameLoc.length > 0 ? sameLoc : candidates;
+    return pool.sort((x, y) => y.attributes.comprehension - x.attributes.comprehension)[0];
+  }
+
+  /** 传道统：师祖→师→徒 跨世代继承同一道统；师父了却心愿转求道 */
+  private passHeritage(
+    master: NpcRecord,
+    disciple: NpcRecord,
+    now: { year: number; month: number },
+    push: (input: Omit<EmitInput, 'relatedTo'>, npcIds: string[]) => BigEventLog,
+  ): void {
+    const line = master.heritageLineId ?? `HL_${master.id}`;
+    master.heritageLineId = line;
+    disciple.heritageLineId = line;
+    const changedAt = { year: now.year, month: now.month };
+    master.relations[disciple.id] = { type: 'master-disciple', bond: 50, trust: 55, events: ['传下道统，衣钵相承'], changedAt, direction: 'master' };
+    disciple.relations[master.id] = { type: 'master-disciple', bond: 50, trust: 55, events: ['拜入道统'], changedAt, direction: 'disciple' };
+    master.aspiration = 'seekDao';
+    master.biography.milestones.push({ eventId: `EVT_${now.year}_${now.month}`, year: now.year, month: now.month, title: '传下道统', realm: master.realm });
+    push(
+      {
+        key: 'heritage.pass',
+        vars: { master: master.name, disciple: disciple.name },
+        involvedCharacterIds: [master.id, disciple.id],
+        locationId: master.locationId ?? disciple.locationId,
+      },
+      [master.id, disciple.id],
+    );
   }
 }
