@@ -4,7 +4,9 @@ import {
   samplePairs,
   socialEncounter,
   tryFeud,
+  tryJealousy,
 } from '../world/world-social-rules.js';
+import { affinityOpinionOffset } from '../world/affinity.js';
 
 function makeNpc(overrides: Partial<NpcRecord> = {}): NpcRecord {
   return {
@@ -61,22 +63,23 @@ describe('samplePairs', () => {
 });
 
 describe('socialEncounter', () => {
-  it('初识沉淀 friend 关系（双向 + bond/trust）', () => {
+  it('初识沉淀 friend 关系（双向 + bond/trust；叠加兼容性基底）', () => {
     const a = makeNpc();
     const b = makeNpc({ id: 'NPC_2', name: '散修·乙' });
-    const result = socialEncounter(a, b, now, seqRng([0.0, 0.0, 0.5])); // 相遇 → 初识 → bond 5+5=10
+    const result = socialEncounter(a, b, now, seqRng([0.0, 0.0, 0.5])); // 相遇 → 初识 → base 5+5=10 + 道缘偏移
     expect(result).toBeDefined();
     expect(result!.kind).toBe('meet');
 
+    const expectedBond = Math.max(-20, 10 + affinityOpinionOffset(a, b));
     const relA = a.relations['NPC_2']!;
     const relB = b.relations['NPC_1']!;
-    expect(relA.type).toBe('friend');
-    expect(relA.bond).toBe(10);
-    expect(relA.trust).toBe(25);
+    expect(relA.type).toBe(expectedBond > 0 ? 'friend' : 'rival');
+    expect(relA.bond).toBe(expectedBond);
+    expect(relA.trust).toBe(expectedBond > 0 ? 25 : 10);
     expect(relA.events).toContain('初识');
     expect(relA.changedAt).toEqual(now);
-    expect(relB.type).toBe('friend');
-    expect(relB.bond).toBe(10);
+    expect(relB.type).toBe(expectedBond > 0 ? 'friend' : 'rival');
+    expect(relB.bond).toBe(expectedBond);
   });
 
   it('结仇沉淀 enemy 关系（bond 为负）', () => {
@@ -128,7 +131,6 @@ describe('tryFeud（真实斗法）', () => {
     };
     return a;
   }
-
   const STRONG_ATTRS = {
     physique: 30, comprehension: 10, perception: 10, agility: 10, luck: 10, charm: 10,
   };
@@ -260,5 +262,54 @@ describe('tryFeud（真实斗法）', () => {
     expect(result.attackerWins).toBe(true); // 平局 → 先手微优
     expect(result.lethal).toBe(false);
     expect(target.soulState).toBe('Active'); // 不误杀
+  });
+});
+
+describe('tryJealousy（嫉妒追捧 §spec 3.3.2）', () => {
+  it('天才（天灵根）被嫉贤者嫉妒（bond 下降），温和者不主动生怨', () => {
+    const genius = makeNpc({
+      id: 'NPC_G',
+      realm: 'QiRefinement_3',
+      spiritRoot: { grade: 'Heaven', elements: ['Fire'], isVariant: false },
+    });
+    const jealous = makeNpc({ id: 'NPC_J', realm: 'QiRefinement_3', personalityId: 'PERSONALITY_JEALOUS' });
+    const normal = makeNpc({ id: 'NPC_N', realm: 'QiRefinement_3' });
+    // jealous: rng 0.0 < 0.5 → 嫉妒；normal: rng 0.9 >= 0.05 → 无敬仰无嫉妒
+    tryJealousy([jealous, normal], genius, now, seqRng([0.0, 0.9]));
+    // 嫉贤者生怨：bond 下降且事件沉淀
+    const relJ = jealous.relations['NPC_G'];
+    expect(relJ).toBeDefined();
+    expect(relJ!.type).toBe('rival');
+    expect(relJ!.bond).toBeLessThan(0);
+    expect(relJ!.events).toContain('心生嫉妒');
+    // 天才察觉敌意（双向）
+    const relG = genius.relations['NPC_J'];
+    expect(relG).toBeDefined();
+    expect(relG!.bond).toBeLessThan(0);
+    expect(relG!.events).toContain('察觉敌意');
+    // 温和者不主动嫉妒
+    expect(normal.relations['NPC_G']).toBeUndefined();
+  });
+
+  it('平庸者不嫉妒同级或更高资质者', () => {
+    const normal = makeNpc({ id: 'NPC_N', realm: 'QiRefinement_3' });
+    const fellowNormal = makeNpc({ id: 'NPC_F', realm: 'QiRefinement_3' });
+    tryJealousy([normal], fellowNormal, now, seqRng([0.0]));
+    expect(normal.relations['NPC_F']).toBeUndefined();
+  });
+
+  it('低资质对天才偶发敬仰（少部分人仰慕）', () => {
+    const genius = makeNpc({
+      id: 'NPC_G',
+      realm: 'QiRefinement_3',
+      spiritRoot: { grade: 'Heaven', elements: ['Fire'], isVariant: false },
+    });
+    const normal = makeNpc({ id: 'NPC_N', realm: 'QiRefinement_3' });
+    tryJealousy([normal], genius, now, seqRng([0.01])); // 0.01 < 0.05 → 敬仰
+    const rel = normal.relations['NPC_G'];
+    expect(rel).toBeDefined();
+    expect(rel!.type).toBe('friend');
+    expect(rel!.bond).toBeGreaterThan(0);
+    expect(rel!.events).toContain('心生敬仰');
   });
 });

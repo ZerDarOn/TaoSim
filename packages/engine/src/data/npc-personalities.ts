@@ -148,6 +148,18 @@ export const NPC_PERSONALITIES: NpcPersonality[] = [
     },
     relatedEventIds: ['EVT_EXP_ANCIENT_CAVE', 'EVT_CULT_RIVER_DAO'],
   },
+  {
+    id: 'PERSONALITY_JEALOUS',
+    name: '嫉贤妒能',
+    description: '见不得旁人比自己强，天资卓绝者尤受其妒，暗地里使绊子、传闲话。',
+    interactionModifiers: {
+      discussExpBonus: 0.1,
+      tradeDiscount: 0.05,
+      favorabilityGainBonus: 0.5,
+      initialFavorability: -10,
+    },
+    relatedEventIds: ['EVT_SOC_RIVAL_PROVOKE', 'EVT_COMBAT_EVIL_CULTIVATOR'],
+  },
 ];
 
 export const NPC_DIALOGUES: NpcDialogue[] = [
@@ -240,6 +252,15 @@ export const NPC_DIALOGUES: NpcDialogue[] = [
   { personalityId: 'PERSONALITY_RECLUSIVE', occasion: 'duel_lose', text: '……我输了。（微微颔首，转身欲走）' },
   { personalityId: 'PERSONALITY_RECLUSIVE', occasion: 'trade_start', text: '……这个，换那个。……要么？' },
   { personalityId: 'PERSONALITY_RECLUSIVE', occasion: 'gift', text: '……（接过，微微点头，转身离去，却记下了这份情）' },
+
+  // ---------- 嫉贤妒能 ----------
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'first_meet', text: '（上下打量你一眼，皮笑肉不笑）哟，道友年纪轻轻便有此修为，真是……好福气。' },
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'discuss', text: '呵，不过是拾人牙慧罢了。贫道也曾见过比你悟性更高的，最后还不是……（冷笑不语）' },
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'duel_start', text: '既然道友执意要打，那便休怪贫道不客气了。免得你以为，天资高些就能目中无人！' },
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'duel_win', text: '哼，也不过如此。天资再好，终究不是自己的本事！' },
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'duel_lose', text: '……今日之耻，贫道记下了。他日风水轮流转，莫怪贫道不讲情面！' },
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'trade_start', text: '要买什么？价钱嘛……（瞥你一眼）好东西自然贵，你这样的天骄，想必不缺这点灵石吧？' },
+  { personalityId: 'PERSONALITY_JEALOUS', occasion: 'gift', text: '哼，假惺惺地送什么礼。……既给了，贫道便收下，日后自有分晓。' },
 ];
 
 /**

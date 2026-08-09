@@ -4,7 +4,7 @@ import { NPCGenerator } from '../interaction/npc-generator.js';
 import { VENUE_CATALOG, getVenue, getVenuesByNode } from '../overworld/map-catalog.js';
 import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
-import { deriveNpcHexPos, npcHexPos } from '../overworld/npc-spatial.js';
+import { deriveNpcHexPos, npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -21,7 +21,7 @@ import {
   tryWander,
   tryWonder,
 } from './world-tick-rules.js';
-import { samplePairs, sectPowerDuel, socialEncounter, tryFeud } from './world-social-rules.js';
+import { samplePairs, sectPowerDuel, socialEncounter, tryFeud, tryJealousy, rootGradeWeight } from './world-social-rules.js';
 import {
   chooseBehavior,
   evolveAspiration,
@@ -1167,6 +1167,9 @@ export class WorldEngine {
     // 升格 NPC 下月才参与 NPC 循环，避免干扰本月主 rng 序列）
     this.tickAtmosphere();
 
+    // 嫉妒追捧（§spec 3.3.2）：同格高资质者招致嫉妒/敬仰（独立 rng，空间局部化 §spec 3.5）
+    this.tickJealousy();
+
     return { updatedState: this.getState(), events, npcPopulationChanged };
   }
 
@@ -1341,6 +1344,26 @@ export class WorldEngine {
         realm: record.realm,
       });
       this.state.npcs[record.id] = record;
+    }
+  }
+
+  /** 嫉妒追捧（§spec 3.3.2）：按格索引，同格低资质者对高资质天才产生 opinion 偏移（独立 rng，空间局部化 §spec 3.5） */
+  private tickJealousy(): void {
+    const grid = this.gridOf();
+    const now = { year: this.state.currentYear, month: this.state.currentMonth };
+    const jealRng = createSeededRng(this.state.currentYear * 977 + this.state.currentMonth * 31 + 19);
+    const index = npcSpatialIndex(this.state.npcs, grid);
+    for (const list of index.values()) {
+      if (list.length < 2) continue;
+      // 选资质最高者作为目标（若有玄级以上者才会触发内部判定）
+      let genius: NpcRecord | null = null;
+      for (const n of list) {
+        if (!genius || rootGradeWeight(n.spiritRoot.grade) > rootGradeWeight(genius.spiritRoot.grade)) {
+          genius = n;
+        }
+      }
+      if (!genius) continue;
+      tryJealousy(list, genius, now, jealRng);
     }
   }
 

@@ -5,11 +5,12 @@
 // 所有规则接受注入 rng；关系只沉淀进 NpcRecord.relations（事件沉淀型，不写死命运）。
 // ============================================================
 
-import type { Character, Item, NpcRecord, RelationEntry, RelationType } from '@taosim/contracts';
+import type { Character, Item, NpcRecord, RelationEntry, RelationType, SpiritRootGrade } from '@taosim/contracts';
 import type { Rng } from './world-tick-rules.js';
 import { realmTier, npcRecordToCharacter } from './npc-record-mapper.js';
 import { calculateDamage, type DamageSpec } from '../battle/damage-calculator.js';
 import { EquipmentManager } from '../equipment/equipment-manager.js';
+import { affinityOpinionOffset } from './affinity.js';
 
 export interface GameTime {
   year: number;
@@ -103,9 +104,11 @@ export function socialEncounter(
 
   const roll = rng();
   if (roll < 0.55) {
-    const bond = 5 + Math.floor(rng() * 11); // 5..15
-    applyRelation(a, b.id, 'friend', bond, '初识', now);
-    applyRelation(b, a.id, 'friend', bond, '初识', now);
+    const base = 5 + Math.floor(rng() * 11); // 5..15
+    // 兼容性基底（§spec 3.3.1）：道缘初识更投缘，魔缘初识有芥蒂
+    const bond = Math.max(-20, base + affinityOpinionOffset(a, b));
+    applyRelation(a, b.id, bond > 0 ? 'friend' : 'rival', bond, '初识', now);
+    applyRelation(b, a.id, bond > 0 ? 'friend' : 'rival', bond, '初识', now);
     return {
       kind: 'meet', templateKey: 'social.meet', bondDelta: bond, major: false,
     };
@@ -308,4 +311,46 @@ export function sectPowerDuel(challenger: NpcRecord, incumbent: NpcRecord, rng: 
   const attackerChar = ensureRealmWeapon(npcRecordToCharacter(challenger));
   const defenderChar = ensureRealmWeapon(npcRecordToCharacter(incumbent));
   return runFeudDuel(attackerChar, defenderChar, rng);
+}
+
+// ============================================================
+// 嫉妒追捧（§spec 3.3.2）：宗门社会化结构——天灵根招嫉、凡人仰慕
+// ============================================================
+
+/** 灵根资质权重（天>地>玄>黄；神品最高） */
+export function rootGradeWeight(grade: SpiritRootGrade): number {
+  switch (grade) {
+    case 'Heaven': return 4;
+    case 'Earth': return 3;
+    case 'Profound': return 2;
+    case 'Yellow': return 1;
+    default: return 0;
+  }
+}
+
+/**
+ * 嫉妒追捧：同场所低资质者对高资质天才产生 opinion 偏移。
+ * - 嫉妒：性格 jealous 者 rng < 0.5 → 心生嫉妒（-15，双向结怨）
+ * - 敬仰：其余人 rng < 0.05 → 心生敬仰（+8，少部分人仰慕）
+ * 消耗 rng：每名旁观者 1 次。
+ */
+export function tryJealousy(
+  bystanders: NpcRecord[],
+  target: NpcRecord,
+  now: GameTime,
+  rng: Rng,
+): void {
+  const targetW = rootGradeWeight(target.spiritRoot.grade);
+  if (targetW < 2) return; // 玄级以下不引人注目
+  for (const other of bystanders) {
+    if (other.id === target.id || other.soulState !== 'Active') continue;
+    if (rootGradeWeight(other.spiritRoot.grade) >= targetW) continue; // 同级/更高不嫉妒
+    if (other.personalityId === 'PERSONALITY_JEALOUS' && rng() < 0.5) {
+      applyRelation(other, target.id, 'rival', -15, '心生嫉妒', now);
+      applyRelation(target, other.id, 'rival', -5, '察觉敌意', now);
+    } else if (rng() < 0.05) {
+      // 少量敬仰（防止所有低资质都沉默）
+      applyRelation(other, target.id, 'friend', 8, '心生敬仰', now);
+    }
+  }
 }
