@@ -55,9 +55,9 @@
 
 ### 1.5 迁移建议
 
-- SavePayload v3→v4 迁移：删除 `activeNPCs` 字段
-- 迁移函数：`delete payload.activeNPCs`（无数据损失）
-- schemaVersion 3→4
+- SavePayload v3→v4：新存档停止写入该字段；旧 v3 多余字段可由结构化读取忽略
+- 若注册 v3→v4 迁移，版本由 `SaveMigrationRunner` 更新 `payload.header.schemaVersion`，不得写根级 `payload.schemaVersion`
+- 删除前必须新增真实的 v1/v2/v3→v4 迁移测试和新存档 round-trip 测试；当前仓库没有计划中声称的现成 save-load 测试
 
 ---
 
@@ -92,13 +92,12 @@
 | 根因 | **废弃契约 + 部分迁移**（原设计想存大世界拓扑，后被"静态 PRESET_MAP + playerMapState"方案取代） |
 | 权威性 | 非权威（PRESET_MAP 是权威；playerMapState 持有玩家状态） |
 | 恢复需求 | 无（PRESET_MAP 代码内嵌；playerMapState 独立持久化） |
-| 处置 | **删除字段**。未来若引入程序化生成的大陆，应存 `mapSeed` 而非完整地图 |
+| 处置 | **从当前 SavePayload 删除无效占位字段**。未来地图至少保存 `mapSeed + 世界地形/场所变更差量`；仅保存 seed 无法恢复被战斗、灾变或建设改写的世界 |
 
 ### 2.5 迁移建议
 
-- SavePayload v3→v4 迁移：删除 `overworldMap` 字段
-- 迁移函数：`delete payload.overworldMap`
-- 若未来引入随机大陆，新增 `mapSeed: number` 字段
+- 新 v4 存档停止写入 `overworldMap: { continents: [] }`；旧字段可忽略
+- 程序化地图引入时，在 WorldState 保存 `mapSeed`，并为非确定性地形/场所变化保存差量或权威状态
 
 ---
 
@@ -119,7 +118,7 @@ world-engine.ts 的死亡处理（宽限期 → Oblivion）：
 - 设 `record.deathYear` / `record.deathMonth`（world-engine.ts:1089-1090）
 - **然后 delete record**（world-engine.ts:1097-1100 `delete this.state.npcs[id]`）
 
-**问题**：死亡信息（deathYear/causeOfDeath/soulState=Oblivion）被写入后立即随 delete 丢失。
+**问题**：完整人物档案（亲缘、关系、传记、身份等）随 delete 丢失。eventLog 与 heritageSites 可能保留部分死亡事实或遗府，不能支持完整人物追溯、墓碑 re-hydrate 和后续因果查询。
 
 ### 3.3 与方案的冲突
 
@@ -132,20 +131,20 @@ world-engine.ts 的死亡处理（宽限期 → Oblivion）：
 | 根因 | **未实现功能**（GraveMarker 设计了但从未接入） |
 | 权威性 | 无权威（死亡信息随 delete 丢失） |
 | 恢复需求 | **需要**（编年史/传闻/遗府/夺舍都依赖死亡历史） |
-| 处置 | **保留字段 + 实现功能**。在 world-engine 死亡处理时构造 GraveMarker 并 push，停止 delete |
+| 处置 | **不把顶层 `graveyard` 继续当权威容器**。在 WorldState 建立历史实体档案；死亡时从活动 `npcs` 原子迁移到历史档案并生成死亡事实，GraveMarker 作为可重建查询投影 |
 
 ### 3.5 实现建议（不在本阶段执行，仅记录）
 
 ```
-world-engine 死亡处理改为：
-1. record.soulState = 'Oblivion'
-2. record.deathYear/Month = 当前
-3. graveyard.push({ id, name, realm, deathYear, deathMonth, causeOfDeath, factionId, locationId })
-4. record 保留在 state.npcs（标记 Oblivion，不参与 tick）
-   或移入独立的 state.historicalNpcs（减少活跃字典体积）
+world-engine 死亡处理目标：
+1. 在 WorldOutcome 中写入 soulState/deathYear/deathMonth/causeOfDeath 与死亡事实草案
+2. 从 `worldState.npcs` 移除活动档案
+3. 将完整 NpcRecord 写入 `worldState.archivedNpcs`（名称可在 ADR 中最终确定）
+4. GraveMarker 从 archivedNpcs + Fact Ledger 投影；若为查询性能持久化，也只能是非权威索引
+5. 活动人口补充只统计 `worldState.npcs`，历史人物不阻塞新生人口
 ```
 
-**决策点**：Oblivion 的 NPC 是保留在 `state.npcs`（soulState 过滤）还是分离到 `state.historicalNpcs`？前者简单但字典膨胀，后者干净但需改数据结构。**延后到 Phase 1 决策**。
+**判决**：选择活动档案与历史档案分离。事实不可删除不等于死者永久占用活动字典；否则会导致字典膨胀，并使当前“低于 800 补人口”的逻辑把死者计入人口。
 
 ---
 
@@ -172,26 +171,28 @@ world-engine 死亡处理改为：
 - 定义：save-system.ts:43
 - 写入：app.ts:95 永远 `{}`
 - 读取：loadGame 不读
-- MarketEngine.refreshMarket（market-engine.ts:10）每月确定性刷新库存
+- MarketEngine.refreshMarket（market-engine.ts:6）内部直接使用 `Math.random()`；同节点同月份不能确定性重建
 
 ### 5.2 权威性分析
 
-MarketInventory 由 `MarketEngine.refreshMarket(node, npcRecords, currentMonth, seed)` 按月确定性生成。同 seed + 同 npcRecords + 同 month = 同结果。
+当前签名是 `refreshMarket(node, currentMonth, playerLuck)`，没有 seed 参数；内部物品数量、稀有物品和 ItemFactory 都使用随机数。现有测试还明确验证“同一节点两次刷新产生不同内容”。因此它不是可重建缓存。
+
+当前 SavePayload 字段始终写 `{}`，所以它也没有承担真实库存权威。真实经济目标要求市场库存、物品来源和所有权进入世界状态，不能把随机刷新器称为权威来源。
 
 ### 5.3 判决
 
 | 维度 | 判定 |
 |------|------|
-| 根因 | **可重建缓存**（原设计想持久化坊市库存，后被确定性刷新取代） |
-| 权威性 | 非权威（MarketEngine 确定性生成是权威） |
-| 恢复需求 | 无（读档后按 currentMonth 重新 refresh 即可） |
-| 处置 | **删除字段**。需确认 refreshMarket 的 seed 是否持久化（若 seed 随机则需存 seed） |
+| 根因 | **未接入契约**（字段为空，运行时市场另用随机临时库存） |
+| 权威性 | 当前不存在持久化权威 |
+| 恢复需求 | 当前读档会随机重建并改变库存；这属于已知行为缺口，不是确定性恢复 |
+| 处置 | v4 可删除这个无效顶层占位，但必须另立真实经济迁移任务：将市场库存/所有权纳入 WorldState；不得宣称删除后可无损重建同一市场 |
 
 ### 5.4 验证点
 
-需确认 `MarketEngine.refreshMarket` 的 seed 来源：
-- 若 seed = 确定性函数（如 `hash(nodeId, currentMonth)`）→ 完全可重建，删字段安全
-- 若 seed = 随机 → 需额外持久化 seed
+已确认当前使用 `Math.random()`。后续有两条合法路线：
+- 真实库存：持久化库存、生产、购买和运输结果（符合总方案）；
+- 过渡方案：注入并持久化 seed，使同一月份可重建，但仍不能替代真实所有权模型。
 
 ---
 
@@ -234,9 +235,9 @@ MarketInventory 由 `MarketEngine.refreshMarket(node, npcRecords, currentMonth, 
 |------|----------|--------|----------|------|---------------|
 | `activeNPCs` | 废弃契约 | 非权威（可重建） | 无 | **删除** | v4 |
 | `overworldMap` | 废弃契约 + 部分迁移 | 非权威（PRESET_MAP） | 无 | **删除** | v4 |
-| `graveyard` | 未实现功能 | 无权威（delete 丢失） | **需要** | **保留 + 实现** | 不变 |
+| `graveyard` | 未实现投影 | 完整权威应在 WorldState 历史档案 + Fact Ledger | **需要** | 顶层字段迁移/删除；实现历史档案，墓碑作为投影 | v4/后续状态迁移 |
 | `factions` | 冗余投影 | 非权威（worldState 含） | 无 | **删除** | v4 |
-| `marketInventories` | 可重建缓存 | 非权威（确定性刷新） | 无（需验证 seed） | **删除** | v4 |
+| `marketInventories` | 未接入契约 | 当前无权威，运行时随机 | 当前无法恢复同一库存 | 删除无效占位；另建真实市场状态 | v4 |
 | `npcTradeOffers` | 未实现功能 | 无 | 未知 | **延后** | 不变 |
 | `playerMapState` | 正常字段 | **权威** | 需要 | **保留** | 不变 |
 
@@ -244,21 +245,20 @@ MarketInventory 由 `MarketEngine.refreshMarket(node, npcRecords, currentMonth, 
 
 ```typescript
 // save-system.ts 迁移函数
-function migrateV3ToV4(payload: any): any {
-  const { activeNPCs, overworldMap, factions, marketInventories, ...rest } = payload;
-  // 删除 4 个废弃/冗余字段
-  // 保留 graveyard（待实现）、npcTradeOffers（待实现）、playerMapState（正常）
-  return {
-    ...rest,
-    schemaVersion: 4,
-  };
+function migrateV3ToV4(payload: unknown): SavePayloadV4 {
+  const parsed = validateSavePayloadV3(payload);
+  const { activeNPCs, overworldMap, factions, marketInventories, graveyard, ...rest } = parsed;
+  // 旧字段当前为空/冗余；历史人物与真实市场数据将在 WorldState 专用迁移中引入。
+  return rest;
 }
 ```
+
+`SaveMigrationRunner` 会在迁移函数成功返回后更新 `payload.header.schemaVersion`。迁移函数不得写根级 `schemaVersion`。旧存档额外字段也可以选择只忽略、不物理删除；关键是新 v4 契约和写入路径不再制造伪权威字段。
 
 **数据损失评估**：
 - activeNPCs：无（永远空）
 - overworldMap：无（永远空）
 - factions：无（worldState.factions 有备份）
-- marketInventories：无（永远空，MarketEngine 可重建）
+- marketInventories：旧字段永远空，所以删除占位本身不丢已有数据；但 MarketEngine **不可确定性重建同一库存**，当前市场跨读档变化仍是独立缺陷
 
-**风险评估**：**零风险**——四个被删字段要么永远空，要么有 worldState 备份。
+**风险评估**：**低风险但非零风险**。必须覆盖 v1/v2/v3→v4 迁移链、旧字段容忍、新存档 round-trip、损坏存档验证，以及应用硬编码 schemaVersion 的同步修改。仓库当前没有可直接复用的 save-load/migration 测试，需先补测试再改契约。

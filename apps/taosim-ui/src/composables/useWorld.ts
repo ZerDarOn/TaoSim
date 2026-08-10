@@ -70,7 +70,7 @@ export function useWorld() {
    * 推进时间 — 统一入口
    *
    * @param months  月数
-   * @param mode    World=世界同步运转, Isolated=仅玩家
+   * @param mode    World=世界同步运转（正式玩法唯一模式）; Isolated 已禁止正式调用
    * @param opts    实时推进选项（autoSave=false：跳过铁人自动存档）
    */
   async function advanceTime(
@@ -80,6 +80,11 @@ export function useWorld() {
   ): Promise<{ months: number; expGained: number; died: boolean; causeOfDeath?: string }> {
     if (!appStore.currentWorldState || !playerStore.character) {
       return { months: 0, expGained: 0, died: false };
+    }
+
+    // P1：正式玩法禁止调用 Isolated 时间（红线 #8）
+    if (mode === 'Isolated') {
+      throw new Error('[useWorld] 正式玩法禁止调用 Isolated 时间模式。所有时间推进必须通过 World 模式。');
     }
 
     globalState.advancing = true;
@@ -170,10 +175,34 @@ export function useWorld() {
     return advanceTime(1, 'World');
   }
 
-  /** 闭关（隔离模式）：暂停实时演算 */
+  /**
+   * 玩家快进：暂停实时计时器后，让玩家与整个世界共同推进。
+   *
+   * 闭关只表示玩家暂时不接收常规操作，不表示世界停止演化；
+   * Isolated 仅保留给预览、测试等明确不应改动世界状态的内部场景。
+   */
   async function fastForward(months: number) {
     stopRealtime();
-    return advanceTime(months, 'Isolated');
+    return advanceTime(months, 'World');
+  }
+
+  /**
+   * P1：旅行/移动推进时间——玩家与整个世界共同推进。
+   *
+   * 替代旧 playerStore.advanceTime(days) 只推进玩家的隔离路径。
+   * 天数转月数后调用统一 advanceTime(World 模式)。
+   */
+  async function travelAdvanceDays(days: number): Promise<{ died: boolean; causeOfDeath?: string }> {
+    // 天数 → 月数（30 天/月）
+    const months = days / 30;
+    if (months < 1) {
+      // 不足 1 月：推进世界到足月边界
+      // 用 World 模式推进 1 月（世界与玩家都走）
+      const result = await advanceTime(1, 'World');
+      return { died: result.died, causeOfDeath: result.causeOfDeath };
+    }
+    const result = await advanceTime(Math.ceil(months), 'World');
+    return { died: result.died, causeOfDeath: result.causeOfDeath };
   }
 
   /**
@@ -187,5 +216,5 @@ export function useWorld() {
     realtimeTimer = setInterval(tickRealtime, 250);
   }
 
-  return { state: globalState, advanceMonth, advanceTime, fastForward, setRealtimeSpeed, stopRealtime };
+  return { state: globalState, advanceMonth, advanceTime, fastForward, travelAdvanceDays, setRealtimeSpeed, stopRealtime };
 }

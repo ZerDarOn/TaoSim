@@ -1,10 +1,12 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker } from '@taosim/contracts';
+import { parseRealm } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { VENUE_CATALOG, getVenue, getVenuesByNode } from '../overworld/map-catalog.js';
 import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
 import { deriveNpcHexPos, npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
+import { generateInitialMind, tickNpcMind } from './npc-mind.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -12,6 +14,7 @@ import { characterToNpcRecord, realmTier } from './npc-record-mapper.js';
 import { resolvePersonalityId } from '../data/npc-personalities.js';
 import { EventCollector } from './event-collector.js';
 import type { EmitInput } from './event-collector.js';
+import { projectTime, elapsedFromYearMonth, MINUTES_PER_MONTH } from '../time/world-clock.js';
 import { rollWorldEvent } from '../time/calendar-event-scheduler.js';
 import type { Rng } from './world-tick-rules.js';
 import {
@@ -100,6 +103,26 @@ const ERA_DESC: Record<WorldEra, string> = {
   warring: '群雄并起，战火连绵，大争之世',
   cataclysm: '天地大变，灵气紊乱，量劫将至',
 };
+
+/**
+ * 从 NpcRecord 构造墓碑投影（用于存档 graveyard 字段）。
+ * GraveMarker 是查询投影——权威数据源在 archivedNpcs。
+ */
+function toGraveMarker(record: NpcRecord): GraveMarker {
+  const realmType = parseRealm(record.realm).realmType ?? 'LianQi';
+  return {
+    characterId: record.id,
+    name: record.name,
+    deathAge: Math.floor(record.lifespan.age),
+    deathYear: record.deathYear ?? 0,
+    causeOfDeath: record.causeOfDeath ?? 'unknown',
+    realmAtDeath: realmType,
+    relationHooks: Object.entries(record.relations).map(([targetId, entry]) => ({
+      targetId,
+      relationType: entry.type,
+    })),
+  };
+}
 
 /** 散修拜入宗门概率（身处宗门驻地或出身宗门，§2.2 社会轨道） */
 export const JOIN_SECT_CHANCE = 0.04;
@@ -236,6 +259,11 @@ export class WorldEngine {
 
   /** 推进一个月，返回更新后的状态与事件列表 */
   public step(): MonthlyTickResult {
+    return this.stepInternal(false);
+  }
+
+  /** 内部推进逻辑；skipStateCopy=true 时跳过末尾深拷贝（快进优化） */
+  private stepInternal(skipStateCopy: boolean): MonthlyTickResult {
     this.advanceCalendar();
 
     // 区域灵气潮汐（生态与地形因果 §4.9：春生夏长、秋收冬藏 — 确定性，零 rng 消耗）
@@ -515,6 +543,15 @@ export class WorldEngine {
           );
         }
       }
+
+      // P4：NPC Mind 月度调度——更新需求/目标/下一步行动
+      const mindNow = { year: this.state.currentYear, month: this.state.currentMonth };
+      if (!npc.mind) {
+        npc.mind = generateInitialMind(npc);
+      }
+      const mindResult = tickNpcMind(npc, npc.mind, mindNow);
+      npc.mind = mindResult.mind;
+      // TODO：mind 产出行动描述后接入事实/事件流（P7+）
     }
 
     // 2. 社交相遇 + 寻仇（同地点/云游配对，关系轨道 §4.3/§4.4 — 阶段 1b）
@@ -1097,7 +1134,8 @@ export class WorldEngine {
         const gone = this.state.npcs[id];
         // 名字归还天下（记忆消散，后人可再取此名——代际复用，避免名字库枯竭）
         if (gone) this.usedNames.delete(gone.name);
-        delete this.state.npcs[id];
+        // 实体退出活动世界，但人物历史不能被删除——迁入 archivedNpcs
+        this.archiveNpc(id);
         this.lastEventByNpc.delete(id);
         this.majorCountByNpc.delete(id);
       }
@@ -1118,9 +1156,17 @@ export class WorldEngine {
         const npc = this.spawnWildCultivator();
         this.state.npcs[npc.id] = npc;
         npcPopulationChanged = true;
-        events.push(
-          collector.emit({ key: 'world.spawn', vars: { npc: npc.name }, involvedCharacterIds: [npc.id] }),
-        );
+        // 普通修士入世只是人口事实，不占用玩家的事件流。
+        // 仅特殊先天、变异灵根或天灵根会伴随值得关注的异象。
+        const hasNotableBirth =
+          npc.destiny.born !== 'mortal'
+          || npc.spiritRoot.isVariant
+          || npc.spiritRoot.grade === 'Heaven';
+        if (hasNotableBirth) {
+          events.push(
+            collector.emit({ key: 'world.spawn', vars: { npc: npc.name }, involvedCharacterIds: [npc.id] }),
+          );
+        }
       }
     }
 
@@ -1170,23 +1216,67 @@ export class WorldEngine {
     // 嫉妒追捧（§spec 3.3.2）：同格高资质者招致嫉妒/敬仰（独立 rng，空间局部化 §spec 3.5）
     this.tickJealousy();
 
-    return { updatedState: this.getState(), events, npcPopulationChanged };
+    // 快进模式跳过深拷贝——调用方通过 fastForward 在循环结束后统一 getState()
+    const updatedState = skipStateCopy ? this.state : this.getState();
+    return { updatedState, events, npcPopulationChanged };
   }
 
-  /** 快速推进 N 个月（闭关），返回摘要 */
-  public fastForward(months: number): { events: BigEventLog[]; progress: number } {
+  /**
+   * 快速推进 N 个月（闭关/快进），返回摘要。
+   *
+   * P1 增强：
+   * - elapsedMinutes 由 advanceCalendar 自动维护
+   * - 支持 options.shouldContinue 回调实现可中断快进
+   */
+  public fastForward(
+    months: number,
+    options?: { shouldContinue?: () => boolean },
+  ): { events: BigEventLog[]; progress: number; interrupted?: boolean } {
     const events: BigEventLog[] = [];
+    let completedMonths = 0;
+
     for (let i = 0; i < months; i++) {
-      const result = this.step();
+      // 可中断检查
+      if (options?.shouldContinue && !options.shouldContinue()) {
+        break;
+      }
+      const result = this.stepInternal(true);
       events.push(...result.events);
+      completedMonths++;
     }
-    return { events, progress: 1.0 };
+
+    const interrupted = completedMonths < months;
+    const progress = completedMonths / months;
+    return { events, progress, interrupted: interrupted || undefined };
+  }
+
+  /**
+   * 将 NPC 从活动字典迁入历史档案。
+   * 实体可以退出活动世界，但人物历史不能被删除（架构规范 §4.3）。
+   */
+  private archiveNpc(id: string): void {
+    const record = this.state.npcs[id];
+    if (!record) return;
+
+    // 迁入历史档案
+    if (!this.state.archivedNpcs) this.state.archivedNpcs = {};
+    this.state.archivedNpcs[id] = record;
+
+    // 从活动字典移除
+    delete this.state.npcs[id];
+  }
+
+  /** 获取全部墓碑投影（从 archivedNpcs 生成；GraveMarker 是非权威查询投影） */
+  public getGraveyard(): GraveMarker[] {
+    const archived = this.state.archivedNpcs ?? {};
+    return Object.values(archived).map(toGraveMarker);
   }
 
   public getState(): WorldState {
     return {
       ...this.state,
       npcs: { ...this.state.npcs },
+      archivedNpcs: this.state.archivedNpcs ? { ...this.state.archivedNpcs } : undefined,
       eventLog: [...this.state.eventLog],
       factions: this.state.factions ? { ...this.state.factions } : undefined,
       heritageSites: this.state.heritageSites ? { ...this.state.heritageSites } : undefined,
@@ -1195,6 +1285,12 @@ export class WorldEngine {
   }
 
   private advanceCalendar(): void {
+    // P1：先从旧年月初始化 elapsedMinutes（如果还没有），再加一个月
+    if (this.state.elapsedMinutes === undefined) {
+      this.state.elapsedMinutes = elapsedFromYearMonth(this.state.currentYear, this.state.currentMonth);
+    }
+    this.state.elapsedMinutes += MINUTES_PER_MONTH;
+
     this.state.currentMonth++;
     if (this.state.currentMonth > 12) {
       this.state.currentMonth = 1;
@@ -1203,6 +1299,18 @@ export class WorldEngine {
     if (this.state.catastropheCountdownMonths > 0) {
       this.state.catastropheCountdownMonths--;
     }
+  }
+
+  /**
+   * P1：设置权威绝对时间，并同步年/月投影。
+   * WorldClockService 在跨月推进后调用此方法写回 elapsedMinutes。
+   */
+  public setElapsedMinutes(minutes: number): void {
+    this.state.elapsedMinutes = minutes;
+    // 同步年月投影
+    const t = projectTime(minutes);
+    this.state.currentYear = t.year;
+    this.state.currentMonth = t.month;
   }
 
   /** 生成一个散修 NPC 并归档为 NpcRecord（境界分布：炼气为主、少量筑基/金丹；rng 可注入） */

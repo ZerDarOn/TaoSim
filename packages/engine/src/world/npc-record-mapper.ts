@@ -8,6 +8,7 @@
 import type { Character, CharacterRelation, Item, NpcRecord, RelationEntry } from '@taosim/contracts';
 import { SKILL_REGISTRY } from '../data/skill-registry.js';
 import { EquipmentManager } from '../equipment/equipment-manager.js';
+import { computeDerivedStats } from '../character/derived-stats.js';
 
 /** 按境界档位推导 tier（1-5），用于数值换算 */
 export function realmTier(realm: string): number {
@@ -138,8 +139,16 @@ function combatGearToItems(rec: NpcRecord): Character['equipmentSlots'] {
 /** 展开：NpcRecord → 完整 Character（战斗/交互所需，按需调用） */
 export function npcRecordToCharacter(rec: NpcRecord): Character {
   const tier = realmTier(rec.realm);
-  const maxHp = 100 + tier * 80 + rec.attributes.physique * 5;
-  const maxSpiritEnergy = 100 + tier * 50;
+  // P2：使用统一派生属性计算（取代散落的魔法数字）
+  const derived = computeDerivedStats({
+    realm: rec.realm,
+    attributes: rec.attributes,
+    spiritRoot: rec.spiritRoot,
+    age: rec.lifespan.age,
+    maxLifespan: rec.lifespan.maxLifespan,
+  });
+  const maxHp = derived.maxHp;
+  const maxSpiritEnergy = derived.maxSpiritEnergy;
   const skills = rec.skillIds
     .map(id => SKILL_REGISTRY.find(s => s.id === id))
     .filter((s): s is NonNullable<typeof s> => s !== undefined);

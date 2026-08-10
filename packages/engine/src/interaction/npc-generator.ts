@@ -2,6 +2,7 @@ import type { Character, RealmFullPath, Skill, SkillQuality, SpiritRoot, SpiritR
 import { resolvePersonalityId } from '../data/npc-personalities.js';
 import { SKILL_REGISTRY } from '../data/skill-registry.js';
 import { ItemFactory } from '../market/item-factory.js';
+import { computeDerivedStats } from '../character/derived-stats.js';
 
 function seededRandom(seed: number): () => number {
   let s = seed;
@@ -120,8 +121,6 @@ export class NPCGenerator {
       charm: 3 + tier + Math.floor(rand() * (8 + tier)),
     };
 
-    const baseHp = 100 + tier * 80 + attributes.physique * 5;
-
     // 灵根：品级随境界，五行 1-2 属，小概率变异（变异为单属性雷/冰/风/暗）
     const gradeTable = GRADE_TABLE[tier] ?? GRADE_TABLE[1] ?? [];
     const grade = gradeTable[Math.floor(rand() * 10)] ?? 'Yellow';
@@ -130,6 +129,15 @@ export class NPCGenerator {
     const elementPool = isVariant ? VARIANT_ELEMENTS : FIVE_ELEMENTS;
     const elements = shuffle([...elementPool], rand).slice(0, Math.min(elementCount, elementPool.length)) as SpiritRoot['elements'];
     const spiritRoot: SpiritRoot = { grade, elements, isVariant };
+
+    // P2：使用统一派生属性计算 HP（取代魔法数字）
+    const baseHp = computeDerivedStats({
+      realm: 'QiRefinement_1', // NPC 生成时按最低修士境界算
+      attributes,
+      spiritRoot,
+      age: 20 + Math.floor(rand() * 30),
+      maxLifespan: 100,
+    }).maxHp;
 
     // 技能：按境界品质池挑 1-2 个（40% 概率带第二个）
     const qualityPool = SKILL_QUALITY_POOL[tier] ?? SKILL_QUALITY_POOL[1] ?? [];

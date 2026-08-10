@@ -13,6 +13,10 @@ export interface BattleConfig {
   type: 'duel' | 'encounter';
   title: string;
   description: string;
+  /** S5：敌人来源 NPC 的稳定 ID（如提供，战后回写到 worldState.npcs） */
+  enemyNpcId?: string;
+  /** S5：战斗场景 ID（幂等键基础） */
+  sceneId?: string;
 }
 
 export const useUiStore = defineStore('ui', () => {

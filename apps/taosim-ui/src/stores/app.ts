@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
-import type { WorldState, SavePayload, SaveHeader } from '@taosim/contracts';
+import type { WorldState, SavePayload, SaveHeader, GraveMarker } from '@taosim/contracts';
+import { parseRealm } from '@taosim/contracts';
 import { WorldEngine, generateLegendaryNpcs } from '@taosim/engine';
 import { IndexedDBStorageAdapter, MigrationService } from '@taosim/persistence';
 import { usePlayerStore } from '@/stores/player';
@@ -76,7 +77,7 @@ export const useAppStore = defineStore('app', {
       const payload: SavePayload = {
         header: {
           saveId: `save_${Date.now()}`,
-          schemaVersion: 3,
+          schemaVersion: 5,
           gameVersion: '0.2.0',
           timestamp: Date.now(),
           playTimeMonths: (this.currentWorldState.currentYear - 1) * 12 + this.currentWorldState.currentMonth - 1,
@@ -88,12 +89,20 @@ export const useAppStore = defineStore('app', {
         },
         worldState: toPlain(this.currentWorldState),
         player: toPlain(player),
-        activeNPCs: {},
-        factions: toPlain(this.currentWorldState.factions ?? {}),
-        overworldMap: { continents: [] },
-        graveyard: [],
-        marketInventories: {},
-        npcTradeOffers: {},
+        // v4：废弃字段不再写入（activeNPCs/overworldMap/factions/marketInventories/npcTradeOffers）
+        // 墓碑投影从 worldState.archivedNpcs 生成（GraveMarker 是非权威查询投影）
+        graveyard: Object.values(this.currentWorldState.archivedNpcs ?? {}).map<GraveMarker>((r) => ({
+          characterId: r.id,
+          name: r.name,
+          deathAge: Math.floor(r.lifespan.age),
+          deathYear: r.deathYear ?? 0,
+          causeOfDeath: r.causeOfDeath ?? 'unknown',
+          realmAtDeath: parseRealm(r.realm).realmType ?? 'LianQi',
+          relationHooks: Object.entries(r.relations).map(([targetId, entry]) => ({
+            targetId,
+            relationType: entry.type,
+          })),
+        })),
         // 玩家地图进度：层级/位置/已探索六边形
         playerMapState: toPlain(mapStore.state),
       };

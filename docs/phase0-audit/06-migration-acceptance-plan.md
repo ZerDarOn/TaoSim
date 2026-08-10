@@ -1,263 +1,248 @@
-# Phase 0 Task 6：迁移与验收计划
+# Phase 0 Task 6：迁移与验收计划（修订版）
 
 > 审计日期：2026-08-10
+> 修订日期：2026-08-10
 > 归属：[统一修仙世界模拟架构方案](../systemic-cultivation-world-blueprint.md) Phase 0
-> 综合：Task 1-5 全部审计发现
-> 权限：本任务只做计划，不修改运行时代码
+> 综合：Task 1-5 审计发现及正式质量门复核
+> 权限：本文定义实施顺序，不代表自动授权修改运行时代码
 
-## 一、缺陷优先级（基于 Task 1-5 证据）
+## 一、质量门修正
 
-### P0：阻塞统一世界底座（必须最先修）
+原计划的取证结论总体成立，但以下实施假设已被复核推翻，禁止继续沿用：
 
-| 编号 | 缺陷 | 证据 | 阻塞什么 |
-|------|------|------|----------|
-| **F-4** | UI 战斗与世界 NPC 完全断流 | Task 1 §D8（MapPanel.vue:375 临时生成） | 玩家永远遇不到世界 NPC |
-| **F-7** | 玩家与世界无稳定身份关联 | Task 1 §A2（玩家无 NpcRecord） | 关系网/社交/寻仇对玩家无效 |
-| **F-6** | 战斗结果无差量回写 | Task 1 §D9 + Task 3 | 战斗不影响世界 |
+1. S0 不是“零风险”：仓库没有现成 save-load/migration 测试，迁移版本位于 `payload.header.schemaVersion`；
+2. `MarketEngine.refreshMarket` 使用 `Math.random()`，不是可确定性重建缓存；
+3. 单记录 `applyOutcome(record, delta)` 不是世界级原子事务；
+4. NPC 战利品不能只记日志而不改变所有权；
+5. 事实不可删除不等于死者永久保留在活动 `state.npcs`；
+6. NPC 不必持久化逐点 HP，但必须有跨场景伤势、毒素和恢复状态；
+7. 新 BattleEngine 的 UseSkill 必须包含完整原子解释，不能只添加命令枚举；
+8. 结算协议必须在 UI 切换前统一，旧引擎只能在稳定验收后单独删除；
+9. 渡劫 V1 只验证最小世界闭环，观劫者和地形破坏属于 V2 扩展。
 
-### P1：结构性债务（Phase 1 必须处理）
+## 二、缺陷与决策优先级
 
-| 编号 | 缺陷 | 证据 |
-|------|------|------|
-| **F-5** | BattleState/BattleUnit/BattleDelta 契约未用 | Task 1 + Task 5 |
-| **F-8/F-9** | 转换器有损 | Task 2（relations/hatred/jealousy/trust/events 丢失） |
-| **F-3** | graveyard 未实现（delete NPC 丢历史） | Task 4 |
-| **BE-1** | 双引擎并存（旧外壳 + 新内核缝合） | Task 5 |
+### P0：阻塞统一世界闭环
 
-### P2：清理债务（Phase 2 可批量处理）
+| 编号 | 问题 | 必须先冻结的决定 |
+|---|---|---|
+| F-4 | UI 遭遇/战斗使用临时 NPC，与世界档案断流 | 真实 NPC 选择、场景投影和结果回写路径 |
+| F-7 | 玩家未注册为世界可解析的稳定参与者 | EntityId + EntityDirectory；玩家仍由 Character 权威持有 |
+| SOCIAL-1 | 玩家与 NPC 使用不同关系结构且转换有损 | 共享社交契约或无损适配边界 |
+| CONDITION-1 | NPC 无跨场景伤势/毒素/恢复状态 | PersistentCondition 轻量长期状态 |
+| ASSET-1 | NPC 无重要物品所有权 | 稳定资产 ID + 所有者/持有者引用 |
+| F-6 | 战斗结果没有跨实体原子提交 | WorldOutcome + commitWorldOutcome + 持久化幂等 |
 
-| 编号 | 缺陷 | 证据 |
-|------|------|------|
-| **F-1** | activeNPCs 死字段 | Task 4 |
-| **F-2** | overworldMap 死字段 | Task 4 |
-| **F-10** | factions 冗余 | Task 4 |
-| **F-11** | marketInventories 死字段 | Task 4 |
+### P1：执行层收敛
 
-## 二、实施依赖图
+| 编号 | 问题 | 目标 |
+|---|---|---|
+| F-5/BE-1 | 双战斗引擎混合且新引擎不完整 | 新 BattleEngine 成为唯一战斗状态写入者 |
+| ATOM-1 | 原子配置存在但解释器不完整 | 五类原子、资源、冷却、目标和组合合法性统一执行 |
+| F-3 | 死亡实体无完整历史归档 | activeNpcs → archivedNpcs + Fact Ledger + GraveMarker 投影 |
+| SAVE-1 | SavePayload 含多个无效/冗余字段 | 经过测试的 v3→v4 兼容清理 |
 
+## 三、实施依赖图
+
+```text
+S0 存档兼容基线与低风险清理
+│
+├──────────────────────────────────────────────┐
+│                                              │
+▼                                              ▼
+S1 共享领域契约                           S6 新战斗引擎补齐
+EntityId / EntityDirectory                  命令 + 原子解释 + AI
+SocialState / PersistentCondition           + 移动/逃跑 + 结果适配
+AssetOwnership / ArchivedNpc                      │
+WorldTime / LocationRef / Fact                     │
+│                                                   │
+▼                                                   │
+S2 场景投影 expandForScene                          │
+│                                                   │
+▼                                                   │
+S3 WorldOutcome 世界事务                            │
+跨实体校验 / 原子提交 / 持久化幂等 / Fact           │
+│                                                   │
+├───────────────┐                                   │
+▼               ▼                                   │
+S4 生命周期归档  S5 现有战斗链接入真实世界 NPC       │
+死亡→历史档案   尽早修复 F-4，不等待新引擎           │
+墓碑/遗府/事实          │                            │
+                        └──────────────┬─────────────┘
+                                       ▼
+                               S7 新引擎 UI 切换与稳定验收
+                               保留 legacy 回滚，不立即删除
+                                       │
+                                       ▼
+                               S8 渡劫 V1 最小世界闭环
+                                       │
+                                       ▼
+                               后续：legacy 清理 + 渡劫 V2
 ```
-                    ┌──────────────────────────┐
-                    │   S0: 存档清理 v3→v4     │
-                    │   (删 4 个死字段)         │
-                    │   [零风险, 独立]          │
-                    └────────────┬─────────────┘
-                                 │
-                    ┌────────────▼─────────────┐
-                    │   S1: 玩家稳定身份        │
-                    │   (不预设 NpcRecord 方案)  │
-                    │   [F-7]                   │
-                    └────────────┬─────────────┘
-                                 │
-              ┌──────────────────┼──────────────────┐
-              │                  │                  │
-    ┌─────────▼────────┐ ┌──────▼───────┐ ┌───────▼────────┐
-    │ S2: expandForScene│ │ S3: 引擎补齐 │ │ S4: graveyard  │
-    │ (NPC 进战斗)      │ │ (UseSkill等) │ │ (停止 delete)   │
-    │ [F-4]             │ │ [F-5/BE-1]   │ │ [F-3]          │
-    └─────────┬────────┘ └──────┬───────┘ └────────────────┘
-              │                  │
-              │         ┌────────▼────────┐
-              │         │ S5: BattleDelta │
-              │         │ (差量结算)       │
-              │         │ [F-6]           │
-              │         └────────┬────────┘
-              │                  │
-    ┌─────────▼──────────────────▼────────┐
-    │   S6: UI 遭遇战接入世界 NPC          │
-    │   (expandForScene + applyOutcome)    │
-    │   [F-4 + F-6 联合]                   │
-    └─────────────────────┬───────────────┘
-                          │
-    ┌─────────────────────▼───────────────┐
-    │   S7: 引擎收敛（切换到 BattleEngine） │
-    │   [F-5/BE-1 最终]                    │
-    └─────────────────────┬───────────────┘
-                          │
-    ┌─────────────────────▼───────────────┐
-    │   S8: 垂直切片（带世界回写的渡劫）    │
-    └─────────────────────────────────────┘
-```
 
-## 三、各步骤详情
+S0 不阻塞 S1/S6 的设计和测试准备，但任何存档契约写入都必须建立在 S0 的迁移基线上。S5 有意早于 S7：先证明世界 NPC 能进入现有战斗并原子回写，再替换战斗引擎，避免把两个高风险迁移绑成一次故障。
 
-### S0：存档清理 v3→v4
+## 四、各步骤详情
+
+### S0：存档兼容基线与清理
 
 | 维度 | 内容 |
-|------|------|
-| **目标** | 删除 activeNPCs/overworldMap/factions/marketInventories 四个死字段 |
-| **依赖** | 无 |
-| **风险** | 零（四个字段要么永远空，要么有 worldState 备份） |
-| **测试对** | 现有 save-load.test.ts 全绿；新增 v3→v4 迁移测试 |
-| **回滚点** | git commit（迁移函数可逆） |
-| **工作量** | 改 save-system.ts 迁移链 + app.ts saveGame/loadGame |
+|---|---|
+| 目标 | 建立真实迁移测试；新存档停止写入 activeNPCs/overworldMap/factions/marketInventories 等伪权威占位 |
+| 风险 | **低但非零**：迁移链、硬编码版本、旧字段容忍和损坏输入均可能出错 |
+| 必做测试 | v1/v2/v3→v4；新 v4 round-trip；旧字段额外存在；缺字段默认；损坏 header 拒绝或明确报错 |
+| 迁移规则 | 版本只写 `header.schemaVersion`；旧多余字段可忽略，无需破坏性 delete |
+| 市场说明 | 删除空占位不丢已有数据，但当前随机市场仍不可跨读档恢复；真实市场状态另行进入 WorldState |
+| 回滚 | 保留 v3 读取兼容；迁移与新写入格式单独提交 |
 
-### S1：玩家稳定身份
-
-| 维度 | 内容 |
-|------|------|
-| **目标** | 让世界 NPC 能以稳定 ID 引用玩家（不预设必须建 NpcRecord） |
-| **依赖** | 无 |
-| **决策点** | 方案 A：玩家建 NpcRecord（简单但双份权威风险）；方案 B：玩家保持 Character 但世界引擎用稳定 playerId 引用（无双份但 relations 类型不统一）；方案 C：引入 EntityId 抽象层（NpcRecord 和 Character 都注册到统一 id 索引） |
-| **推荐** | **方案 C**（不预设合并类型，但统一 id 查询） |
-| **测试对** | NPC relations 能含 playerId；世界引擎能感知玩家存在 |
-| **回滚点** | git commit |
-
-### S2：expandForScene
+### S1：共享领域契约
 
 | 维度 | 内容 |
-|------|------|
-| **目标** | 包装 npcRecordToCharacter 为 expandForScene，增加 sceneType 参数 |
-| **依赖** | S1（需要稳定 id） |
-| **修改** | npc-record-mapper.ts 增加 sceneType；技能查不到时 warn |
-| **测试对** | npc-record-mapper.test.ts 扩展；expandForScene 两次调用结果一致（INV-5.1） |
-| **回滚点** | git commit |
-| **注意** | 暴击/闪避等战斗数值在投影上校准——不在 NpcRecord 层校准 |
+|---|---|
+| EntityId | 玩家、NPC、组织、地点和重要资产使用稳定 ID；关系可引用玩家而不要求玩家拥有 NpcRecord |
+| EntityDirectory | 通过 ID 解析权威持有者与只读世界视图；玩家 Character 仍是唯一玩家权威，NPC 由 NpcRecord 权威持有 |
+| SocialState | 统一 bond/trust/hatred/jealousy/type/events/changedAt 的权威语义；至少保证玩家与 NPC 间无有损转换 |
+| PersistentCondition | 伤势等级、毒素、经脉损伤、恢复截止时间等；不要求 NPC 持久化逐点战斗 HP |
+| AssetOwnership | 重要物品稳定实例与所有者；普通消耗品可按价值/类别聚合 |
+| ArchivedNpc | 历史人物完整档案进入 WorldState，不占用活动人口集合 |
+| WorldTime | 唯一持久化时间与 `elapsedMinutes` 推进入口；旧年月字段只做兼容投影 |
+| LocationRef | 玩家与 NPC 使用可比较的地域/地区/场所/场景引用；S5 的“附近 NPC”不得在两套坐标间猜测 |
+| Fact | 结构化事实草案、正式事实 ID、参与实体、地点、因果引用和可见性边界 |
+| 决策结果 | 选择“统一 ID + 实体目录 + 分离权威投影”，明确拒绝复制玩家 NpcRecord |
+| 测试 | NPC relations 可引用 playerId；目录可解析玩家/NPC；社交字段无损；资产唯一所有者；长期状态可持久化；时间单调；位置可解析；事实引用有效 |
 
-### S3：引擎补齐
-
-| 维度 | 内容 |
-|------|------|
-| **目标** | 新 BattleEngine 补齐 UseSkill/Flee/普攻推导/AI/地形 |
-| **依赖** | 无（可与 S2 并行） |
-| **修改** | battle.ts 加 UseSkill/Flee 命令；battle-engine.ts 实现分支 + 改普攻 DamageSpec；battle-ai.ts 迁移 npc-ai 逻辑；dispatchMove 加 canFly |
-| **测试对** | battle-engine.test.ts 扩展；UseSkill/Flee 单测；AI 决策回归测试 |
-| **回滚点** | 每个子步骤一个 commit |
-| **风险** | flee.ts 循环依赖需先处理（迁移 getRealmTier 到 battle/） |
-
-### S4：graveyard 实现
+### S2：场景投影 `expandForScene`
 
 | 维度 | 内容 |
-|------|------|
-| **目标** | world-engine 死亡时构造 GraveMarker；停止 delete NpcRecord |
-| **依赖** | 无（可与 S2/S3 并行） |
-| **决策点** | Oblivion NPC 保留在 state.npcs（soulState 过滤）还是分离到 state.historicalNpcs？ |
-| **推荐** | **保留在 state.npcs**（简单，soulState !== 'Oblivion' 过滤即可；字典膨胀在 800 下限补充机制下可控） |
-| **测试对** | world-engine 死亡测试：验证 graveyard push + NpcRecord 保留 + soulState=Oblivion |
-| **回滚点** | git commit |
+|---|---|
+| 目标 | 将 NpcRecord、长期状态和资产投影为 battle/dialog/trade/display 所需视图 |
+| 依赖 | S1 |
+| 约束 | 纯函数；同输入同输出；技能缺失不得静默；不得把无对应字段误称为可重建 |
+| 战斗投影 | 基础战力 + PersistentCondition 修正 + 重要装备引用；低精度 NPC 不保存逐点 AP/冷却 |
+| 测试 | 每种 sceneType 字段需求；重复展开确定性；投影不修改权威档案；伤势/毒素正确反映 |
 
-### S5：BattleDelta 差量结算
-
-| 维度 | 内容 |
-|------|------|
-| **目标** | 战斗结束构造 OutcomeDelta + applyOutcome 回写 |
-| **依赖** | S2（expandForScene）+ S3（UseSkill 命令） |
-| **修改** | 新增 outcome-delta.ts（构造 Delta）；新增 apply-outcome.ts（回写 NpcRecord/Character） |
-| **测试对** | applyOutcome 单测：只改差量字段，不覆盖叙事；INV-3.1~3.6 全部验证 |
-| **回滚点** | git commit |
-| **禁止** | characterToNpcRecord 整体覆盖（INV 禁止事项） |
-
-### S6：UI 遭遇战接入
+### S3：`WorldOutcome` 与世界事务
 
 | 维度 | 内容 |
-|------|------|
-| **目标** | 替换 MapPanel/hex-overworld-engine 的临时 NPCGenerator.generate 为 worldState.npcs 真实 NPC |
-| **依赖** | S2 + S5 |
-| **修改** | MapPanel.vue:375 改为从 worldState.npcs 按 locationId 筛选附近 NPC → expandForScene；hex-overworld-engine.ts:292 同理 |
-| **测试对** | UI 集成测试：遭遇世界 NPC → 战斗 → 回写 → 再遭遇（反映差量） |
-| **回滚点** | git commit |
-| **风险** | NPC 满血问题——每次遭遇 expandForScene 满血展开（设计意图，但需验证玩家体验） |
+|---|---|
+| 目标 | 玩家、NPC、资产、关系、时间、地点、死亡和事实一次校验、一次提交 |
+| 依赖 | S1；可以与 S2 并行开发契约和纯逻辑 |
+| 幂等 | `outcomeId` 和已提交记录进入持久化世界状态；读档后重复提交仍返回 AlreadyCommitted |
+| 并发 | 使用 worldRevision 或等价版本校验；单个 playerStore 的内存 battleRevision 不足以保护世界事务 |
+| 原子性 | 先在隔离副本验证/应用，全部成功后一次发布；失败不留下奖励、死亡、扣款、时间漂移或事实 |
+| 资产 | 玩家和 NPC 都参与所有权转移；同一重要资产不能出现两个所有者 |
+| 测试 | 重复提交、版本冲突、资源不足、无效引用、中途失败、读档重试、多参与者和资产守恒 |
 
-### S7：引擎收敛
-
-| 维度 | 内容 |
-|------|------|
-| **目标** | useCombat 切换到 BattleEngine；删除旧 CombatEngine/DamagePipeline |
-| **依赖** | S3（引擎补齐）+ S6（UI 已接世界 NPC） |
-| **修改** | useCombat.ts 加 engineMode 门面；BattleOverlay 灰度切 v2；删除 combat/ 旧文件 |
-| **测试对** | useCombat-basic-actions.test.ts 全绿；ATB 排序回归；移动 BFS 一致性 |
-| **回滚点** | engineMode 开关（可随时切回 legacy） |
-| **风险** | 移动校验收窄（旧直线 → 新 BFS）；ATB 排序变化 |
-
-### S8：垂直切片——带世界回写的渡劫
+### S4：生命周期与历史归档
 
 | 维度 | 内容 |
-|------|------|
-| **目标** | 用渡劫验证统一底座（不是孤岛副本） |
-| **依赖** | S1-S7 全部完成 |
+|---|---|
+| 目标 | 死亡/Oblivion 人物退出 active npcs，完整迁入 archivedNpcs，生成死亡事实和墓碑投影 |
+| 依赖 | S1 + S3 |
+| 禁止 | 永久把死者留在 state.npcs；直接 delete 且无档案；由 WorldEngine 写顶层 SavePayload.graveyard |
+| 人口 | 补充下限只统计活动人物，历史档案不阻塞出生/生成 |
+| 墓碑 | GraveMarker 是查询投影；重建来源为 archivedNpcs + Fact Ledger |
+| 测试 | 活动→死亡→宽限→归档；宗门成员清理；关系/亲缘仍可追溯；读档恢复；人口继续补充 |
 
-## 四、渡劫切片验收清单
+### S5：现有战斗链接入真实世界 NPC
 
-渡劫必须验证以下世界回写能力（每条都必须为 ✅ 才算切片成功）：
+| 维度 | 内容 |
+|---|---|
+| 目标 | 用当前生产战斗链先替换临时 NPCGenerator.generate，打通 WorldState NPC → 投影 → 战斗 → WorldOutcome |
+| 依赖 | S2 + S3；死亡场景依赖 S4 |
+| 范围 | MapPanel/hex-overworld 的 NPC 选择必须依据真实位置、活动状态和场景资格；不得随机 new 后丢弃 |
+| 回写 | BattleOutcome 通过适配器转换为 WorldOutcome；禁止继续散写 playerStore 作为最终路径 |
+| 测试 | 遭遇同一 NPC、战斗、读档、再次遭遇；关系/伤势/资产与事实保持；临时 NPC 路径不可达 |
+| 价值 | 在新引擎迁移前先修复最严重 F-4，缩小后续故障定位范围 |
+
+### S6：新 BattleEngine 补齐
+
+| 维度 | 内容 |
+|---|---|
+| 目标 | 新 BattleEngine 达到生产等价并成为唯一战斗状态写入者 |
+| 命令 | UseSkill、Flee、普攻统一技能规格、完整结束/战利品流程 |
+| 原子解释 | Geometry、Numeric 全参数、StatusHook、TimeATB、TerrainMutate；资源、冷却、目标、顺序和非法组合验证 |
+| AI | 迁移技能、移动、射程、逃跑和防御决策；不得在 UI 切换后功能降级 |
+| 场景规则 | 飞行、地形和可见性由场景配置注入，避免把 UI 迷雾当成战斗物理 |
+| 输出 | 与 S3 相同的 WorldOutcome，不另建第二种结算协议 |
+| 测试 | 每类原子执行；非法组合；同 seed 同命令复现；旧新战斗基准场景对照；性能基线 |
+
+### S7：UI 切换与稳定验收
+
+| 维度 | 内容 |
+|---|---|
+| 依赖 | S5 + S6 |
+| 目标 | UI 经门面切换到 BattleEngine，旧引擎只作为临时回滚路径 |
+| 顺序 | 先对齐结算和状态视图，再灰度切换；禁止先删旧引擎后补 WorldOutcome |
+| 观测 | 命令拒绝原因、事务失败、版本冲突、原子解释失败、旧新结果差异和战斗耗时 |
+| 验收 | ATB、移动、技能、AI、逃跑、守卫、死亡、掉落、回写和读档 E2E 全部通过 |
+| 清理门槛 | 约定稳定期结束且无回滚需求后，另开独立提交删除 legacy/engineMode |
+
+### S8：渡劫 V1——最小世界闭环
+
+| 维度 | 内容 |
+|---|---|
+| 依赖 | S1-S7 |
+| 目标 | 用同一实体、场景、BattleEngine、WorldOutcome 和 Fact Ledger 验证渡劫不是玩法孤岛 |
+| 范围 | 只包含最小权威闭环；观劫者、地形破坏、天气和势力反应进入 V2 |
+
+## 五、渡劫验收
+
+### V1 必须通过
 
 | 编号 | 验收项 | 证据要求 |
-|------|--------|----------|
-| V-1 | 渡劫者满足突破条件时触发（修为达标 + 资源消耗） | NpcRecord.cultivation.currentExp ≥ 阈值 |
-| V-2 | 渡劫地点是**当地地形投影**（不是脱离世界的副本） | BattleState.map 从 worldState 的 venue/hex 投影 |
-| V-3 | 周围 NPC 能**获知渡劫**（观劫/护法/趁火打劫） | worldState.npcs 的 relations/events 追加渡劫事件 |
-| V-4 | 天雷对**地形造成真实破坏**（改写 HexTile） | venue/hex 的 terrain 变更持久化到 worldState |
-| V-5 | 渡劫**耗时推进世界**（不是冻结时间） | currentYear/Month 在渡劫后推进 |
-| V-6 | 渡劫成功/失败的**伤势回写**（寿元/境界/soulState） | applyOutcome 写 NpcRecord.lifespan/realm/soulState |
-| V-7 | 渡劫死亡生成**墓碑记录**（GraveMarker） | graveyard.push + NpcRecord 不 delete |
-| V-8 | 渡劫结果产生**真实历史**（编年史事件） | worldState.eventLog 追加 |
-| V-9 | **NPC 渡劫与玩家渡劫使用同一套系统** | 同一 tribulation-engine + 同一 BattleEngine |
-| V-10 | 不同种族/修炼道路**有不同劫难**（至少配置层支持） | TribulationConfig 有 race/path 分支（可延后填充内容） |
+|---|---|---|
+| V1-1 | 真实渡劫者与稳定身份 | 玩家/NPC 使用同一入口，实体可由 EntityDirectory 解析 |
+| V1-2 | 真实地点 | 场景引用世界 locationId/hexPos，战场不是无来源副本 |
+| V1-3 | 权威耗时 | WorldOutcome 提交 elapsedMinutes，失败不推进时间 |
+| V1-4 | 结果差量 | 境界、修为、寿命、PersistentCondition、soulState 按结果提交 |
+| V1-5 | 死亡归档 | 死亡者进入 archivedNpcs/玩家死亡流程，墓碑可由事实重建 |
+| V1-6 | 结构化事实 | 成功提交后生成一条可查询、可叙事的渡劫事实 |
+| V1-7 | 幂等与恢复 | 重复回调、提交失败和读档重试不重复突破、死亡、奖励或事实 |
+| V1-8 | 同一规则系统 | 玩家与 NPC 共用同一 tribulation resolver、BattleEngine 和世界提交协议 |
 
-## 五、测试对矩阵
+### V2 后续扩展
 
-每个步骤必须搭配的测试：
+- 观劫、护法、趁火打劫和消息传播；
+- 天雷对地形、建筑和资源的持久破坏；
+- 天气、阵法和势力响应；
+- 不同种族、血脉和修炼道路的劫难配置；
+- 大规模事件对周边人口和历史的连锁影响。
 
-| 步骤 | 单测 | 集成测试 | 回归测试 |
-|------|------|----------|----------|
-| S0 | save-migration.test.ts（v3→v4） | save-load round-trip | 现有全部测试 |
-| S1 | world-engine 玩家引用测试 | NPC→玩家 relations | — |
-| S2 | expandForScene.test.ts（确定性） | NPC 展开完整生命周期 | npc-record-mapper.test.ts |
-| S3 | battle-engine UseSkill/Flee 测试 | AI 决策回归 | battle-engine.test.ts |
-| S4 | graveyard-push.test.ts | 死亡→墓碑→编年史 | world-engine 死亡测试 |
-| S5 | apply-outcome.test.ts（INV-3.1~3.6） | 战斗→Delta→回写→再展开 | useCombat-basic-actions |
-| S6 | — | 遭遇世界 NPC→战斗→回写 E2E | MapPanel 渲染 |
-| S7 | — | ATB/移动/攻击全链路 | useBattleUI.test.ts |
-| S8 | — | 渡劫 10 项验收清单 | — |
+## 六、测试与可观测性矩阵
 
-## 六、回滚策略
+| 步骤 | 必须先失败的测试/契约测试 | 集成与回归 | 关键观测 |
+|---|---|---|---|
+| S0 | v1/v2/v3→v4、v4 round-trip、损坏输入 | IndexedDB 保存/读取 | 迁移失败版本与原因 |
+| S1 | ID 解析、社交无损、资产唯一、长期状态 | 玩家/NPC 互相关系 | 悬空实体/资产引用 |
+| S2 | 场景字段需求、纯函数、确定性 | 重复展开/读档展开 | 技能或资产投影缺失 |
+| S3 | 幂等、冲突、失败无部分写入、资产守恒 | 多实体战斗/交易提交 | Outcome 提交状态与失败原因 |
+| S4 | 活动→历史归档 | 死亡→墓碑→读档→查询 | 活动/历史人口、悬空亲缘 |
+| S5 | 临时 NPC 路径不可达 | 遭遇→战斗→回写→再遭遇 | world NPC 命中率、回写失败 |
+| S6 | 五类原子与非法组合 | 旧新战斗对照 | 原子解释失败、命令拒绝 |
+| S7 | UI 门面契约 | 战斗 E2E + 读档 | legacy 回滚率、结果差异 |
+| S8 | V1-1~V1-8 | 玩家/NPC 渡劫 E2E | 重复事实、事务冲突 |
 
-| 步骤 | 回滚机制 |
-|------|----------|
-| S0 | 迁移函数可逆（v4→v3 反序列化忽略新字段） |
-| S1-S2 | git revert（不影响已有存档） |
-| S3 | engineMode='legacy' 开关 |
-| S4 | 删除 GraveMarker push 逻辑（回到 delete 行为） |
-| S5 | OutcomeDelta 构造是新增路径，旧 applyOutcome 保留 |
-| S6 | feature flag：遭遇战用世界 NPC 还是临时生成 |
-| S7 | engineMode 开关（最终安全网） |
-| S8 | 渡劫是新增功能，不影响现有突破路径 |
+## 七、回滚原则
 
-## 七、工作量估算（相对值，非时间）
+- 每个步骤独立提交，不混入无关修改；
+- 存档迁移保留旧版本读取样本与兼容测试，不能把 `git revert` 当成已升级用户存档的回滚方案；
+- S3 世界事务采用新增入口，切换调用方前保留旧路径；
+- S5 使用真实 NPC 的开关只用于短期灰度，禁止长期维持两套世界语义；
+- S7 的 legacy 开关在稳定期后删除；删除旧引擎必须是独立步骤；
+- S8 是新增 resolver，但结果仍走共享 WorldOutcome，不能回退成直接改境界的孤岛路径。
 
-| 步骤 | 复杂度 | 风险 | 阻塞性 |
-|------|--------|------|--------|
-| S0 | 低 | 零 | 独立 |
-| S1 | 中 | 中（设计决策） | 阻塞 S2/S6 |
-| S2 | 低 | 低 | 阻塞 S5/S6 |
-| S3 | 高 | 中（能力补齐量大） | 阻塞 S5/S7 |
-| S4 | 低 | 低 | 独立 |
-| S5 | 中 | 中（不变量多） | 阻塞 S6/S8 |
-| S6 | 中 | 高（UI 改动大） | 阻塞 S8 |
-| S7 | 高 | 高（切换引擎） | 阻塞 S8 |
-| S8 | 高 | 高（验收清单多） | — |
+## 八、实施授权边界
 
-## 八、与方案 Phase 的映射
+允许一次性实施时，执行者可以修改 contracts/engine/UI/persistence/tests/docs，并运行完整测试；但必须遵守：
 
-| 审计步骤 | 方案 Phase |
-|----------|-----------|
-| S0 | Phase 0（本阶段） |
-| S1-S2 | Phase 1（统一实体身份） |
-| S3-S5 | Phase 2（战斗引擎收敛 + 差量结算） |
-| S4 | Phase 1（事实账本） |
-| S6-S7 | Phase 2-3（遭遇战接入 + 引擎切换） |
-| S8 | Phase 3（垂直切片验证） |
+1. 按 S0→S8 的依赖与测试门推进，不得跳过失败测试直接实现；
+2. 任一阶段若发现本文核心假设错误，立即停在最近可回滚提交并更新 ADR，不能“先写完再解释”；
+3. 不得在 S7 稳定验收前删除旧引擎；
+4. 不得把玩家复制为 NpcRecord、把 NPC 战利品丢弃、把死者永久留在活动字典，或分别散写玩家/NPC/事实；
+5. 不得提交、推送或发布，除非用户另行授权；
+6. S8 完成后停止，V2 扩展和 legacy 最终清理由下一轮验收决定。
 
----
+## 九、审计完成声明
 
-## 审计完成声明
-
-Phase 0 Task 1-6 全部完成。本阶段只读取证和编写审计文档，未修改任何运行时代码（contracts/engine/UI/存档迁移）。
-
-**提交清单**：
-1. [01-entity-data-flow.md](01-entity-data-flow.md) — 数据流与调用图
-2. [02-field-authority-matrix.md](02-field-authority-matrix.md) — 字段权威矩阵
-3. [03-projection-delta-invariants.md](03-projection-delta-invariants.md) — 投影与差量不变量
-4. [04-runtime-storage-boundary.md](04-runtime-storage-boundary.md) — 存档边界判决
-5. [05-battle-engine-convergence.md](05-battle-engine-convergence.md) — 双引擎收敛审计
-6. [06-migration-acceptance-plan.md](06-migration-acceptance-plan.md) — 迁移与验收计划（本文档）
-
-**等待用户评审**。不自动进入 Phase 1 实现。
+Phase 0 Task 1-6 已完成并经过质量门修订。实施前置决策已冻结为：分离权威投影、稳定身份目录、共享社交契约、长期状态、真实资产所有权、活动/历史档案分离、世界级原子结果事务、新 BattleEngine 收敛，以及渡劫 V1 最小闭环。

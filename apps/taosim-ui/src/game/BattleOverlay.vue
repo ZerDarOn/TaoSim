@@ -5,14 +5,17 @@ import { useUiStore } from '@/stores/ui';
 import { useGameFlowStore } from '@/stores/game-flow';
 import { useEventLogStore } from '@/stores/event-log';
 import { useCombat } from '@/composables/useCombat';
+import { useBattleEngine } from '@/composables/useBattleEngine';
 import { useBattleUI } from '@/composables/useBattleUI';
 import HexCanvas from '@/components/HexCanvas.vue';
 import BattleStatusPanel from '@/components/BattleStatusPanel.vue';
 import BattleLog from '@/components/BattleLog.vue';
 import BattleCommandBar from '@/components/BattleCommandBar.vue';
 import type { Character } from '@taosim/contracts';
-import { MapGenerator, resolveBattleOutcome } from '@taosim/engine';
+import type { WorldOutcome, EntityDelta } from '@taosim/contracts';
+import { MapGenerator, resolveBattleOutcome, commitOutcome } from '@taosim/engine';
 import type { BattleOutcome } from '@taosim/engine';
+import { useAppStore } from '@/stores/app';
 import { formatRealm, formatSpiritRootGrade, formatSpiritElement } from '@/utils/i18n-game';
 
 const timers: number[] = [];
@@ -55,18 +58,31 @@ const playerClone = computed<Character>(() => ({
   skillCooldowns: { ...player.value.skillCooldowns },
 }));
 
-const combat = useCombat(
-  battleMap.value,
-  player.value.id,
-  playerClone.value,
-  [enemy.value],
-);
-const { state, start, setPaused } = combat;
-const ui = useBattleUI(combat, player.value.id);
+// S7：engineMode 开关——'v1'（旧 CombatEngine，默认）或 'v2'（新 BattleEngine）
+// 通过 localStorage 切换以便灰度测试，默认仍为 v1 保证向后兼容
+const engineMode = (localStorage.getItem('taosim:battleEngineMode') === 'v2' ? 'v2' : 'v1') as 'v1' | 'v2';
 
-// 放置角色
-state.engine!.placeCharacter(player.value.id, 1, 1);
-state.engine!.placeCharacter(enemy.value.id, 4, 4);
+const combat = engineMode === 'v2'
+  ? useBattleEngine(
+      battleMap.value,
+      player.value.id,
+      playerClone.value,
+      [enemy.value],
+    )
+  : useCombat(
+      battleMap.value,
+      player.value.id,
+      playerClone.value,
+      [enemy.value],
+    );
+const { state, start, setPaused } = combat;
+const ui = useBattleUI(combat as ReturnType<typeof useCombat>, player.value.id);
+
+// 放置角色（v2 引擎在 start 内自动放置，v1 需要手动 placeCharacter）
+if (engineMode === 'v1') {
+  (state.engine as import('@taosim/engine').CombatEngine).placeCharacter(player.value.id, 1, 1);
+  (state.engine as import('@taosim/engine').CombatEngine).placeCharacter(enemy.value.id, 4, 4);
+}
 
 // 悬停详情（设计文档 §6.4）
 const hoverInfo = ref<{ q: number; r: number; characterId?: string } | null>(null);
@@ -154,6 +170,74 @@ function applyOutcome(outcome: BattleOutcome) {
     later(() => {
       gameFlow.enterGameOver();
     }, 2000);
+  }
+
+  // S5b：如果敌人来自世界 NPC，回写 WorldOutcome 到 worldState
+  if (battleConfig.value.enemyNpcId) {
+    const appStore = useAppStore();
+    const worldState = appStore.currentWorldState;
+    if (worldState) {
+      const enemyNpcId = battleConfig.value.enemyNpcId;
+      const npcRecord = worldState.npcs[enemyNpcId];
+
+      const enemyDelta: EntityDelta = { entityId: enemyNpcId };
+
+      if (outcome.victory) {
+        // 灵石转移：玩家赢得灵石 = NPC 失去灵石
+        enemyDelta.spiritStonesDelta = -(outcome.spiritStonesGained || 0);
+
+        if (battleConfig.value.type === 'encounter' && npcRecord) {
+          // S7-P4 修复：用战斗后实际 HP（state.characters 镜像），而非 BattleConfig.enemy 快照
+          const enemyActualHp = state.characters[enemy.value.id]?.hp ?? 0;
+          const enemyActualMaxHp = state.characters[enemy.value.id]?.maxHp ?? enemy.value.maxHp;
+          const enemyHpRatio = enemyActualHp / enemyActualMaxHp;
+          if (enemyActualHp <= 0) {
+            // NPC 被击败且 hp 归零 → 死亡（soulState=RemnantSoul）
+            enemyDelta.killed = true;
+            enemyDelta.killedBy = playerStore.character!.id;
+            enemyDelta.soulStateChanged = 'RemnantSoul';
+          } else {
+            // NPC 被击败但存活 → 受伤（以伤势表达）
+            const injuryLevel = enemyHpRatio < 0.3 ? 'severe' : 'moderate';
+            enemyDelta.injuriesAdded = [{
+              level: injuryLevel,
+              source: 'battle',
+              acquiredAt: { year: worldState.currentYear, month: worldState.currentMonth },
+              recoversAt: { year: worldState.currentYear + 1, month: worldState.currentMonth },
+            }];
+          }
+        }
+        // duel 模式：切磋不伤 NPC
+      }
+      // 玩家失败：NPC 不受影响
+
+      const sceneId = battleConfig.value.sceneId ?? `battle_${Date.now()}`;
+      const worldOutcome: WorldOutcome = {
+        outcomeId: sceneId,
+        baseRevision: worldState.worldRevision ?? 0,
+        source: battleConfig.value.type === 'duel' ? 'duel' : 'encounter',
+        entityDeltas: [enemyDelta],
+        facts: [{
+          factId: `fact_${sceneId}`,
+          outcomeId: sceneId,
+          type: 'battle',
+          at: { year: worldState.currentYear, month: worldState.currentMonth },
+          participants: [
+            { entityId: playerStore.character!.id, role: 'attacker' },
+            { entityId: enemyNpcId, role: 'defender' },
+          ],
+          title: outcome.victory ? `击败 ${enemy.value.name}` : `败于 ${enemy.value.name}`,
+          description: battleConfig.value.description,
+          visibility: 'local',
+        }],
+      };
+
+      const result = commitOutcome(worldState, worldOutcome);
+      if (result.status === 'version_conflict') {
+        // eslint-disable-next-line no-console
+        console.warn('[BattleOverlay] WorldOutcome 版本冲突', result);
+      }
+    }
   }
 }
 

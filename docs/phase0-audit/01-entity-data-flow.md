@@ -39,7 +39,7 @@
 | `apps/taosim-ui/src/stores/player.ts` | 8 | `const character = ref<Character \| null>(null);` | `[RT]` 玩家态存为 Character |
 | `apps/taosim-ui/src/stores/app.ts` | 54-67 | `async initialize(_playerId) { ... npcs: Object.fromEntries(generateLegendaryNpcs().map(n => [n.id, n])) }` | `[RT]` initialize 时玩家 Character **未** 放入 worldState.npcs |
 
-**断点 F-7**：玩家 Character 永不进入 `worldState.npcs`，玩家与世界 NPC 关系网是单向的（NPC 之间有 relations，NPC 与玩家无）。
+**断点 F-7**：玩家 Character 没有注册为世界引擎可解析的稳定参与者；当前世界 NPC 的关系生成路径也不会自然建立指向玩家的关系。问题不是“玩家缺少 NpcRecord”本身，而是缺少统一 `EntityId`、实体解析入口和共享社交契约。玩家仍应由 Character/玩家状态权威持有，避免复制成第二份 NpcRecord 权威。
 
 ## B. 持久化路径（什么被存档）
 
@@ -142,11 +142,11 @@ playerMapState            ← toPlain(mapStore.state)
 | `BattleOverlay.vue` | 136-138 | `if (outcome.favorabilityChange > 0 && enemy.value.id in c.relations)` | ⚠️ enemy.id 是临时 NPC 的 id，与 worldState.npcs 不对应 |
 | `useCombat.ts` | 240-243 | `if (defender.hp <= 0) { defender.soulState = 'RemnantSoul' }` | `[RT]` 标记在 `state.characters` 副本，组件销毁丢弃 |
 
-**对比：引擎内斗法的回写是健康的**
+**对比：引擎内斗法存在局部回写，但不是完整世界事务**
 
 | 文件 | 行号 | 证据 | 说明 |
 |------|------|------|------|
-| `world-social-rules.ts` | 270-289 | `loser.lifespan.maxLifespan = ...; loser.soulState = 'PrimordialSoul'; loser.spiritStones += ...` | `[RT]` ✅ 直接 mutate NpcRecord 引用 |
+| `world-social-rules.ts` | 270-289 | `loser.lifespan.maxLifespan = ...; loser.soulState = 'PrimordialSoul'; loser.spiritStones += ...` | `[RT]` 直接 mutate NpcRecord 引用；能保留局部结果，但没有跨参与者/资产/事实的原子提交 |
 
 ## E. 读档路径
 
@@ -180,7 +180,7 @@ playerMapState            ← toPlain(mapStore.state)
 
 ### F-3. `graveyard` 永远空数组
 - **位置**：save-system.ts:45 定义；app.ts:94 写 `[]`
-- **性质分类**：**未实现功能**——死亡 NPC 在 world-engine.ts:1097-1100 是 `delete this.state.npcs[id]`，没有生成 GraveMarker。这与方案的"事实账本不可删除历史"有冲突
+- **性质分类**：**未实现功能 + 档案断点**——死亡 NPC 在 world-engine.ts:1097-1100 会移出活动字典，但没有进入历史实体档案。eventLog/heritageSites 可能保留部分事件或遗府信息，不能替代可重建人物档案。正确方向是从活动集合原子迁移到历史档案，而不是永久留在 `state.npcs`。
 
 ### F-4. UI 战斗与世界 NPC 完全断流（最严重）
 - **位置**：hex-overworld-engine.ts:292、MapPanel.vue:375 临时生成 Character
@@ -195,9 +195,9 @@ playerMapState            ← toPlain(mapStore.state)
 - **位置**：battle.ts:92-103 定义；player.ts:4 import 了类型但未使用
 - **性质分类**：**未实现功能**——方案 ADR-7 要求的差量结算完全没接
 
-### F-7. 玩家无 NpcRecord（关系网单向）
+### F-7. 玩家未注册为世界稳定参与者
 - **位置**：app.ts:54-67 initialize 不建 NpcRecord
-- **性质分类**：**待决策设计**——按本轮授权"不预设玩家必须拥有 NpcRecord"。目标可能是用稳定 ID + 权威查询统一，避免双份权威数据
+- **性质分类**：**待决策设计**——不要求玩家拥有 NpcRecord。目标是统一稳定 `EntityId`、实体目录/查询入口和共享社交关系语义，同时保持玩家 Character 为唯一玩家权威。
 
 ### F-8. `npcRecordToCharacter` 展开是有损转换
 - **位置**：npc-record-mapper.ts:139-186
@@ -270,6 +270,6 @@ graph TD
 
 1. **F-4（最严重）**：UI 战斗与世界 NPC 完全断流。玩家打的敌人是 `NPCGenerator.generate()` 的临时产物，`worldState.npcs` 的叙事 NPC 永不参战。`npcRecordToCharacter` 在 UI 层零调用。
 2. **F-5/F-6**：`BattleState`/`BattleUnit`/`BattleDelta` 契约类型在 UI 战斗中完全不使用，UI 用自定义 `CombatState` + 散写字段回写。
-3. **F-7**：玩家无 NpcRecord，世界 NPC 关系网不含玩家。需要 Task 4 判决方向。
+3. **F-7**：玩家未注册为世界引擎可解析的稳定参与者；应统一身份解析与社交契约，不应复制一份玩家 NpcRecord。
 4. **F-1/F-2/F-3**：SavePayload 五个字段是死字段，但根因不同——activeNPCs 可能是废弃契约，overworldMap 可能与 playerMapState 冲突，graveyard 是未实现功能。Task 4 分别判决。
-5. **F-8/F-9**：两个转换器都有固有信息损失，但引擎内斗法路径（world-social-rules）是自洽的。风险在于 UI 场景误用。
+5. **F-8/F-9**：两个转换器都有固有信息损失；引擎内斗法的局部数值规则可以运行，但仍缺少跨参与者、资产、时间和事实的世界事务。风险不仅是 UI 误用，也包括把局部 mutate 误认为完整原子回写。

@@ -1,4 +1,4 @@
-﻿# TaoSim 缂洪櫡涓庡緟鍔炲璁★紙2026-08-07锛?
+﻿﻿﻿# TaoSim 缂洪櫡涓庡緟鍔炲璁★紙2026-08-07锛?
 > 鐢ㄩ€旓細鍏ㄩ潰瀹¤璁板綍锛岄伩鍏嶉仐蹇樸€傛瘡涓潯鐩彲鍦ㄤ慨澶嶅悗鍕鹃€?`[x]`銆?> 瀹¤鏂瑰紡锛氫笁涓苟琛屽瓙浠ｇ悊娣卞害鎵弿 + 鍏抽敭缁撹浜哄伐鏍稿疄锛圕1/I1 宸蹭翰鑷鐮佺‘璁わ紱C2 娴忚鍣ㄥ疄娴嬪鐜帮級銆?> 鑼冨洿锛歱ackages/contracts銆乸ackages/engine銆乸ackages/persistence銆乤pps/taosim-ui 鍏ㄤ粨锛涘鐓?`docs/superpowers/specs/`銆乣docs/superpowers/plans/`銆乣docs/phase-11-gap-analysis.md`銆?
 ---
 

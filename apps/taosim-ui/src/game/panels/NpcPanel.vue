@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
+import { useAppStore } from '@/stores/app';
 import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES, ContentRegistry } from '@taosim/engine';
 import { resolvePersonalityId } from '@taosim/engine';
 import type { NPCTradeOffer, MarketItem, ItemStack } from '@taosim/contracts';
@@ -10,6 +11,7 @@ import { formatRealm, formatGender, formatItemType, formatQuality } from '@/util
 
 const playerStore = usePlayerStore();
 const uiStore = useUiStore();
+const appStore = useAppStore();
 const subView = ref<'interact' | 'trade'>('interact');
 const message = ref<string | null>(null);
 const interactionDone = ref(false);
@@ -61,12 +63,16 @@ const playerUnsellable = computed(() => {
 
 function handleDuel() {
   if (!playerStore.character || !npc.value) return;
+  // S5：若该 NPC 是世界档案中的真实 NPC，带上 enemyNpcId 以便战后回写
+  const worldNpcs = appStore.currentWorldState?.npcs ?? {};
+  const enemyNpcId = npc.value.id && worldNpcs[npc.value.id] ? npc.value.id : undefined;
   // 触发实际战斗覆盖层，不再硬编码胜利
   uiStore.startBattle({
     enemy: { ...npc.value },
     type: 'duel',
     title: `切磋 · ${npc.value.name}`,
     description: '点到即止的修士比试，败者保留一息生机',
+    enemyNpcId,
   });
   // NPCInteractionEngine 仍用于记录好感度变化（在战斗结果中结算）
   interactionDone.value = true;

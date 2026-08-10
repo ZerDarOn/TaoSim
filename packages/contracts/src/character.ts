@@ -3,9 +3,10 @@
 // ============================================================
 
 // ---- 基础枚举 ----
-export type RealmType = 'LianQi' | 'ZhuJi' | 'JinDan' | 'YuanYing' | 'HuaShen';
+export type RealmType = 'Mortal' | 'LianQi' | 'ZhuJi' | 'JinDan' | 'YuanYing' | 'HuaShen';
 
 export type RealmFullPath =
+  | 'Mortal'
   | 'QiRefinement_1' | 'QiRefinement_2' | 'QiRefinement_3' | 'QiRefinement_4'
   | 'QiRefinement_5' | 'QiRefinement_6' | 'QiRefinement_7' | 'QiRefinement_8'
   | 'QiRefinement_9'
@@ -53,6 +54,8 @@ export interface GameMode {
  *  防御式：未知前缀或缺少层级时返回 realmType: undefined / subLevel: NaN，
  *  调用方应显式处理（境界门槛校验需 fail-closed）。 */
 export function parseRealm(fullPath: string): { realmType: RealmType | undefined; subLevel: number } {
+  // P2：凡人境界无子层级
+  if (fullPath === 'Mortal') return { realmType: 'Mortal', subLevel: 0 };
   const [realmStr, levelStr] = fullPath.split('_') as [string, string | undefined];
   const level = levelStr === undefined ? NaN : parseInt(levelStr, 10);
   const map: Record<string, RealmType> = {

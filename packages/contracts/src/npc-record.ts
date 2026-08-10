@@ -151,4 +151,62 @@ export interface NpcRecord {
   secludeMonths?: number;
   /** 兼容性种子（道缘/魔缘基底；出生时生成 [0,1)，与任意 NPC 的兼容性确定可算） */
   affinityMatrixSeed?: number;
+
+  // ── P4：NPC Mind（持久化心智状态）──
+  /** 心智状态（意愿/目标/计划/下一步行动）；旧 NPC 迁移时从 aspiration 推导 */
+  mind?: MindState;
+}
+
+// ── P4：NPC Mind 类型 ──
+
+/** NPC 持久化心智状态 */
+export interface MindState {
+  /** 当前目标 */
+  currentGoal: NpcGoal;
+  /** 需求压力（0-100，驱动目标选择） */
+  needs: {
+    longevity: number;
+    social: number;
+    dao: number;
+    fame: number;
+    safety: number;
+  };
+  /** 下一步行动（月度调度产出） */
+  nextAction: NpcAction;
+  /** 目标开始时间 */
+  goalStartedAt?: { year: number; month: number };
+}
+
+/** NPC 目标 */
+export interface NpcGoal {
+  type:
+    | 'cultivate_to_breakthrough'  // 修炼到突破
+    | 'find_partner'               // 寻觅道侣
+    | 'seek_revenge'               // 修炼复仇
+    | 'build_reputation'           // 扬名立万
+    | 'find_successor'             // 传承道统
+    | 'extend_lifespan'            // 延寿求生
+    | 'explore'                    // 云游访机缘
+    | 'protect_territory';         // 守护地盘
+  /** 目标参数（如目标境界、目标 NPC 等） */
+  targetRealm?: string;
+  targetNpcId?: string;
+}
+
+/** NPC 行动（月度计划的最小执行单元） */
+export interface NpcAction {
+  type:
+    | 'cultivate'     // 修炼（积蓄修为）
+    | 'seclude'       // 闭关（加速修炼）
+    | 'breakthrough'  // 冲击瓶颈
+    | 'socialize'     // 社交（去人多的地方）
+    | 'courtship'     // 求偶
+    | 'wander'        // 云游
+    | 'trade'         // 交易
+    | 'challenge'     // 挑战强者
+    | 'teach'         // 传授弟子
+    | 'rest'          // 休养
+    | 'prepare';      // 准备（收集资源/修炼功法等前置）
+  /** 行动目标位置（如去某个场所/城市） */
+  targetLocationId?: string;
 }

@@ -46,4 +46,26 @@ export interface WorldState {
    * 氛围层人口（NPC 地图呈现设计 §spec 3.1；key: "q,r"；可选以兼容旧存档）
    */
   populationGrid?: import('./population.js').PopulationGrid;
+
+  // ── S1：共享领域契约字段（全部可选以兼容旧存档）──
+  /** S1：实体社交状态（key = entityId） */
+  socialStates?: Record<string, import('./social.js').SocialState>;
+  /** S1：NPC 长期状态（key = npcId） */
+  conditions?: Record<string, import('./condition.js').PersistentCondition>;
+  /** S1：重要资产实例（key = assetId） */
+  assets?: Record<string, import('./asset.js').AssetInstance>;
+  /** S1：历史档案 NPC（死亡/Oblivion 迁入，key = npcId） */
+  archivedNpcs?: Record<string, import('./npc-record.js').NpcRecord>;
+  /** S1：结构化事实账本 */
+  facts?: import('./fact.js').Fact[];
+  /** S1：世界修订号（乐观锁，WorldOutcome 版本校验用） */
+  worldRevision?: number;
+  /** S3：已应用 outcome 的幂等记录 */
+  appliedOutcomeIds?: string[];
+  /**
+   * P1：权威绝对时间（自世界开始以来的总分钟数）。
+   * 年/月/日全部从此字段投影；旧 currentYear/currentMonth 在迁移期作为只读兼容投影。
+   * 可选以兼容旧存档（v4 及以下），迁移时从 currentYear/currentMonth 计算。
+   */
+  elapsedMinutes?: number;
 }

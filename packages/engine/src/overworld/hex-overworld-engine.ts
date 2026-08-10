@@ -287,7 +287,11 @@ export function moveOneStep(
     const roll = Math.random();
 
     if (roll < 0.12) {
-      // NPC 偶遇
+      // P3 封堵：临时生成 NPC 路径标记为废弃（红线 #6）。
+      // 正式遭遇应通过 pickNearbyNpc 从世界档案选取，此处仅保留作为
+      // 无世界状态上下文时的内部降级（不会被 UI 的正常战斗路径触及，
+      // 因为 MapPanel.acceptBattle 优先走世界档案查询）。
+      // TODO P7+：接入 WorldState 后移除此路径。
       const tier = targetHex.landmarkTier ?? 1;
       const npc = NPCGenerator.generate(tier, Date.now());
       events.push({

@@ -17,6 +17,7 @@ import { getSpiritRootMultiplier } from '../data/spirit-root-table.js';
 import { getSpiritDensityMultiplier } from './season-system.js';
 import type { CalendarEventDef } from '@taosim/contracts';
 import { WorldEngine } from '../world/world-engine.js';
+import { WorldClockService } from './world-clock.js';
 
 export interface TimeAdvanceResult {
   updatedPlayer: Character;
@@ -51,11 +52,13 @@ export class TimeAdvanceService {
     const allEvents: BigEventLog[] = [];
     let updatedWorld = worldState;
 
-    // 世界模式：逐月推进世界引擎
+    // P1：世界模式通过 WorldClockService 推进（维护权威 elapsedMinutes）
     if (mode === 'World' && worldState) {
       const engine = new WorldEngine(worldState);
+      const clock = new WorldClockService(engine);
       for (let i = 0; i < months; i++) {
-        const stepResult = engine.step();
+        // stepMonth 通过 engine.step() 推进一月 → advanceCalendar 自增 elapsedMinutes
+        const stepResult = clock.stepMonth();
         if (stepResult.events.length > 0) {
           allEvents.push(...stepResult.events);
         }

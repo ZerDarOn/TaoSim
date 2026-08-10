@@ -18,6 +18,7 @@ import type {
 
 // RealmType → 中文大境界
 const REALM_TYPE_MAP: Record<RealmType, string> = {
+  Mortal: '凡人',
   LianQi: '炼气',
   ZhuJi: '筑基',
   JinDan: '金丹',
@@ -27,6 +28,7 @@ const REALM_TYPE_MAP: Record<RealmType, string> = {
 
 // RealmFullPath 前缀 → 中文境界期名
 const REALM_PREFIX_MAP: Record<string, string> = {
+  Mortal: '凡人',
   QiRefinement: '炼气期',
   Foundation: '筑基期',
   GoldenCore: '金丹期',
@@ -52,6 +54,8 @@ const CN_NUM: Record<string, string> = {
  * 例：QiRefinement_1 → '炼气期一层', GoldenCore_3 → '金丹期三层'
  */
 export function formatRealm(r: RealmFullPath): string {
+  // P2：凡人境界无子层级
+  if (r === 'Mortal') return '凡人';
   const [prefix, levelStr] = r.split('_') as [string, string];
   const period = REALM_PREFIX_MAP[prefix];
   const level = CN_NUM[levelStr] ?? levelStr;

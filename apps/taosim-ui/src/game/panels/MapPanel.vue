@@ -22,14 +22,18 @@ import {
   getTeleportNodeAt, getContinent, getCosmos,
   TravelService, VenueService,
   npcSpatialIndex,
+  pickNearbyNpc, expandForScene,
   type WorldHexGrid, type WorldHex, type HexTerrain, type HexMoveEvent,
 } from '@taosim/engine';
 import type { Character, MapLayer, NpcRecord } from '@taosim/contracts';
 import type { AdventureEvent } from '@taosim/engine';
 import { AdventureEngine, NPCGenerator } from '@taosim/engine';
+import { TIANJI_SETTLEMENT, getNpcsInVenue } from '@taosim/engine';
+import type { SettlementNode } from '@taosim/engine';
 import { formatRealm } from '@/utils/i18n-game';
 import { useEventLogStore } from '@/stores/event-log';
 import { useAppStore } from '@/stores/app';
+import { useWorld } from '@/composables/useWorld';
 import AdventureEventCard from './AdventureEventCard.vue';
 import VenuePanel from './VenuePanel.vue';
 
@@ -38,6 +42,7 @@ const uiStore = useUiStore();
 const mapStore = useMapStore();
 const eventLog = useEventLogStore();
 const appStore = useAppStore();
+const { travelAdvanceDays } = useWorld();
 
 // ---- 当前层级 ----
 const activeLayer = computed(() => mapStore.activeLayer);
@@ -236,7 +241,7 @@ function handleHexClick(q: number, r: number) {
   else startAutoTravel(q, r);
 }
 
-function stepMove(targetQ: number, targetR: number) {
+async function stepMove(targetQ: number, targetR: number) {
   if (!playerStore.character) return;
   const result = moveOneStep(worldGrid.value, playerHexPos.value, targetQ, targetR, playerStore.character);
   if (!result || !result.success) {
@@ -248,7 +253,8 @@ function stepMove(targetQ: number, targetR: number) {
   mapStore.setHexPos({ q: targetQ, r: targetR });
   // 持久化已探索
   mapStore.markExplored(mapStore.activeContinentId, [{ q: targetQ, r: targetR }, ...getHexNeighbors(targetQ, targetR)]);
-  const timeResult = playerStore.advanceTime(result.daysPassed);
+  // P1：移动推进整个世界（不只是玩家）
+  const timeResult = await travelAdvanceDays(result.daysPassed);
   if (timeResult.died) return; // 玩家寿元耗尽，AppRoot 会切换到 GameOverScreen
   processEvents(result.events);
   updateLandmarkPos();
@@ -265,7 +271,7 @@ function startAutoTravel(targetQ: number, targetR: number) {
   continueAutoTravel();
 }
 
-function continueAutoTravel() {
+async function continueAutoTravel() {
   if (!pendingPath.value || pendingPath.value.length === 0 || !playerStore.character) {
     pendingPath.value = null;
     return;
@@ -283,7 +289,8 @@ function continueAutoTravel() {
   playerHexPos.value = { q: next.q, r: next.r };
   mapStore.setHexPos({ q: next.q, r: next.r });
   mapStore.markExplored(mapStore.activeContinentId, [{ q: next.q, r: next.r }, ...getHexNeighbors(next.q, next.r)]);
-  const timeResult = playerStore.advanceTime(result.daysPassed);
+  // P1：移动推进整个世界（不只是玩家）
+  const timeResult = await travelAdvanceDays(result.daysPassed);
   if (timeResult.died) {
     pendingPath.value = null; // 玩家死亡，中断自动寻路
     return;
@@ -372,9 +379,37 @@ function declineNpc() {
 function acceptBattle() {
   if (!pendingBattle.value || !playerStore.character) return;
   const tier = currentHex.value?.landmarkTier ?? 1;
-  const enemy = NPCGenerator.generate(tier, Date.now());
-  enemy.name = ['赤眼狼妖', '石魔傀儡', '腐毒蛇君', '幽影鬼面'][Math.floor(Math.random() * 4)] ?? '妖兽';
-  uiStore.startBattle({ enemy, type: 'encounter', title: `遭遇 · ${enemy.name}`, description: pendingBattle.value.description });
+
+  // S5：优先从世界 NPC 中选取真实 NPC 作为遭遇对象
+  const worldNpcs = appStore.currentWorldState?.npcs ?? {};
+  const nearbyNpc = pickNearbyNpc(worldNpcs, mapStore.activeVenueId ?? undefined);
+
+  if (nearbyNpc) {
+    // 真实世界 NPC 遭遇——用 expandForScene 展开为临时 Character
+    const enemy = expandForScene(nearbyNpc, {
+      sceneType: 'battle',
+      currentTime: {
+        year: appStore.currentWorldState!.currentYear,
+        month: appStore.currentWorldState!.currentMonth,
+      },
+    });
+    uiStore.startBattle({
+      enemy,
+      type: 'encounter',
+      title: `遭遇 · ${enemy.name}`,
+      description: `途中遇到了修士 ${nearbyNpc.name}。`,
+      enemyNpcId: nearbyNpc.id,
+      sceneId: `encounter_${Date.now()}`,
+    });
+  } else {
+    // P3 TODO：妖兽应来自世界生态实体或群体投影，而非临时生成。
+    // 当前作为临时降级保留——仅在没有世界 NPC 可遭遇时使用。
+    // 红线 #6：不得为天机城生成脱离世界档案的临时 NPC。
+    const enemy = NPCGenerator.generate(tier, Date.now());
+    enemy.name = ['赤眼狼妖', '石魔傀儡', '腐毒蛇君', '幽影鬼面'][Math.floor(Math.random() * 4)] ?? '妖兽';
+    uiStore.startBattle({ enemy, type: 'encounter', title: `遭遇 · ${enemy.name}`, description: pendingBattle.value.description });
+  }
+
   pendingBattle.value = null;
 }
 function declineBattle() {
@@ -402,6 +437,29 @@ const canEnterCity = computed(() => currentVenues.value.length > 0);
 
 function enterCity() {
   mapStore.setActiveLayer('Venue');
+}
+
+// ---- Settlement 层（P3） ----
+const settlementName = computed(() => {
+  if (activeLayer.value !== 'Settlement') return null;
+  // 目前只支持天机城，后续扩展为按当前 landmarkId 查聚落注册表
+  return '天机城';
+});
+
+const settlementVenues = computed(() => {
+  if (activeLayer.value !== 'Settlement') return [];
+  return TIANJI_SETTLEMENT.nodes
+    .filter((n: SettlementNode) => n.venueId)
+    .map((n) => ({
+      id: n.venueId!,
+      name: n.name,
+      description: n.description ?? '',
+    }));
+});
+
+function getSettlementVenueNpcCount(venueId: string): number {
+  const worldNpcs = appStore.currentWorldState?.npcs ?? {};
+  return getNpcsInVenue(worldNpcs as any, venueId).length;
 }
 
 // 传送阵访问
@@ -508,6 +566,32 @@ const legendTerrains: HexTerrain[] = ['plain', 'forest', 'mountain', 'water', 's
 
     <!-- ===== Venue 层 ===== -->
     <VenuePanel v-if="activeLayer === 'Venue'" />
+
+    <!-- ===== Settlement 层（P3：聚落内部地图） ===== -->
+    <div v-else-if="activeLayer === 'Settlement'" class="space-y-3">
+      <div class="p-3 bg-green-900/20 rounded-lg border border-green-700/40">
+        <div class="text-sm text-green-200 font-semibold">
+          🏘️ {{ settlementName ?? '聚落' }}
+        </div>
+        <div class="text-xs text-slate-400 mt-1">
+          点击场所进入详情
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <button
+          v-for="venue in settlementVenues"
+          :key="venue.id"
+          @click="mapStore.enterVenue(venue.id); mapStore.setActiveLayer('Venue')"
+          class="p-3 bg-slate-800/80 border border-slate-700/60 rounded-lg text-left hover:border-green-600/50 transition-colors"
+        >
+          <div class="text-sm text-green-100 font-semibold">{{ venue.name }}</div>
+          <div class="text-xs text-slate-400 mt-1">{{ venue.description }}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            在场 NPC: {{ getSettlementVenueNpcCount(venue.id) }}
+          </div>
+        </button>
+      </div>
+    </div>
 
     <!-- ===== Cosmos 层（星图） ===== -->
     <div v-else-if="activeLayer === 'Cosmos'" class="space-y-3">

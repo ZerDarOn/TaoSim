@@ -11,10 +11,11 @@ import type { RealmType } from './character.js';
  * - Region  : 区域网格（六边形探索，当前 20×20）
  * - Venue   : 场所（城镇内部的固定场景）
  */
-export type MapLayer = 'Cosmos' | 'Continent' | 'Region' | 'Venue';
+export type MapLayer = 'Cosmos' | 'Continent' | 'Region' | 'Settlement' | 'Venue';
 
 /** 境界 → 数值，用于门槛比较 */
 export const REALM_ORDER: Record<RealmType, number> = {
+  Mortal: -1,
   LianQi: 0,
   ZhuJi: 1,
   JinDan: 2,

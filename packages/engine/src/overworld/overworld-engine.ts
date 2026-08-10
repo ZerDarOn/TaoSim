@@ -68,6 +68,9 @@ export class OverworldEngine {
           nodeId: toNodeId,
         });
       } else {
+        // P3 封堵：临时生成 NPC 路径标记为废弃（红线 #6）。
+        // overworld-engine 是旧版大世界引擎，NPC 遭遇应通过 MapPanel 的
+        // pickNearbyNpc 从世界档案选取，而非临时生成。
         const npc = NPCGenerator.generate(toNode.tier, Date.now() + Math.floor(Math.random() * 100000));
         events.push({
           type: 'npc_meet',

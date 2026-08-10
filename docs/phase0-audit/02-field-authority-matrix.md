@@ -62,22 +62,22 @@
 | B10 | `attributes` | playerStore/NpcRecord | **[权威]** | 同步 | 派生值失准 |
 | B11 | `spiritRoot` | playerStore/NpcRecord | **[权威]** | 同步 | 五行错乱 |
 | B12 | `gameMode` | playerStore **[权威]** | **[可重建]** 硬编码 `Simple/Free` | NPC 无意义 | 玩家铁人模式失效 |
-| B13 | `hp/maxHp` | playerStore **[权威]** | **NPC 无持久化权威** | 展开公式 `100+tier*80+physique*5` | **见问题 1** |
+| B13 | `hp/maxHp` | playerStore **[权威]** | **NPC 当前无持久化权威** | 展开公式 `100+tier*80+physique*5` | 低精度斗法可接受；玩家连续遭遇所需的伤势/毒素/恢复状态缺失 |
 | B14 | `ap` | playerStore **[权威]** | **[可重建]** 硬编码 `2` | NPC 每次展开 2 | 低精度 |
 | B15 | `canFly` | playerStore **[权威]** | **[可重建]** `tier>=3` 推导 | 跨阶层解锁 |
-| B16 | `inventory` | playerStore **[权威]** | **[可重建]** 永远 `[]` | NPC 物品不持久化 | 见问题 5 |
+| B16 | `inventory` | playerStore **[权威]** | **[无对应]**（不是可重建） | 当前展开硬编码 `[]` | NPC 战利品和重要物品所有权无法成立；需轻量资产/所有权模型 |
 | B17 | `equipmentSlots` | playerStore **[权威]** | **[可重建]** 合成占位 Item | 见问题 5 |
 | B18 | `skills` (Skill[]) | playerStore **[权威]** | NpcRecord.skillIds **[权威]**（ID）；Character.skills **[投影]** | SKILL_REGISTRY 查回 | ID 找不到则静默丢弃 |
 | B19 | `skillCooldowns` | playerStore **[权威]** | **[临时]** 永远 `{}` | NPC 不跨战斗保留冷却 |
-| B20 | `traits` | playerStore **[权威]** | **[可重建]** 永远 `[]` | **词条加成失效** |
+| B20 | `traits` | playerStore **[权威]** | **[无对应]** | 当前展开硬编码 `[]` | NPC 词条加成失效；是否持久化或由种子推导待决策 |
 | B21 | `traitBonuses` | playerStore **[权威]** | **[无]** | NPC 无此字段 |
 | B22 | `factionId` | playerStore/NpcRecord | **[权威]** | 同步 | 宗门丢失 |
 | B23 | `factionRank` | playerStore **[权威]** | **[无对应]** NpcRecord 用 `socialRank`（枚举不同）⚠️类型不兼容 | 玩家与 NPC 宗门体系不对齐 |
 | B24 | `personalityId` | playerStore/NpcRecord | **[权威]** | 同步 | 决策树失效 |
 | B25 | `relations` | playerStore **[权威]** | NpcRecord.relations **[权威]**；CharacterRelation **[投影]** | **双向有损**（见问题 4） |
 | B26 | `spiritStones` | playerStore/NpcRecord | **[权威]** | 同步 | 经济断 |
-| B27 | `wantedLevels` | playerStore **[权威]** | **[可重建]** 永远 `{}` | NPC 通缉清零 |
-| B28 | `unlockedRecipes` | playerStore **[权威]** | **[可重建]** 永远 `[]` | NPC 配方清零 |
+| B27 | `wantedLevels` | playerStore **[权威]** | **[无对应]** | 当前展开硬编码 `{}` | NPC 通缉状态无法进入现场 |
+| B28 | `unlockedRecipes` | playerStore **[权威]** | **[无对应]** | 当前展开硬编码 `[]` | NPC 配方与传承能力无法进入现场 |
 
 ## C. BattleUnit & BattleState 字段权威矩阵
 
@@ -109,7 +109,7 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| battleId/baseRevision | **[临时]** | 幂等键 + 乐观锁 |
+| battleId/baseRevision | **[临时]** | 当前只保护玩家 store 的单实体提交；不是持久化世界幂等键，也不是跨实体乐观锁 |
 | hpAfter/spiritEnergyAfter/apAfter | **[投影]** | 回写 Character |
 | skillCooldownsAfter/consumedItems | **[投影]** | 回写 Character |
 | rewards/relationChanges | **[投影]** | 奖励 + 关系变化 |
@@ -127,7 +127,7 @@
 | D5 | `factions` | **[冗余投影]** | ⚠️ 与 worldState 重复 | 双份权威风险 |
 | D6 | `overworldMap` | **[死字段]** | ❌ `{continents:[]}` | 地图确定性生成，需判决（Task 4） |
 | D7 | `graveyard` | **[死字段]** | ❌ `[]` | 死亡信息散在 NpcRecord（Task 4） |
-| D8 | `marketInventories` | **[死字段]** | ❌ `{}` | MarketEngine 确定性刷新 |
+| D8 | `marketInventories` | **[未接入字段]** | ❌ `{}` | 当前 MarketEngine 使用 `Math.random()`，不可确定性重建；字段虽为空，但不能按“可重建缓存”定性 |
 | D9 | `npcTradeOffers` | **[死字段]** | ❌ `{}` | 不持久化 |
 | D10 | `playerMapState` | **[权威]** | ✅ 完整 | mapStore 独立持有（activeLayer/hexPos/exploredHexes） |
 
@@ -141,7 +141,7 @@
 
 **引擎内斗法满血展开是设计意图**——NPC 受伤以"寿元扣减"持久化（world-social-rules.ts:279 `loser.lifespan.maxLifespan -= injuryYears`），而非残血。
 
-**风险**：UI 遭遇战如果复用展开器，NPC 每次满血（当前 UI 走的是临时生成 Character，连展开都没用——见 Task 1 F-4）。
+**风险**：UI 遭遇战如果复用展开器，NPC 每次满血。目标架构不要求长期持久化逐点 HP，但必须增加轻量 `PersistentCondition`（伤势等级、毒素、经脉损伤、恢复截止时间等），使连续追杀、下毒和带伤逃亡可以跨场景成立。
 
 ### 问题 2：位置的权威在哪？
 
@@ -165,7 +165,7 @@
 
 ### 问题 4：relations 的权威在哪？双向转换损失？
 
-**权威是 `NpcRecord.relations: Record<string, RelationEntry>`。**
+**NPC 的权威是 `NpcRecord.relations: Record<string, RelationEntry>`；玩家当前权威是 `Character.relations`。两套结构语义不一致，稳定 ID 只能解决引用，不能解决信任、事件链、仇恨和嫉妒的有损转换。Phase 1 必须抽出共享社交契约或提供无损适配边界。**
 
 | 维度 | RelationEntry (NpcRecord) | CharacterRelation (Character) | C→N 损失 | N→C 损失 |
 |------|--------------------------|-------------------------------|----------|----------|
@@ -185,3 +185,5 @@
 | NPC | `NpcRecord.combatGear`（attack/defense/critRate 三维汇总） | **仅三维** |
 
 展开时 `combatGearToItems` 合成占位 Item（id: `gear_<npcId>_weapon`），**丢失**：其余属性维度、原始 Item id/name/tier/特殊词条、treasures 数组退化为单元素。
+
+`combatGear` 可以继续承担低精度战力汇总，但不能承担重要物品所有权。重要法宝、功法载体、储物袋和战利品必须由独立资产/所有权状态引用稳定实例 ID；普通消耗品可按价值或类别聚合。

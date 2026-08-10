@@ -5,6 +5,7 @@ import {
   npcRecordToCharacter,
   realmTier,
 } from '../world/npc-record-mapper.js';
+import { computeDerivedStats } from '../character/derived-stats.js';
 import type { Character } from '@taosim/contracts';
 
 describe('npc-record-mapper', () => {
@@ -43,9 +44,16 @@ describe('npc-record-mapper', () => {
     expect(expanded.attributes).toEqual(character.attributes);
     // 技能从注册表按 id 找回
     expect(expanded.skills.map(s => s.id).sort()).toEqual(record.skillIds.slice().sort());
-    // 战斗数值按境界推导
+    // P2：战斗数值来自统一 DerivedStats 计算
     const tier = realmTier(record.realm);
-    expect(expanded.maxHp).toBe(100 + tier * 80 + character.attributes.physique * 5);
+    const expected = computeDerivedStats({
+      realm: record.realm,
+      attributes: character.attributes,
+      spiritRoot: character.spiritRoot,
+      age: character.lifespan.age,
+      maxLifespan: character.lifespan.maxLifespan,
+    });
+    expect(expanded.maxHp).toBe(expected.maxHp);
     expect(expanded.canFly).toBe(tier >= 3);
   });
 

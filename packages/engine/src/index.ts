@@ -31,6 +31,8 @@ export { FactionEngine } from './faction/faction-engine.js';
 // Character Factory (角色创建)
 export { CharacterFactory, BIRTH_STORIES, TRANSMIGRATION_STORY } from './character/character-factory.js';
 export type { ArrivalMode } from './character/character-factory.js';
+export { computeDerivedStats } from './character/derived-stats.js';
+export type { DerivedStats, DerivedStatsInput } from './character/derived-stats.js';
 export { SpiritRootRoller } from './character/spirit-root-roller.js';
 
 // Data Registries（数据表）
@@ -40,6 +42,9 @@ export { NPC_PERSONALITIES, resolvePersonalityId } from './data/npc-personalitie
 
 // Tribulation Engine (渡劫突破)
 export { TribulationEngine } from './tribulation/tribulation-engine.js';
+// S8：渡劫 V1 最小世界闭环（TribulationService 包装 TribulationEngine + WorldOutcome）
+export { TribulationService } from './tribulation/tribulation-service.js';
+export type { TribulationServiceResult, TribulationScene } from './tribulation/tribulation-service.js';
 
 // Map Generator (程序化 Hex 地图生成)
 export { MapGenerator } from './world/map-generator.js';
@@ -66,6 +71,8 @@ export type { NpcHexDeriveResult } from './overworld/npc-spatial.js';
 
 // Multi-layer Map Catalog (多层地图)
 export { COSMOS_CATALOG, CONTINENT_CATALOG, TELEPORT_GRAPH, VENUE_CATALOG, getCosmos, getContinent, getContinentIdsByCosmos, getTeleportNode, getTeleportNodeAt, getVenuesByNode, getVenue, createInitialMapState } from './overworld/map-catalog.js';
+export { TIANJI_SETTLEMENT, SETTLEMENT_REGISTRY, getSettlement, settlementDistance, getNpcsInVenue, getNpcsInSettlement, getNpcsAtSettlementNode } from './overworld/settlement-maps.js';
+export type { SettlementNode, SettlementRoad, SettlementMap } from './overworld/settlement-maps.js';
 export { TravelService } from './overworld/travel-service.js';
 export { VenueService, VENUE_TYPE_LABEL, VENUE_TYPE_ICON } from './overworld/venue-service.js';
 
@@ -73,6 +80,7 @@ export { VenueService, VENUE_TYPE_LABEL, VENUE_TYPE_ICON } from './overworld/ven
 export { getSeason, getSeasonPhase, getSpiritDensityMultiplier, getSeasonDescription } from './time/season-system.js';
 export { TimeAdvanceService } from './time/time-advance-service.js';
 export type { TimeAdvanceResult } from './time/time-advance-service.js';
+export { WorldClockService, projectTime, elapsedFromYearMonth, MINUTES_PER_DAY, MINUTES_PER_MONTH, MINUTES_PER_YEAR, DAYS_PER_MONTH, DAYS_PER_YEAR } from './time/world-clock.js';
 export { CALENDAR_EVENTS, rollCalendarEvent, getExpectedCalendarEvent, WORLD_EVENTS, rollWorldEvent } from './time/calendar-event-scheduler.js';
 export type { WorldEventDef } from './time/calendar-event-scheduler.js';
 
@@ -83,6 +91,20 @@ export { isNearby, nodeOf } from './world/spatial.js';
 
 // Legendary NPCs (开局世界背景先行 — §7.4)
 export { generateLegendaryNpcs } from './world/legendary-npc-generator.js';
+
+// Scene Projection (场景投影：NpcRecord → 临时 Character 的场景感知展开 — S2)
+export { expandForScene } from './world/scene-projection.js';
+export type { SceneType, ExpandOptions } from './world/scene-projection.js';
+
+// World Outcome (跨实体原子事务提交 — S3)
+export { commitOutcome } from './world/outcome-committer.js';
+
+// NPC Query (按位置查 NPC — S5a：遭遇战优先选取真实世界 NPC)
+export { npcsByVenue, pickNearbyNpc } from './world/npc-query.js';
+export { generateInitialMind, tickNpcMind, computeNeeds } from './world/npc-mind.js';
+export type { MindTickResult, NpcNeeds } from './world/npc-mind.js';
+export { Watchlist, filterEventRelevance } from './world/watchlist.js';
+export type { EventRelevanceLayer } from './world/watchlist.js';
 
 // Sect Presets (宗门预设 — 社会轨道 §2.2)
 export { SECT_PRESETS, createInitialFactions } from './world/sect-presets.js';

@@ -9,7 +9,7 @@
 1. **UI 实际使用旧 `combat/CombatEngine`**（外壳），但伤害结算、技能射程、守卫配置全部借用 `battle/` 的纯函数（内核）——**混合链路**。
 2. **新 `BattleEngine` 仅被测试实例化**，0 生产调用，且缺 UseSkill/Flee 命令，普攻硬编码 DamageSpec。
 3. **旧 `DamagePipeline.calculate` 已事实废弃**，仅 `getRealmTier` 被 `flee.ts` 引用苟活。
-4. **收敛建议**：以新 `BattleEngine` 为目标，但需先补齐 UseSkill/Flee/普攻推导/AI/地形 5 项能力。
+4. **收敛建议**：以新 `BattleEngine` 为目标，但“补 UseSkill”必须包含完整原子解释、资源/冷却/目标校验和世界结果协议，不能只增加一个命令分支。
 
 ## A. 能力对照表
 
@@ -116,6 +116,7 @@ useBattleUI.ts (混合!)
 | canFly/迷雾 | **缺失** | battle-engine.ts:250 |
 | 生产实例化 | **0 处** | apps/ 无导入 |
 | 测试覆盖 | 有 29 处实例化 | battle-engine.test.ts |
+| 原子解释 | **仅射程/伤害辅助函数消费少量字段** | StatusHook/TimeATB/TerrainMutate 及 Numeric 其他参数没有统一执行语义 |
 
 **判定**：有良好单测的骨架，功能不完备，"可单测但不可上线"。
 
@@ -129,26 +130,27 @@ useBattleUI.ts (混合!)
 
 1. **架构正确**：确定性状态机 + dispatch 命令模式 + 结构化错误 + 事件流（battle-engine.ts:8-12 注释"唯一写入者"）
 2. **内核已胜出**：calculateDamage 已经比 DamagePipeline 更强，且生产链路已用它
-3. **UI 迁移成本低**：useBattleUI 引擎无关；真正要换的只有外壳和状态形状
+3. **UI 可通过适配层迁移**：useBattleUI 可以保留部分接口，但旧 `CombatState` 与新 `BattleState` 的 ATB、移动、单位和事件语义不同，迁移成本应按中高风险估算，而不是假设为低
 4. **扩展支持**：BattleDelta 带 baseRevision 乐观锁
 
 ### D3. 迁移顺序
 
 | 阶段 | 任务 | 依据 |
 |------|------|------|
-| P0 冻结 | 标记 DamagePipeline.calculate 为 @deprecated | 0 生产调用 |
-| P1 补命令 | BattleCommand 增加 UseSkill/Flee | C1 缺口 |
-| P2 补普攻推导 | battle-engine.ts:315 改用 skillToDamageSpec | C2 缺口 |
-| P3 补 AI | npc-ai.ts 逻辑迁移进 battle-ai.ts | A7 缺口（**P6 前必须完成**） |
-| P4 补地形 | dispatchMove 增加 canFly/isRevealed | A3 缺口 |
-| P5 适配层 | useCombat.ts 增加 engineMode 开关 | D4 |
-| P6 切换 UI | BattleOverlay 灰度切 v2 | — |
-| P7 删旧 | 移除 combat-engine.ts、damage-pipeline.ts | — |
-| P8 结算对齐 | resolveBattleOutcome → commitBattleDelta | A8 缺口 |
+| P0 冻结 | 标记 DamagePipeline.calculate 为 @deprecated，建立旧/新同场景行为基线 | 0 生产调用但仍需回归基线 |
+| P1 世界结果协议 | 战斗结束统一产出 WorldOutcome，并接入跨实体原子提交 | 必须先于 UI 切换，避免结果双轨 |
+| P2 补命令与原子解释 | 增加 UseSkill/Flee；实现 Geometry/Numeric/StatusHook/TimeATB/TerrainMutate、消耗、冷却和目标校验 | 不能把“有命令”误当“能执行技能” |
+| P3 补普攻推导 | battle-engine.ts:315 使用统一普攻 Skill/DamageSpec | C2 缺口 |
+| P4 补 AI | npc-ai.ts 能力迁移进 battle-ai.ts | UI 切换前必须完成 |
+| P5 补场景移动 | 明确 canFly、迷雾与地形通行规则由场景配置注入 | 避免把 UI 可见性硬编码为战斗物理规则 |
+| P6 适配与对照 | 适配旧 UI 状态接口；同 seed/同命令运行旧新结果对照测试 | 验证 ATB、移动、伤害、逃跑、AI 与结算 |
+| P7 灰度切换 | BattleOverlay 使用新引擎，保留 legacy 回滚开关 | 此时不得删除旧引擎 |
+| P8 验收稳定 | 全量回归、E2E、性能与错误观测通过，经过约定稳定期 | 删除旧引擎的前置门槛 |
+| P9 独立清理 | 删除旧 CombatEngine/DamagePipeline 与临时适配分支 | 单独提交，可独立回滚 |
 
 ### D4. 适配层策略
 
-在 useCombat.ts 内做门面，不改 UI 组件签名。`useBattleUI` 无需改动（只依赖 `combat.state` 字段形状）。ATB 驱动方式由适配层内部转换。
+在 useCombat.ts 或新的战斗会话门面中保持 UI 需要的稳定接口，但不保证 `useBattleUI` 零修改。适配层负责把新 BattleState/Event 映射为 UI 视图；权威状态仍只能由 BattleEngine 写入。`engineMode` 仅用于灰度和回滚，设置明确删除条件，不能长期成为第三套战斗语义。
 
 ### D5. 风险点
 
@@ -158,5 +160,7 @@ useBattleUI.ts (混合!)
 | ATB 排序行为变化（FIFO → gauge 降序） | 设计修正，需回归测试 |
 | NPC AI 降级（若 P3 未完成） | **P3 必须在 P6 前完成** |
 | flee.ts 循环依赖 damage-pipeline | P7 前迁移 getRealmTier 到 battle/ |
-| BattleDelta vs BattleOutcome 双轨 | P8 前 commitBattleDelta 加 warn |
-| seeded RNG 确定性 | 存档增加 battleSeed 字段 |
+| BattleDelta vs BattleOutcome 双轨 | UI 切换前统一为 WorldOutcome；旧类型仅留适配器 |
+| 原子配置有数据无解释器 | 为每类 AtomicNode 建立执行语义、非法组合验证和回归场景，不只测试 UseSkill 分支 |
+| seeded RNG 确定性 | 当前不支持战斗中存档时由会话持有 seed；未来支持活动战斗快照时再持久化 RNG 状态/命令序列 |
+| legacy 过早删除 | 新引擎验收与稳定期结束后单独删除，回滚开关存在期间不得删除旧实现 |

@@ -25,4 +25,10 @@ export const BATTLE_CONFIG = {
   MOVE_AGILITY_DIVISOR: 5,
   /** AI 每单位最多评估技能数 */
   MAX_AI_SKILL_EVALUATION: 8,
+  /** 护盾状态：每点 potency 抵消多少伤害 */
+  SHIELD_DAMAGE_RATIO: 1,
+  /** 毒/灼烧：每回合 potency × POISON_DAMAGE_RATIO 扣血 */
+  POISON_DAMAGE_RATIO: 1,
+  /** 治疗（Regen）：每回合 potency × REGEN_HEAL_RATIO 回血 */
+  REGEN_HEAL_RATIO: 1,
 } as const;

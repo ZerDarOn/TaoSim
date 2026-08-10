@@ -1,6 +1,7 @@
 import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill, SpiritRoot, GameMode, TraitCombatBonuses } from '@taosim/contracts';
 import type { AttributeKey } from '@taosim/contracts';
 import { getTraitById } from '../data/trait-registry.js';
+import { computeDerivedStats } from './derived-stats.js';
 
 function generateId(): string {
   return `CHAR_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -95,7 +96,6 @@ export class CharacterFactory {
   static create(params: CreateCharacterParams): Character {
     const id = generateId();
     const realm: RealmFullPath = 'QiRefinement_1';
-    const baseHp = 100;
     const arrivalMode = params.arrivalMode ?? 'birth';
 
     // 从 TRAIT_REGISTRY 查词条（Phase 10：统一到 registry 体系）
@@ -115,18 +115,27 @@ export class CharacterFactory {
     const spiritRoot = params.spiritRoot ?? { grade: 'Yellow', elements: ['Earth'], isVariant: false };
     const gameMode = params.gameMode ?? { breakthrough: 'Simple', saveMode: 'Free' } as GameMode;
 
+    // P2：统一派生属性（取代硬编码 baseHp=100, spiritEnergy=100）
+    const derived = computeDerivedStats({
+      realm,
+      attributes,
+      spiritRoot,
+      age,
+      maxLifespan: 100,
+    });
+
     // 穿越模式：白板开局（无灵石/装备/宗门/技能）
     if (arrivalMode === 'transmigration') {
       const character: Character = {
         id, name: params.name, gender: params.gender, realm, soulState: 'Active',
         cultivation: { currentExp: 0, maxExp: 100 },
         lifespan: { age, maxLifespan: 100 },
-        spiritEnergy: { current: 100, max: 100 },
+        spiritEnergy: { current: derived.maxSpiritEnergy, max: derived.maxSpiritEnergy },
         monthlyActionPoints: { current: 10, max: 10 },
         attributes,
         spiritRoot,
         gameMode,
-        hp: baseHp, maxHp: baseHp, ap: 3, canFly: false,
+        hp: derived.maxHp, maxHp: derived.maxHp, ap: 3, canFly: false,
         spiritStones: 0,
         inventory: [],
         equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
@@ -160,12 +169,12 @@ export class CharacterFactory {
       id, name: params.name, gender: params.gender, realm, soulState: 'Active',
       cultivation: { currentExp: 0, maxExp: 100 },
       lifespan: { age, maxLifespan: 100 },
-      spiritEnergy: { current: 100, max: 100 },
+      spiritEnergy: { current: derived.maxSpiritEnergy, max: derived.maxSpiritEnergy },
       monthlyActionPoints: { current: 10, max: 10 },
       attributes,
       spiritRoot,
       gameMode,
-      hp: baseHp, maxHp: baseHp, ap: 3, canFly: false,
+      hp: derived.maxHp, maxHp: derived.maxHp, ap: 3, canFly: false,
       spiritStones: INITIAL_STONES[params.background],
       inventory: [],
       equipmentSlots: { weapon, armor: undefined, treasures: [] },

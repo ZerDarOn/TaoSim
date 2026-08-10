@@ -27,3 +27,15 @@ export * from './forge.js';
 export * from './multi-layer-map.js';
 export * from './time-system.js';
 export * from './battle.js';
+
+// ── S1：共享领域契约 ──
+export * from './entity.js';
+export * from './social.js';
+export * from './condition.js';
+export * from './asset.js';
+export * from './fact.js';
+export * from './world-time.js';
+export * from './location.js';
+
+// ── S3：WorldOutcome 原子事务 ──
+export * from './world-outcome.js';

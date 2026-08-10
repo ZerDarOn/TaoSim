@@ -198,24 +198,24 @@ describe('tryFeud（真实斗法）', () => {
   });
 
   it('一阶内天赋越阶：练气妖孽（悟性/体质高）可胜筑基庸才（世界内因）', () => {
+    // P2：DerivedStats 下境界 HP 差距更大，妖孽需要更极端的属性和修为进度
     const prodigy = makeNpc({
       id: 'NPC_1',
-      realm: 'QiRefinement_3',
+      realm: 'QiRefinement_9',  // 练气巅峰（而非仅 3 层）
       destiny: { tier: 'prodigy', born: 'fortune', luck: 80, hidden: false },
       attributes: {
-        physique: 26, comprehension: 34, perception: 28, agility: 28, luck: 26, charm: 26,
+        physique: 50, comprehension: 50, perception: 40, agility: 40, luck: 30, charm: 30,
       },
     });
     const mediocrity = makeNpc({
       id: 'NPC_2',
       realm: 'Foundation_1',
       attributes: {
-        physique: 10, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5,
+        physique: 8, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5,
       },
     });
     enemyOf(prodigy, mediocrity.id);
     enemyOf(mediocrity, prodigy.id);
-    // 0.0 触发；0.9/0.9 首击不闪避不暴击；耗尽 0.5 中性 → 天赋面板碾压一阶壁垒 → 险胜
     const result = tryFeud(prodigy, mediocrity, now, seqRng([0.0, 0.9, 0.9]))!;
     expect(result.attackerWins).toBe(true);
     expect(result.lethal).toBe(false);
