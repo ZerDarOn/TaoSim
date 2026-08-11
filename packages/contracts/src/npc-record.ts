@@ -175,6 +175,17 @@ export interface MindState {
   nextAction: NpcAction;
   /** 目标开始时间 */
   goalStartedAt?: { year: number; month: number };
+  // ── C1：行动执行追踪 ──
+  /** 行动计划时间 */
+  actionPlannedAt?: { year: number; month: number };
+  /** 行动已执行月数（多步行动如闭关） */
+  actionMonthsElapsed?: number;
+  /** 行动状态 */
+  actionStatus?: 'planned' | 'executing' | 'completed' | 'failed';
+  /** 失败原因（机器可读） */
+  actionFailureReason?: string;
+  /** 上次行动类型（用于检测行动切换） */
+  lastResolvedAction?: string;
 }
 
 /** NPC 目标 */

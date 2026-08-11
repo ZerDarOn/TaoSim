@@ -1,5 +1,4 @@
 import type { Character, OverworldMap, TravelEvent } from '@taosim/contracts';
-import { NPCGenerator } from '../interaction/npc-generator.js';
 
 export interface TravelResult {
   success: boolean;
@@ -68,16 +67,12 @@ export class OverworldEngine {
           nodeId: toNodeId,
         });
       } else {
-        // P3 封堵：临时生成 NPC 路径标记为废弃（红线 #6）。
-        // overworld-engine 是旧版大世界引擎，NPC 遭遇应通过 MapPanel 的
-        // pickNearbyNpc 从世界档案选取，而非临时生成。
-        const npc = NPCGenerator.generate(toNode.tier, Date.now() + Math.floor(Math.random() * 100000));
+        // C4：移除临时 NPC 生成。无世界档案 NPC 时不产生遭遇。
         events.push({
-          type: 'npc_meet',
-          title: '偶遇修士',
-          description: `在${toNode.name}附近遇到了${npc.name}`,
+          type: 'encounter',
+          title: '沿途所见',
+          description: `${toNode.name}一带风平浪静，未见修士踪迹`,
           nodeId: toNodeId,
-          npc,
         });
       }
     }

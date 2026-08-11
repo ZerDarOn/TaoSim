@@ -6,7 +6,7 @@ import { VENUE_CATALOG, getVenue, getVenuesByNode } from '../overworld/map-catal
 import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
 import { deriveNpcHexPos, npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
-import { generateInitialMind, tickNpcMind } from './npc-mind.js';
+import { generateInitialMind, tickNpcMind, resolveNpcMindAction, commitMindAction } from './npc-mind.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -37,6 +37,38 @@ export interface MonthlyTickResult {
   updatedState: WorldState;
   events: BigEventLog[];
   npcPopulationChanged: boolean;
+}
+
+/**
+ * C2/AI：为事件生成降级叙事模板文本。
+ * 基于事件结构化字段拼接，不虚构实体 id 或数值。
+ * AI 增强由 NarrativeEnhancer 异步覆写 narrative 字段。
+ */
+export function buildEventNarrative(event: BigEventLog, npcs?: Record<string, NpcRecord>): string {
+  const primaryId = event.involvedCharacterIds[0];
+  const primaryNpc = primaryId ? npcs?.[primaryId] : undefined;
+  const name = primaryNpc?.name ?? '某修士';
+  const realm = primaryNpc ? primaryNpc.realm : '';
+
+  switch (event.category) {
+    case 'cultivation':
+      if (event.severity === 'major') {
+        return `【重磅】${name}${realm ? `（${realm}）` : ''}${event.title}——${event.description}`;
+      }
+      return `${name}：${event.description || event.title}`;
+
+    case 'social':
+      return `${name}${event.description ? `——${event.description}` : ''}`;
+
+    case 'combat':
+      return `⚔ ${event.title}：${event.description}`;
+
+    case 'world':
+      return `🌍 ${event.title}：${event.description}`;
+
+    default:
+      return event.description || event.title || '';
+  }
 }
 
 /** 引擎事件流归档上限：保留最近条数 + 全部 major/epoch 大事 */
@@ -329,6 +361,10 @@ export class WorldEngine {
         .map(id => this.lastEventByNpc.get(id))
         .find((e): e is BigEventLog => e !== undefined);
       const event = collector.emit({ ...input, relatedTo: related ? [related] : undefined });
+      // C2/AI：为 minor 以外的事件生成降级叙事（AI 增强由 NarrativeEnhancer 异步覆写）
+      if (event.severity !== 'minor') {
+        event.narrative = buildEventNarrative(event, this.state.npcs);
+      }
       events.push(event);
       for (const id of npcIds) {
         // 因果链（§2.4）：minor 例行事件不打断故事线（涌现缺口 N1：流水账不污染叙事链）
@@ -551,7 +587,30 @@ export class WorldEngine {
       }
       const mindResult = tickNpcMind(npc, npc.mind, mindNow);
       npc.mind = mindResult.mind;
-      // TODO：mind 产出行动描述后接入事实/事件流（P7+）
+
+      // C1：解析并执行 Mind 行动（首批闭环：cultivate/seclude/breakthrough/wander/trade/rest）
+      const resolution = resolveNpcMindAction(npc, npc.mind, mindNow, {
+        rng: this.rng,
+        nodeSpiritQi: this.state.nodeSpiritQi,
+      });
+      if (resolution) {
+        npc.mind = commitMindAction(npc.mind, resolution, mindNow);
+        if (resolution.completed && resolution.fact) {
+          // 世界新闻只显示 major 或可观察异常（非 minor 的失败）
+          const isNewsWorthy = resolution.severity !== 'minor' || resolution.failureReason;
+          if (isNewsWorthy) {
+            pushNpcEvent(
+              {
+                key: isNewsWorthy ? 'npc.mind.action' : 'npc.mind.minor',
+                vars: { npc: npc.name, action: mindResult.actionDescription, result: resolution.fact },
+                involvedCharacterIds: [id],
+                locationId: npc.locationId,
+              },
+              [id],
+            );
+          }
+        }
+      }
     }
 
     // 2. 社交相遇 + 寻仇（同地点/云游配对，关系轨道 §4.3/§4.4 — 阶段 1b）
@@ -1270,6 +1329,18 @@ export class WorldEngine {
   public getGraveyard(): GraveMarker[] {
     const archived = this.state.archivedNpcs ?? {};
     return Object.values(archived).map(toGraveMarker);
+  }
+
+  /**
+   * P1：公开只读时间 API。
+   * 返回权威 elapsedMinutes；旧存档未初始化时从 currentYear/currentMonth 推导。
+   * 这是 WorldClockService 读取权威时间的唯一公开入口，替代 (engine as any).state。
+   */
+  public getElapsedMinutes(): number {
+    if (this.state.elapsedMinutes === undefined) {
+      this.state.elapsedMinutes = elapsedFromYearMonth(this.state.currentYear, this.state.currentMonth);
+    }
+    return this.state.elapsedMinutes;
   }
 
   public getState(): WorldState {

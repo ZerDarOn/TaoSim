@@ -96,7 +96,7 @@ describe('P0 特征：快进推进世界（World 模式）', () => {
     const startYear = ws.currentYear;
     const startMonth = ws.currentMonth;
 
-    const result = TimeAdvanceService.advance(player, ws, 3, 'World');
+    const result = TimeAdvanceService.advance(player, ws, 3);
 
     expect(result.updatedWorldState).toBeDefined();
     // 3 个月后：1月→4月
@@ -108,7 +108,7 @@ describe('P0 特征：快进推进世界（World 模式）', () => {
     const player = makePlayer();
     const ws = makeBaseWorldState();
 
-    const result = TimeAdvanceService.advance(player, ws, 12, 'World');
+    const result = TimeAdvanceService.advance(player, ws, 12);
 
     // 12 个月推进后世界应该有 NPC（人口补充）
     const npcCount = Object.keys(result.updatedWorldState!.npcs).length;
@@ -120,7 +120,7 @@ describe('P0 特征：快进推进世界（World 模式）', () => {
     const ws = makeBaseWorldState();
     ws.currentMonth = 10; // 从 10 月开始
 
-    const result = TimeAdvanceService.advance(player, ws, 5, 'World');
+    const result = TimeAdvanceService.advance(player, ws, 5);
 
     // 10月 + 5个月 = 次年 3月
     expect(result.updatedWorldState!.currentYear).toBe(2);

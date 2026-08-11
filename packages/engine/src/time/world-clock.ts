@@ -3,9 +3,11 @@
 //
 // 绝对时间以分钟为单位（elapsedMinutes），年/月/日全部从此投影。
 // 旧 currentYear/currentMonth 作为只读兼容投影，不再是写入权威。
+//
+// C0：移除 (engine as any).state，只调用 WorldEngine 公开 API。
 // ============================================================
 
-import type { WorldState, BigEventLog } from '@taosim/contracts';
+import type { BigEventLog } from '@taosim/contracts';
 import type { WorldEngine } from '../world/world-engine.js';
 
 /** 每日分钟数（1 日 = 24 时辰 × 60 分 = 1440 分，简化为 1440） */
@@ -58,12 +60,15 @@ export function elapsedFromYearMonth(year: number, month: number, day = 1): numb
  *
  * 所有时间推进——玩家行动、移动、战斗、修炼、实时流逝和快进——
  * 必须通过此服务提交。WorldEngine 在跨月边界时执行月度调度。
+ *
+ * C0：只通过 WorldEngine 公开 API（getElapsedMinutes / setElapsedMinutes / step）
+ * 读写权威时间，不再访问 (engine as any).state。
  */
 export class WorldClockService {
   constructor(private engine: WorldEngine) {}
 
-  /** 当前世界状态 */
-  getState(): WorldState {
+  /** 当前世界状态（只读） */
+  getState() {
     return this.engine.getState();
   }
 
@@ -78,22 +83,15 @@ export class WorldClockService {
   /**
    * 推进指定的分钟数。
    *
-   * 按月分块推进，跨月边界时调用 engine.step()。
-   * elapsedMinutes 累加——多次调用子月余数正确累积。
+   * 流程：读权威时间 → 计算跨月边界 → 逐月 step() → 写回最终绝对时间。
+   * 跨月边界内 engine.step() 的 advanceCalendar() 自增 elapsedMinutes，
+   * 末尾 setElapsedMinutes 写回包含子月余数的精确值，不重复加月。
    */
   advanceMinutes(minutes: number): void {
     if (minutes <= 0) return;
 
-    // 直接读引擎内部 state（不用 getState() 的拷贝）
-    const internalState = (this.engine as any).state as WorldState;
-
-    // 初始化 elapsedMinutes（旧存档可能没有）
-    if (internalState.elapsedMinutes === undefined) {
-      internalState.elapsedMinutes = elapsedFromYearMonth(internalState.currentYear, internalState.currentMonth);
-    }
-
-    // 累加分钟数
-    const oldElapsed = internalState.elapsedMinutes;
+    // C0：只通过公开 API 读写权威时间
+    const oldElapsed = this.engine.getElapsedMinutes();
     const newElapsed = oldElapsed + minutes;
 
     // 计算穿过的月边界数
@@ -101,12 +99,12 @@ export class WorldClockService {
     const newMonths = Math.floor(newElapsed / MINUTES_PER_MONTH);
     const monthsToStep = newMonths - oldMonths;
 
-    // 逐月推进
+    // 逐月推进（engine.step() → advanceCalendar() 内部自增 elapsedMinutes）
     for (let i = 0; i < monthsToStep; i++) {
       this.engine.step();
     }
 
-    // 写回权威时间
+    // 写回最终权威时间（覆盖 step 内的增量，精确到分钟）
     this.engine.setElapsedMinutes(newElapsed);
   }
 

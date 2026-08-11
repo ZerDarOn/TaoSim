@@ -10,6 +10,8 @@ interface AppState {
   isInitialized: boolean;
   currentWorldState: WorldState | null;
   saveHeaders: SaveHeader[];
+  /** C2：玩家关注的 NPC ID 列表 */
+  watchedNpcIds: string[];
 }
 
 /**
@@ -44,6 +46,7 @@ export const useAppStore = defineStore('app', {
     isInitialized: false,
     currentWorldState: null,
     saveHeaders: [],
+    watchedNpcIds: [],
   }),
 
   getters: {
@@ -77,7 +80,7 @@ export const useAppStore = defineStore('app', {
       const payload: SavePayload = {
         header: {
           saveId: `save_${Date.now()}`,
-          schemaVersion: 5,
+          schemaVersion: 6,
           gameVersion: '0.2.0',
           timestamp: Date.now(),
           playTimeMonths: (this.currentWorldState.currentYear - 1) * 12 + this.currentWorldState.currentMonth - 1,
@@ -105,6 +108,7 @@ export const useAppStore = defineStore('app', {
         })),
         // 玩家地图进度：层级/位置/已探索六边形
         playerMapState: toPlain(mapStore.state),
+        watchedNpcIds: [...this.watchedNpcIds],
       };
       await adapter.save(payload);
       this.saveHeaders = await adapter.listHeaders();
@@ -128,6 +132,8 @@ export const useAppStore = defineStore('app', {
       if (payload.playerMapState) {
         mapStore.hydrateFromSave(payload.playerMapState);
       }
+      // C2：恢复关注列表
+      this.watchedNpcIds = payload.watchedNpcIds ?? [];
     },
 
     clearWorldState() {
@@ -144,6 +150,34 @@ export const useAppStore = defineStore('app', {
       const adapter = await getStorage();
       await adapter.deleteSave(saveId);
       this.saveHeaders = await adapter.listHeaders();
+    },
+
+    // ── C2：关注列表操作 ──
+
+    /** 关注指定 NPC（已关注则无操作） */
+    followNpc(npcId: string) {
+      if (!this.watchedNpcIds.includes(npcId)) {
+        this.watchedNpcIds.push(npcId);
+      }
+    },
+
+    /** 取消关注指定 NPC */
+    unfollowNpc(npcId: string) {
+      this.watchedNpcIds = this.watchedNpcIds.filter(id => id !== npcId);
+    },
+
+    /** 切换关注状态 */
+    toggleFollowNpc(npcId: string) {
+      if (this.watchedNpcIds.includes(npcId)) {
+        this.unfollowNpc(npcId);
+      } else {
+        this.followNpc(npcId);
+      }
+    },
+
+    /** 是否已关注 */
+    isWatchingNpc(npcId: string): boolean {
+      return this.watchedNpcIds.includes(npcId);
     },
   },
 });

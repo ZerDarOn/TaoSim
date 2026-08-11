@@ -7,7 +7,7 @@
  */
 
 import { PRESET_MAP } from '../overworld/preset-map.js';
-import { NPCGenerator } from '../interaction/npc-generator.js';
+import { calculateDamage } from '../battle/damage-calculator.js';
 import type { Character } from '@taosim/contracts';
 import { getContinent } from '../overworld/map-catalog.js';
 
@@ -287,18 +287,12 @@ export function moveOneStep(
     const roll = Math.random();
 
     if (roll < 0.12) {
-      // P3 封堵：临时生成 NPC 路径标记为废弃（红线 #6）。
-      // 正式遭遇应通过 pickNearbyNpc 从世界档案选取，此处仅保留作为
-      // 无世界状态上下文时的内部降级（不会被 UI 的正常战斗路径触及，
-      // 因为 MapPanel.acceptBattle 优先走世界档案查询）。
-      // TODO P7+：接入 WorldState 后移除此路径。
-      const tier = targetHex.landmarkTier ?? 1;
-      const npc = NPCGenerator.generate(tier, Date.now());
+      // C4：移除临时 NPC 生成。正式遭遇通过 MapPanel.acceptBattle
+      // 的 pickNearbyNpc 从世界档案选取，此处降级为环境描述。
       events.push({
-        type: 'npc_meet',
-        title: '偶遇修士',
-        description: `在途中遇到了${npc.name}。`,
-        npc,
+        type: 'discovery',
+        title: '沿途所见',
+        description: '前方隐约有灵力波动，却未见人影',
       });
     } else if (roll < 0.22) {
       // 妖兽

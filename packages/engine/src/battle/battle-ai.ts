@@ -1,6 +1,7 @@
 import type { Character, Skill } from '@taosim/contracts';
 import { hexDistance } from '@taosim/contracts';
 import { maxRange } from './atomic/registry.js';
+import { scoreAction, type ActionCandidate, type ScoreContext } from './utility-ai.js';
 
 export type AiDecision =
   | { type: 'basicAttack'; targetId: string }
@@ -8,6 +9,13 @@ export type AiDecision =
   | { type: 'move'; to: { q: number; r: number } }
   | { type: 'guard' }
   | { type: 'flee' };
+
+/** C3 效用决策结果（含诊断信息） */
+export interface UtilityDecision {
+  action: AiDecision;
+  /** 候选列表（已评分排序，用于诊断） */
+  diagnostics: Array<{ actionType: string; utility: number; reason: string }>;
+}
 
 /** 引擎只读视图 — 结构化接口，避免 BattleAI 对 BattleEngine 实现的强依赖 */
 export interface EngineLike {
@@ -42,7 +50,7 @@ function findPosition(engine: EngineLike, unitId: string): { q: number; r: numbe
 }
 
 /**
- * N vs N AI（S6 升级版）。
+ * N vs N AI（S6 固定优先级链，C3 后作为兜底）。
  * 决策链（按优先级）：
  *   1. 有可用技能且目标在射程内 → UseSkill（取 multiplier 最大者）
  *   2. 普攻射程内 → BasicAttack（血量最低）
@@ -121,6 +129,187 @@ export class BattleAI {
 
     // 5. 兜底：Guard（永不软锁）
     return { type: 'guard' };
+  }
+
+  // ============================================================
+  // C3：Utility AI 正式战斗 AI
+  //
+  // 生成合法候选 → 效用评分 → 选最优。
+  // BattleEngine.resolveAiTurn 通过此入口决策。
+  // ============================================================
+
+  /**
+   * C3：基于效用评分的 AI 决策。
+   *
+   * 流程：
+   *  1. 从引擎状态生成合法候选（攻击/技能/移动/逃跑/防御）
+   *  2. 对每个候选估算伤害和风险
+   *  3. 构建评分上下文（HP 比/距离等）
+   *  4. 效用评分排序
+   *  5. 返回最佳决策 + 诊断信息
+   *
+   * 如果候选生成失败（无存活敌人或无法定位），回退到固定优先级链。
+   */
+  static decideWithUtility(npc: Character, playerIds: string[], engine: EngineLike): AiDecision {
+    const state = engine.getState();
+    const alive = playerIds.filter((id) => (state.characters[id]?.hp ?? 0) > 0);
+    if (alive.length === 0) return { type: 'guard' };
+
+    const npcPos = findPosition(engine, npc.id);
+    if (!npcPos) return { type: 'guard' };
+
+    // 构建候选列表
+    const candidates = this.generateCandidates(npc, alive, npcPos, engine);
+    if (candidates.length === 0) return { type: 'guard' };
+
+    // 评分上下文
+    const nearestEnemy = this.findNearestEnemy(alive, npcPos, engine);
+    const ctx: ScoreContext = {
+      hpPercent: npc.hp / npc.maxHp,
+      enemyHpPercent: nearestEnemy ? (state.characters[nearestEnemy.id]?.hp ?? 100) / (state.characters[nearestEnemy.id]?.maxHp ?? 100) : 1,
+      distanceToEnemy: nearestEnemy?.dist,
+    };
+
+    // 评分
+    const scored = candidates.map(c => scoreAction(c, ctx));
+    scored.sort((a, b) => b.utility - a.utility);
+
+    // C3 诊断输出（开发时可用 console.debug 查看）
+    // scored.forEach((c, i) => console.debug(`[C3 AI] #${i} ${c.action.type} util=${c.utility} dmg=${c.estimatedDamage} risk=${c.estimatedRisk}`));
+
+    return scored[0]!.action;
+  }
+
+  /**
+   * C3：生成合法候选列表。
+   * 不重复 BattleEngine 的 AP/灵力/冷却/地形检查——仅生成候选形状，
+   * 无效候选在 dispatch 阶段被引擎拒绝自然衰减。
+   */
+  private static generateCandidates(
+    npc: Character,
+    aliveEnemyIds: string[],
+    npcPos: { q: number; r: number },
+    engine: EngineLike,
+  ): ActionCandidate[] {
+    const candidates: ActionCandidate[] = [];
+    const state = engine.getState();
+
+    // 最近敌人信息
+    const nearest = this.findNearestEnemy(aliveEnemyIds, npcPos, engine);
+    const nearestId = nearest?.id;
+    const nearestDist = nearest?.dist;
+
+    // 血量最低敌人（补刀优先目标）
+    const lowestHpEnemy = [...aliveEnemyIds].sort(
+      (a, b) => (state.characters[a]?.hp ?? 999) - (state.characters[b]?.hp ?? 999),
+    )[0];
+
+    // ── 攻击候选 ──
+    if (nearestId && nearestDist !== undefined) {
+      // 普攻（距离 1）
+      if (nearestDist <= 1) {
+        const target = lowestHpEnemy ?? nearestId;
+        candidates.push({
+          action: { type: 'basicAttack', targetId: target },
+          estimatedDamage: npc.attributes.physique * 1.2, // 基础普攻估算
+          estimatedRisk: this.estimateCounterDamage(npc, target, engine),
+          utility: 0,
+        });
+      }
+
+      // 可用技能（取前 5 个避免枚举爆炸）
+      const castable = npc.skills
+        .filter(s => isSkillCastable(s, npc))
+        .slice(0, 5);
+      for (const skill of castable) {
+        const range = maxRange(skill.primitives);
+        if (nearestDist > range) continue;
+
+        // 估算伤害
+        let mult = 1.0;
+        for (const p of skill.primitives) {
+          if (p.category === 'Numeric' && typeof p.params.multiplier === 'number') {
+            mult = Math.max(mult, p.params.multiplier);
+          }
+        }
+        const estimatedDamage = npc.attributes.comprehension * mult * 2;
+
+        // 对每个在射程内的敌人各生成一个候选
+        for (const enemyId of aliveEnemyIds) {
+          const ep = findPosition(engine, enemyId);
+          if (!ep) continue;
+          if (hexDistance(npcPos.q, npcPos.r, ep.q, ep.r) > range) continue;
+
+          candidates.push({
+            action: { type: 'useSkill', skillId: skill.id, targetId: enemyId },
+            estimatedDamage: estimatedDamage,
+            estimatedRisk: this.estimateCounterDamage(npc, enemyId, engine),
+            utility: 0,
+          });
+        }
+      }
+    }
+
+    // ── 移动候选（朝最近敌人方向） ──
+    if (nearestDist && nearestDist > 1) {
+      const nearestPos = findPosition(engine, nearestId!);
+      if (nearestPos) {
+        const moveTarget = BattleAI.findBestMoveToward(npcPos, nearestPos, engine, npc);
+        if (moveTarget) {
+          candidates.push({
+            action: { type: 'move', to: moveTarget },
+            estimatedDamage: 0,
+            estimatedRisk: 0,
+            utility: 0,
+          });
+        }
+      }
+    }
+
+    // ── 逃跑候选（场景允许时）──
+    if (state.sceneConfig?.fleeEnabled !== false) {
+      candidates.push({
+        action: { type: 'flee' },
+        estimatedDamage: 0,
+        estimatedRisk: 0,
+        utility: 0,
+      });
+    }
+
+    // ── 防御候选（永远是合法选项）──
+    candidates.push({
+      action: { type: 'guard' },
+      estimatedDamage: 0,
+      estimatedRisk: npc.hp < npc.maxHp * 0.3 ? 30 : 10,
+      utility: 0,
+    });
+
+    return candidates;
+  }
+
+  /** 找最近存活敌人 */
+  private static findNearestEnemy(
+    aliveIds: string[],
+    fromPos: { q: number; r: number },
+    engine: EngineLike,
+  ): { id: string; dist: number } | null {
+    let best: { id: string; dist: number } | null = null;
+    for (const id of aliveIds) {
+      const pos = findPosition(engine, id);
+      if (!pos) continue;
+      const dist = hexDistance(fromPos.q, fromPos.r, pos.q, pos.r);
+      if (!best || dist < best.dist) {
+        best = { id, dist };
+      }
+    }
+    return best;
+  }
+
+  /** 估算来自敌人的反击伤害 */
+  private static estimateCounterDamage(npc: Character, enemyId: string, engine: EngineLike): number {
+    const enemy = engine.getState().characters[enemyId];
+    if (!enemy) return 0;
+    return enemy.attributes.physique * 0.6; // 简化估算
   }
 
   /**

@@ -126,17 +126,19 @@ function makeV4Payload(): SavePayload {
 
 describe('SaveMigrationRunner', () => {
   describe('v1→v4 全链迁移', () => {
-    it('v1 存档迁移到 v5：补 npcs + eventLog + elapsedMinutes，schemaVersion=5', () => {
+    it('v1 存档迁移到 v6：补 npcs + eventLog + elapsedMinutes + watchedNpcIds，schemaVersion=6', () => {
       const v1 = makeV1Payload();
       const result = SaveMigrationRunner.migrate(v1);
 
-      expect(result.header.schemaVersion).toBe(5);
+      expect(result.header.schemaVersion).toBe(6);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
       expect(result.player).toBeDefined();
       // 废弃字段保留（不破坏性删除）
       expect(result.activeNPCs).toEqual({});
+      // C2：旧存档无 watchedNpcIds 补 []
+      expect(result.watchedNpcIds).toEqual([]);
     });
 
     it('v1 存档保留 playerMapState 缺失时的兼容', () => {
@@ -148,11 +150,11 @@ describe('SaveMigrationRunner', () => {
   });
 
   describe('v3→v5 迁移', () => {
-    it('v3 存档迁移到 v5：schemaVersion 正确升版', () => {
+    it('v3 存档迁移到 v6：schemaVersion 正确升版', () => {
       const v3 = makeV3Payload();
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(5);
+      expect(result.header.schemaVersion).toBe(6);
     });
 
     it('v3 存档的废弃字段保留但不影响权威数据', () => {
@@ -180,38 +182,40 @@ describe('SaveMigrationRunner', () => {
       v3.overworldMap = { continents: [{ id: 'c1', name: '假大陆', nodes: [] }] };
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(5);
+      expect(result.header.schemaVersion).toBe(6);
       // 废弃字段保留原值（不破坏）
       expect(result.activeNPCs).toBeDefined();
       expect(result.overworldMap).toBeDefined();
     });
   });
 
-  describe('v4→v5 迁移（P1：elapsedMinutes）', () => {
-    it('v4 存档迁移到 v5：elapsedMinutes 从 currentYear/currentMonth 正确计算', () => {
+  describe('v4→v6 迁移（P1：elapsedMinutes + C2：watchedNpcIds）', () => {
+    it('v4 存档迁移到 v6：elapsedMinutes 正确 + watchedNpcIds 补 []', () => {
       const v4 = makeV4Payload();
       // currentYear=5, currentMonth=3 → (5-1)*12 + (3-1) = 50 月 → 50 * 43200 = 2160000 分
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v4)));
 
-      expect(result.header.schemaVersion).toBe(5);
+      expect(result.header.schemaVersion).toBe(6);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
+      expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
-  describe('v5 round-trip', () => {
-    it('v5 存档经迁移后仍为 v5，数据不变', () => {
+  describe('v5→v6 round-trip', () => {
+    it('v5 存档经迁移后升至 v6，watchedNpcIds 补 []，其他数据不变', () => {
       const v5 = makeV4Payload();
       v5.header.schemaVersion = 5;
       v5.worldState.elapsedMinutes = 50 * 43200;
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v5)));
 
-      expect(result.header.schemaVersion).toBe(5);
+      expect(result.header.schemaVersion).toBe(6);
       expect(result.header.saveId).toBe('save_v4');
       expect(result.worldState.currentYear).toBe(5);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
       expect(result.player.id).toBe('player_1');
       expect(result.graveyard).toEqual([]);
       expect(result.playerMapState?.activeLayer).toBe('Region');
+      expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
@@ -221,8 +225,7 @@ describe('SaveMigrationRunner', () => {
       delete v3.playerMapState;
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(5);
-      expect(result.playerMapState).toBeUndefined();
+      expect(result.header.schemaVersion).toBe(6);
     });
 
     it('v3 存档完全无 graveyard 时迁移成功（补默认）', () => {

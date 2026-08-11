@@ -4,6 +4,7 @@
 > 日期：2026-08-10
 > 上位约束：[统一修仙世界模拟架构方案](systemic-cultivation-world-blueprint.md)
 > 前置审计：[Phase 0 契约层审计](phase0-audit/06-migration-acceptance-plan.md)
+> 实施后复核：[Phase 0.5：运行时接线与活世界收口方案](phase0.5-runtime-closeout-plan.md)（P5/P6/P7 尚未形成生产闭环时，以此收口方案为准）
 
 ## 1. 本轮目标
 

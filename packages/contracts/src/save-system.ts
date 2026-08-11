@@ -61,15 +61,18 @@ export interface SavePayload {
   graveyard: GraveMarker[];
   /** 玩家地图进度（层级/位置/已探索六边形）。Phase-save-fix 新增。 */
   playerMapState?: PlayerMapState;
+  /** C2：玩家关注的 NPC ID 列表（持久化，跨存档跟随） */
+  watchedNpcIds?: string[];
 }
 
 // ---- 存档版本迁移 ----
-// 当前 schemaVersion = 5
+// 当前 schemaVersion = 6
 // v1 → v2：WorldState 新增 npcs 字段（NPC 持久化档案），旧存档补空对象
 // v2 → v3：WorldState 新增 eventLog 字段（全量事件流），旧存档补空数组
 // v3 → v4：废弃 activeNPCs/overworldMap/factions/marketInventories 四个伪权威占位字段；
 //          新存档不再写入，旧存档保留但忽略其内容
 // v4 → v5：P1 引入 elapsedMinutes（权威绝对时间）；旧存档从 currentYear/currentMonth 计算
+// v5 → v6：C2 引入 watchedNpcIds（关注列表）；旧存档补空数组
 export class SaveMigrationRunner {
   private static migrations: Map<number, (oldData: any) => any> = new Map([
     [
@@ -105,6 +108,14 @@ export class SaveMigrationRunner {
         const month = data.worldState.currentMonth ?? 1;
         const totalMonths = (year - 1) * 12 + (month - 1);
         data.worldState.elapsedMinutes = totalMonths * MINUTES_PER_MONTH;
+        return data;
+      },
+    ],
+    [
+      5,
+      (data) => {
+        // v5→v6（C2）：旧存档无 watchedNpcIds，补空数组
+        data.watchedNpcIds = data.watchedNpcIds ?? [];
         return data;
       },
     ],

@@ -27,7 +27,7 @@ import {
 } from '@taosim/engine';
 import type { Character, MapLayer, NpcRecord } from '@taosim/contracts';
 import type { AdventureEvent } from '@taosim/engine';
-import { AdventureEngine, NPCGenerator } from '@taosim/engine';
+import { AdventureEngine } from '@taosim/engine';
 import { TIANJI_SETTLEMENT, getNpcsInVenue } from '@taosim/engine';
 import type { SettlementNode } from '@taosim/engine';
 import { formatRealm } from '@/utils/i18n-game';
@@ -402,12 +402,8 @@ function acceptBattle() {
       sceneId: `encounter_${Date.now()}`,
     });
   } else {
-    // P3 TODO：妖兽应来自世界生态实体或群体投影，而非临时生成。
-    // 当前作为临时降级保留——仅在没有世界 NPC 可遭遇时使用。
-    // 红线 #6：不得为天机城生成脱离世界档案的临时 NPC。
-    const enemy = NPCGenerator.generate(tier, Date.now());
-    enemy.name = ['赤眼狼妖', '石魔傀儡', '腐毒蛇君', '幽影鬼面'][Math.floor(Math.random() * 4)] ?? '妖兽';
-    uiStore.startBattle({ enemy, type: 'encounter', title: `遭遇 · ${enemy.name}`, description: pendingBattle.value.description });
+    // C4：无世界 NPC 可遭遇时不生成临时实体。
+    message.value = '四周灵气波动，但未见可交手的修士';
   }
 
   pendingBattle.value = null;

@@ -280,6 +280,9 @@ const selectedNpcKinship = computed(() => {
           <div v-if="r.event.description" class="text-[10px] text-slate-400 mt-0.5 leading-snug">
             {{ r.event.year }}年{{ r.event.month }}月 · {{ r.event.description }}
           </div>
+          <div v-if="r.event.narrative" class="text-[10px] text-indigo-300/70 mt-0.5 italic leading-snug">
+            "{{ r.event.narrative }}"
+          </div>
         </div>
       </div>
     </template>
@@ -365,6 +368,9 @@ const selectedNpcKinship = computed(() => {
           >
             <div class="text-[11px] text-slate-200 font-medium">{{ evt.month }}月 · {{ evt.title }}</div>
             <div v-if="evt.description" class="text-[10px] text-slate-400 mt-0.5">{{ evt.description }}</div>
+            <div v-if="evt.narrative" class="text-[10px] text-indigo-300/70 mt-0.5 italic">
+              "{{ evt.narrative }}"
+            </div>
           </div>
         </div>
       </div>

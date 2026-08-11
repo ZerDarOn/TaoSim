@@ -735,7 +735,7 @@ export class BattleEngine {
     const playerIds = Object.values(this.state.units)
       .filter((u) => u.team === 'Player' && this.state.characters[u.characterId]!.hp > 0)
       .map((u) => u.characterId);
-    const decision = BattleAI.decide(npc, playerIds, this);
+    const decision = BattleAI.decideWithUtility(npc, playerIds, this);
     // 执行决策（任一命令失败都不阻塞——AI 兜底 Guard 永不失败）
     switch (decision.type) {
       case 'basicAttack':
@@ -762,7 +762,7 @@ export class BattleEngine {
       while (this.state.currentTurnId === npcId && extraActions < 3) {
         const unit = this.state.units[npcId]!;
         if (unit.actionPoints < 1) break;
-        const next = BattleAI.decide(npc, playerIds, this);
+        const next = BattleAI.decideWithUtility(npc, playerIds, this);
         if (next.type === 'basicAttack') {
           this.dispatch({ type: 'BasicAttack', actorId: npcId, targetId: next.targetId });
         } else if (next.type === 'useSkill') {

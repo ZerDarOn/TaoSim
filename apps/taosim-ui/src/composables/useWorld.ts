@@ -4,7 +4,6 @@ import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
 import { useGameFlowStore } from '@/stores/game-flow';
 import { useEventLogStore } from '@/stores/event-log';
-import type { TimeFlowMode } from '@taosim/contracts';
 
 /**
  * 全局世界状态（单例）。
@@ -63,28 +62,21 @@ export function useWorld() {
 
   // 实时演算委托：满月结算复用统一入口 advanceTime
   advanceRealtimeMonth = () => {
-    void advanceTime(1, 'World', { autoSave: false });
+    void advanceTime(1, { autoSave: false });
   };
 
   /**
-   * 推进时间 — 统一入口
+   * 推进时间 — 统一入口（C0：World-only，无 mode 参数）。
    *
    * @param months  月数
-   * @param mode    World=世界同步运转（正式玩法唯一模式）; Isolated 已禁止正式调用
    * @param opts    实时推进选项（autoSave=false：跳过铁人自动存档）
    */
   async function advanceTime(
     months: number,
-    mode: TimeFlowMode = 'World',
     opts?: { autoSave?: boolean },
   ): Promise<{ months: number; expGained: number; died: boolean; causeOfDeath?: string }> {
     if (!appStore.currentWorldState || !playerStore.character) {
       return { months: 0, expGained: 0, died: false };
-    }
-
-    // P1：正式玩法禁止调用 Isolated 时间（红线 #8）
-    if (mode === 'Isolated') {
-      throw new Error('[useWorld] 正式玩法禁止调用 Isolated 时间模式。所有时间推进必须通过 World 模式。');
     }
 
     globalState.advancing = true;
@@ -98,13 +90,12 @@ export function useWorld() {
         playerStore.character,
         appStore.currentWorldState,
         months,
-        mode,
         calendarEvent,
       );
 
       // eslint-disable-next-line no-console
       console.log('[useWorld] advanceTime result:', {
-        months, mode,
+        months,
         oldMonth: startMonth,
         newMonth: result.updatedWorldState?.currentMonth,
         newYear: result.updatedWorldState?.currentYear,
@@ -172,36 +163,34 @@ export function useWorld() {
   function advanceMonth() {
     stopRealtime();
     globalState.worldDay = 1;
-    return advanceTime(1, 'World');
+    return advanceTime(1);
   }
 
   /**
    * 玩家快进：暂停实时计时器后，让玩家与整个世界共同推进。
    *
-   * 闭关只表示玩家暂时不接收常规操作，不表示世界停止演化；
-   * Isolated 仅保留给预览、测试等明确不应改动世界状态的内部场景。
+   * 闭关只表示玩家暂时不接收常规操作，不表示世界停止演化。
    */
   async function fastForward(months: number) {
     stopRealtime();
-    return advanceTime(months, 'World');
+    return advanceTime(months);
   }
 
   /**
-   * P1：旅行/移动推进时间——玩家与整个世界共同推进。
+   * 旅行/移动推进时间——玩家与整个世界共同推进。
    *
    * 替代旧 playerStore.advanceTime(days) 只推进玩家的隔离路径。
-   * 天数转月数后调用统一 advanceTime(World 模式)。
+   * 天数转月数后调用统一 advanceTime。
    */
   async function travelAdvanceDays(days: number): Promise<{ died: boolean; causeOfDeath?: string }> {
     // 天数 → 月数（30 天/月）
     const months = days / 30;
     if (months < 1) {
       // 不足 1 月：推进世界到足月边界
-      // 用 World 模式推进 1 月（世界与玩家都走）
-      const result = await advanceTime(1, 'World');
+      const result = await advanceTime(1);
       return { died: result.died, causeOfDeath: result.causeOfDeath };
     }
-    const result = await advanceTime(Math.ceil(months), 'World');
+    const result = await advanceTime(Math.ceil(months));
     return { died: result.died, causeOfDeath: result.causeOfDeath };
   }
 

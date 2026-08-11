@@ -178,6 +178,23 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
     titlePattern: '{npc} 出师，拜别师尊 {master}',
     descriptionPattern: '{npc} 修为有成，正式出师，拜别师尊 {master}，自此独立行走江湖' },
 
+  // ── C1：NPC Mind 行动事实 ──
+  {
+    key: 'npc.mind.action',
+    category: 'cultivation',
+    severity: 'normal',
+    visibility: 'regional',
+    titlePattern: '{npc} — {result}',
+    descriptionPattern: '{result}',
+  },
+  {
+    key: 'npc.mind.minor',
+    category: 'cultivation',
+    severity: 'minor',
+    visibility: 'regional',
+    titlePattern: '{npc} — {result}',
+    descriptionPattern: '{result}',
+  },
   // ── 世界事件（§4.10：数据单一来源 = WORLD_EVENTS，模板自动生成）──
   ...WORLD_EVENTS.map((w) => ({
     key: w.id,

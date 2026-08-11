@@ -143,7 +143,18 @@ function handleLeave() {
       <!-- 互动子视图 -->
       <div v-if="subView === 'interact'" class="space-y-4">
         <div class="bg-slate-800 rounded p-4 space-y-2 text-sm">
-          <div class="font-semibold text-lg text-amber-200">{{ npc.name }}</div>
+          <div class="font-semibold text-lg text-amber-200 flex items-center gap-2">
+            {{ npc.name }}
+            <button
+              @click="appStore.toggleFollowNpc(npc.id)"
+              class="text-xs px-2 py-0.5 rounded border transition-colors"
+              :class="appStore.isWatchingNpc(npc.id)
+                ? 'bg-amber-900/40 border-amber-700 text-amber-300 hover:bg-amber-900/60'
+                : 'bg-slate-700 border-slate-600 text-slate-400 hover:text-amber-300 hover:border-amber-700'"
+            >
+              {{ appStore.isWatchingNpc(npc.id) ? '★ 关注中' : '☆ 关注' }}
+            </button>
+          </div>
           <div class="text-slate-400">{{ formatRealm(npc.realm) }} · {{ formatGender(npc.gender) }}</div>
           <div v-if="npcPersonality" class="flex items-center gap-2">
             <span class="text-xs px-2 py-0.5 rounded bg-indigo-900/50 text-indigo-300">{{ npcPersonality.name }}</span>

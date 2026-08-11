@@ -124,7 +124,7 @@ describe('P7 天机城垂直切片：事件过滤', () => {
     const state = engine.getState();
 
     const npcs = getNpcsInSettlement(state.npcs, 'NODE_CITY_TIANJI');
-    if (npcs.length === 0) return; // 概率性测试，跳过
+    expect(npcs.length).toBeGreaterThan(0);
 
     const wl = new Watchlist();
     wl.add(npcs[0]!.id);
@@ -217,7 +217,7 @@ describe('P7 红线合规：关注人物无特权', () => {
     const state = engine.getState();
 
     const npcs = getNpcsInSettlement(state.npcs, 'NODE_CITY_TIANJI');
-    if (npcs.length < 2) return;
+    expect(npcs.length).toBeGreaterThanOrEqual(2);
 
     const wl = new Watchlist();
     wl.add(npcs[0]!.id); // 关注第一个

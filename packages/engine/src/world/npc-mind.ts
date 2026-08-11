@@ -1,13 +1,18 @@
 // ============================================================
-// NPC Mind — P4 持久化心智与计划调度器
+// NPC Mind — P4 持久化心智与计划调度器 + C1 行动解析器
 //
 // 每个具名 NPC 持续拥有需求、目标、计划和下一次行动。
 // 月度调度根据 NPC 的需求压力和当前状态决定行动。
 //
+// C1：新增 resolveNpcMindAction（Intent → Validation → Resolution →
+// Delta Commit → Fact），让"想做"走到"做成"。
+//
 // 红线 #5：不得用随机事件模板代替 NPC 的需求/目标/计划/行动。
 // ============================================================
 
-import type { NpcRecord, MindState, NpcGoal, NpcAction, NpcAspiration } from '@taosim/contracts';
+import type { NpcRecord, MindState, NpcGoal, NpcAction, NpcAspiration, BigEventLog } from '@taosim/contracts';
+import { cultivateNpc, tryBreakthrough, type Rng } from './world-tick-rules.js';
+import { spiritQiMultiplier } from './world-engine.js';
 
 // —— 需求计算 ——
 
@@ -191,6 +196,9 @@ export function generateInitialMind(npc: NpcRecord, currentTime?: { year: number
     needs,
     nextAction: action,
     goalStartedAt: currentTime ?? { year: npc.birthYear, month: npc.birthMonth },
+    actionStatus: 'planned',
+    actionPlannedAt: currentTime ?? { year: npc.birthYear, month: npc.birthMonth },
+    actionMonthsElapsed: 0,
   };
 }
 
@@ -230,12 +238,236 @@ export function tickNpcMind(
   // 4. 描述
   const actionDescription = describeAction(npc, action);
 
+  // C1：如果行动类型变化，重置执行追踪
+  const actionChanged = action.type !== currentMind.nextAction.type;
+
   const mind: MindState = {
     currentGoal: goalChanged ? newGoal : currentMind.currentGoal,
     needs,
     nextAction: action,
     goalStartedAt: goalChanged ? currentTime : currentMind.goalStartedAt,
+    actionStatus: actionChanged ? 'planned' : currentMind.actionStatus,
+    actionPlannedAt: actionChanged ? currentTime : currentMind.actionPlannedAt,
+    actionMonthsElapsed: actionChanged ? 0 : currentMind.actionMonthsElapsed,
+    lastResolvedAction: currentMind.lastResolvedAction,
   };
 
   return { mind, actionDescription, goalChanged };
+}
+
+// ============================================================
+// C1：NPC Mind 行动解析器
+//
+// 管道：Intent → Validation → Resolution → Delta Commit → Fact
+//
+// 首批闭环行动：cultivate、seclude、breakthrough、wander、trade、rest
+// 其余行动（challenge、courtship、socialize、teach、prepare）
+// 继续使用现有随机规则，明确标为未迁移。
+// ============================================================
+
+/** 解析后的 NPC 行动结果 */
+export interface NpcActionResolution {
+  /** 行动是否完成（单步完成或多步最后一步） */
+  completed: boolean;
+  /** 成功（true）、失败（false）或仍在进行中（undefined） */
+  success?: boolean;
+  /** 失败原因（机器可读） */
+  failureReason?: string;
+  /** 结算事实（用于日志/时间线） */
+  fact: string;
+  /** 严重性 */
+  severity: 'minor' | 'normal' | 'major';
+  /** 更新后的 NPC（直接修改传入引用） */
+  npc: NpcRecord;
+}
+
+// 多步行动所需月数
+const ACTION_DURATION: Record<string, number> = {
+  cultivate: 1,
+  seclude: 3,
+  breakthrough: 1,
+  wander: 1,
+  trade: 1,
+  rest: 1,
+};
+
+/**
+ * C1：解析 Mind 行动并执行。
+ *
+ * 对首批闭环行动（cultivate/seclude/breakthrough/wander/trade/rest）
+ * 执行 Validation → Resolution → Delta Commit，返回结算事实。
+ *
+ * 其余行动类型返回 null（调用方继续使用旧随机规则）。
+ */
+export function resolveNpcMindAction(
+  npc: NpcRecord,
+  mind: MindState,
+  currentTime: { year: number; month: number },
+  options: { rng?: Rng; nodeSpiritQi?: Record<string, number> },
+): NpcActionResolution | null {
+  const actionType = mind.nextAction.type;
+
+  // 非首批闭环行动：返回 null，由旧随机规则处理
+  if (!(actionType in ACTION_DURATION)) {
+    return null;
+  }
+
+  const duration = ACTION_DURATION[actionType] ?? 1;
+
+  // —— Validation ——
+  // 多步行动：检查是否仍在进行中
+  const elapsedThisTick = (mind.actionMonthsElapsed ?? 0) + 1;
+  const isLastMonth = elapsedThisTick >= duration;
+
+  // 强制检查：突破需要修为 >= maxExp
+  if (actionType === 'breakthrough' && npc.cultivation.currentExp < npc.cultivation.maxExp) {
+    return {
+      completed: true,
+      success: false,
+      failureReason: `exp_insufficient(${npc.cultivation.currentExp}/${npc.cultivation.maxExp})`,
+      fact: `${npc.name}试图突破，但修为不足`,
+      severity: 'minor',
+      npc,
+    };
+  }
+
+  // 中间月份：只累加进度，不结算
+  if (!isLastMonth) {
+    return {
+      completed: false,
+      fact: '',
+      severity: 'minor',
+      npc,
+    };
+  }
+
+  // —— Resolution ——
+  let success = true;
+  let failureReason: string | undefined;
+  let fact: string;
+  let severity: 'minor' | 'normal' | 'major' = 'minor';
+  const oldRealm = npc.realm;
+
+  switch (actionType) {
+    case 'cultivate': {
+      // 修炼：增加修为（受灵气浓度影响）
+      const qi = npc.locationId
+        ? spiritQiMultiplier(options?.nodeSpiritQi?.[npc.locationId] ?? 50)
+        : 1;
+      const expBefore = npc.cultivation.currentExp;
+      cultivateNpc(npc, { qi, focus: 1 });
+      const expGained = Math.round(npc.cultivation.currentExp - expBefore);
+      fact = `${npc.name}修炼一月，修为 +${expGained}`;
+      severity = 'minor';
+      break;
+    }
+
+    case 'seclude': {
+      // 闭关 3 月：集中修炼，灵气加成 ×2
+      const qi = npc.locationId
+        ? spiritQiMultiplier(options?.nodeSpiritQi?.[npc.locationId] ?? 50)
+        : 1;
+      const expBefore = npc.cultivation.currentExp;
+      cultivateNpc(npc, { qi, focus: 2 }); // focus=2 表示闭关加成
+      const expGained = Math.round(npc.cultivation.currentExp - expBefore);
+      fact = `${npc.name}闭关三月，修为大进 +${expGained}`;
+      severity = 'normal';
+      break;
+    }
+
+    case 'breakthrough': {
+      const rng = options?.rng ?? Math.random;
+      const result = tryBreakthrough(npc, rng);
+      if (result.attempted && result.succeeded) {
+        fact = `${npc.name}突破成功！进阶 ${result.nextRealm}`;
+        severity = result.major ? 'major' : 'normal';
+      } else if (result.attempted) {
+        success = false;
+        failureReason = `breakthrough_failed(from=${oldRealm})`;
+        fact = `${npc.name}突破失败，修为清零，折寿三年`;
+        severity = 'major';
+      } else {
+        // 不应该到这里（Validation 已检查），防御性处理
+        success = false;
+        failureReason = 'breakthrough_not_attempted';
+        fact = `${npc.name}突破条件不满足`;
+        severity = 'minor';
+      }
+      break;
+    }
+
+    case 'wander': {
+      // 云游：清空 locationId，由 WorldEngine 重新分配位置
+      const oldLocId = npc.locationId;
+      npc.locationId = undefined;
+      npc.moveState = 'wandering';
+      fact = oldLocId
+        ? `${npc.name}离开${oldLocId}，外出云游`
+        : `${npc.name}云游四方`;
+      severity = 'minor';
+      break;
+    }
+
+    case 'trade': {
+      // 交易：增加少量灵石
+      const spiritStones = npc.spiritStones ?? 0;
+      const earned = Math.floor(10 + Math.random() * 30);
+      npc.spiritStones = spiritStones + earned;
+      fact = `${npc.name}坊市交易，灵石 +${earned}`;
+      severity = 'minor';
+      break;
+    }
+
+    case 'rest': {
+      fact = `${npc.name}静养调息`;
+      severity = 'minor';
+      break;
+    }
+
+    default: {
+      return null;
+    }
+  }
+
+  // —— Delta Commit ——
+  npc.lastUpdate = { year: currentTime.year, month: currentTime.month };
+  if (npc.realm !== oldRealm) {
+    // 突破成功：标记里程碑
+    npc.biography.milestones.push({
+      eventId: `mind_${currentTime.year}_${currentTime.month}`,
+      year: currentTime.year,
+      month: currentTime.month,
+      title: `突破 ${npc.realm}`,
+      realm: npc.realm,
+    });
+  }
+
+  return {
+    completed: true,
+    success,
+    failureReason,
+    fact,
+    severity,
+    npc,
+  };
+}
+
+/**
+ * C1：标记 Mind 行动已结算（无论成功或失败），更新状态追踪。
+ * 调用方在获得 resolution 后调用此函数更新 mind 状态。
+ */
+export function commitMindAction(
+  mind: MindState,
+  resolution: NpcActionResolution,
+  currentTime: { year: number; month: number },
+): MindState {
+  return {
+    ...mind,
+    actionStatus: resolution.completed
+      ? (resolution.success === false ? 'failed' : 'completed')
+      : 'executing',
+    actionMonthsElapsed: resolution.completed ? 0 : (mind.actionMonthsElapsed ?? 0) + 1,
+    actionFailureReason: resolution.failureReason,
+    lastResolvedAction: mind.nextAction.type,
+  };
 }

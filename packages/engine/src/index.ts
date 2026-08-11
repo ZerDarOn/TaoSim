@@ -21,6 +21,9 @@ export { PlayerLifecycleService } from './lifecycle/player-lifecycle.js';
 
 // AI Service Facade
 export { AIServiceFacade } from './ai/ai-service-facade.js';
+export type { AIRequest, AIResponse } from './ai/ai-service-facade.js';
+export { NarrativeEnhancer } from './ai/narrative-enhancer.js';
+export type { NarrativeRequest, NarrativeResult } from './ai/narrative-enhancer.js';
 
 // Economy Engine (灵石经济)
 export { EconomyEngine } from './economy/economy-engine.js';
@@ -101,8 +104,8 @@ export { commitOutcome } from './world/outcome-committer.js';
 
 // NPC Query (按位置查 NPC — S5a：遭遇战优先选取真实世界 NPC)
 export { npcsByVenue, pickNearbyNpc } from './world/npc-query.js';
-export { generateInitialMind, tickNpcMind, computeNeeds } from './world/npc-mind.js';
-export type { MindTickResult, NpcNeeds } from './world/npc-mind.js';
+export { generateInitialMind, tickNpcMind, computeNeeds, resolveNpcMindAction, commitMindAction } from './world/npc-mind.js';
+export type { MindTickResult, NpcNeeds, NpcActionResolution } from './world/npc-mind.js';
 export { Watchlist, filterEventRelevance } from './world/watchlist.js';
 export type { EventRelevanceLayer } from './world/watchlist.js';
 
