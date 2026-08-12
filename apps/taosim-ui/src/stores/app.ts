@@ -55,7 +55,30 @@ export const useAppStore = defineStore('app', {
   },
 
   actions: {
-    async initialize(_playerId: string) {
+    /**
+     * 世界初始化（新流程：支持世界配置 + NPC 批量生成 + 预演化）
+     *
+     * @param playerId 玩家角色 ID
+     * @param config 世界初始化配置
+     * @param onProgress 进度回调（pct: 0-100, stage: 当前阶段描述）
+     */
+    async initialize(
+      _playerId: string,
+      config?: {
+        npcScale?: 'small' | 'medium' | 'large';
+        preEvolveYears?: number;
+        difficulty?: 'easy' | 'normal' | 'hard';
+      },
+      onProgress?: (pct: number, stage: string) => void,
+    ) {
+      const npcScaleMap = { small: 150, medium: 300, large: 500 };
+      const targetNpcCount = npcScaleMap[config?.npcScale ?? 'medium'] ?? 300;
+      const preEvolveYears = config?.preEvolveYears ?? 50;
+
+      // ── 阶段 1：天地初开，地图诞生 ──
+      onProgress?.(5, '天地初开，大陆成形…');
+      await this._yieldFrame();
+
       const initialState: WorldState = {
         currentYear: 1,
         currentMonth: 1,
@@ -66,8 +89,52 @@ export const useAppStore = defineStore('app', {
         eventLog: [],
       };
       const engine = new WorldEngine(initialState);
+
+      // ── 阶段 2：万物化生，NPC 涌现 ──
+      onProgress?.(15, '万物化生，修士涌现…');
+      await this._yieldFrame();
+
+      // 批量生成初始 NPC（通过多次 step 让人口补充逻辑自然填充）
+      // 每月补充10人，需要 targetNpcCount/10 个月 ≈ 15-50个月
+      const monthsToPopulate = Math.ceil(targetNpcCount / 10) + 10;
+      for (let i = 0; i < monthsToPopulate; i++) {
+        engine.step();
+      }
+
+      onProgress?.(35, `大千世界生机盎然，已有 ${Object.keys(engine.getState().npcs).length} 位修士行走江湖…`);
+      await this._yieldFrame();
+
+      // ── 阶段 3：岁月流转，世界演化 ──
+      if (preEvolveYears > 0) {
+        const totalMonths = preEvolveYears * 12;
+        const batchPerFrame = 6; // 每帧推进6个月，平衡性能与视觉
+        const totalBatches = Math.ceil(totalMonths / batchPerFrame);
+        for (let b = 0; b < totalBatches; b++) {
+          for (let j = 0; j < batchPerFrame && b * batchPerFrame + j < totalMonths; j++) {
+            engine.step();
+          }
+          const pct = 35 + Math.floor(((b + 1) / totalBatches) * 50);
+          const year = engine.getState().currentYear;
+          onProgress?.(pct, `岁月流转…大千世界第 ${year} 年，恩怨纠葛正在上演…`);
+          // 每3帧 yield 一次，避免完全阻塞
+          if (b % 3 === 0) await this._yieldFrame();
+        }
+      }
+
+      // ── 阶段 4：秘境现世，世界成型 ──
+      onProgress?.(90, '秘境现世，天下格局初定…');
+      await this._yieldFrame();
+
       this.currentWorldState = engine.getState();
       this.isInitialized = true;
+
+      onProgress?.(100, '大千世界，等你探索！');
+      await this._yieldFrame();
+    },
+
+    /** 让出一帧，允许 UI 更新进度条 */
+    async _yieldFrame() {
+      return new Promise<void>((resolve) => setTimeout(resolve, 0));
     },
 
     async saveGame() {
