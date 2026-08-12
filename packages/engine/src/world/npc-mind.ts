@@ -303,7 +303,16 @@ export function resolveNpcMindAction(
   npc: NpcRecord,
   mind: MindState,
   currentTime: { year: number; month: number },
-  options: { rng?: Rng; nodeSpiritQi?: Record<string, number> },
+  options: {
+    rng?: Rng;
+    nodeSpiritQi?: Record<string, number>;
+    /** 道侣双修加成（默认 1） */
+    coupleBonus?: number;
+    /** 灵气乘数（由调用方传入，避免重复计算） */
+    qi?: number;
+    /** 师徒传承修炼加成（默认 1） */
+    apprentice?: number;
+  },
 ): NpcActionResolution | null {
   const actionType = mind.nextAction.type;
 
@@ -348,14 +357,18 @@ export function resolveNpcMindAction(
   let severity: 'minor' | 'normal' | 'major' = 'minor';
   const oldRealm = npc.realm;
 
+  // 灵气乘数：优先用传入的，否则自算
+  const qi = options?.qi
+    ?? (npc.locationId
+      ? spiritQiMultiplier(options?.nodeSpiritQi?.[npc.locationId] ?? 50)
+      : 1);
+  const coupleBonus = options?.coupleBonus ?? 1;
+  const apprenticeMult = options?.apprentice ?? 1;
+
   switch (actionType) {
     case 'cultivate': {
-      // 修炼：增加修为（受灵气浓度影响）
-      const qi = npc.locationId
-        ? spiritQiMultiplier(options?.nodeSpiritQi?.[npc.locationId] ?? 50)
-        : 1;
       const expBefore = npc.cultivation.currentExp;
-      cultivateNpc(npc, { qi, focus: 1 });
+      cultivateNpc(npc, { qi, focus: 1 * coupleBonus, apprentice: apprenticeMult });
       const expGained = Math.round(npc.cultivation.currentExp - expBefore);
       fact = `${npc.name}修炼一月，修为 +${expGained}`;
       severity = 'minor';
@@ -363,12 +376,9 @@ export function resolveNpcMindAction(
     }
 
     case 'seclude': {
-      // 闭关 3 月：集中修炼，灵气加成 ×2
-      const qi = npc.locationId
-        ? spiritQiMultiplier(options?.nodeSpiritQi?.[npc.locationId] ?? 50)
-        : 1;
       const expBefore = npc.cultivation.currentExp;
-      cultivateNpc(npc, { qi, focus: 2 }); // focus=2 表示闭关加成
+      // focus=2 闭关加成，叠加道侣双修效应
+      cultivateNpc(npc, { qi, focus: 2 * coupleBonus, apprentice: apprenticeMult });
       const expGained = Math.round(npc.cultivation.currentExp - expBefore);
       fact = `${npc.name}闭关三月，修为大进 +${expGained}`;
       severity = 'normal';

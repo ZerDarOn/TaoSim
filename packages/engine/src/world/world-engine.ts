@@ -101,6 +101,12 @@ export const CHILD_COOLDOWN_YEARS = 8;
 /** 道侣每月生育概率（修仙以传承替代繁殖：少量、低频、重血脉） */
 export const CHILD_CHANCE_PER_MONTH = 0.02;
 
+// Mind action event severity → template key
+function severityToTemplateKey(severity: string, hasFailureReason: boolean): string {
+  if (hasFailureReason) return 'npc.mind.action';
+  return severity === 'minor' ? 'npc.mind.minor' : 'npc.mind.action';
+}
+
 /** 求偶接受基础概率（面板因果：魅力高者更易结缘） */
 export const COURTSHIP_BASE_CHANCE = 0.25;
 
@@ -458,42 +464,59 @@ export class WorldEngine {
         continue;
       }
 
-      // 自主性（§4.13 需求状态机）：志向缺省则按心性补掷；经历塑形（寿元/仇恨/姻缘/传承）。
-      // 志向演化零 rng（纯状态决定），初掷仅一次；行为选择零 rng（缺口压力决定）——
-      // NPC 行为由"缺口"驱动，不再是对所有人机械掷骰。
+      // 自主性（§4.13 需求状态机）
       npc.aspiration = npc.aspiration
         ? evolveAspiration(npc)
         : rollInitialAspiration(npc, this.rng);
       const behavior = chooseBehavior(npc);
 
-      // 修炼增长（灵气浓度 × 师徒传承 × 行为槽：闭关苦修用功加倍；道侣双修相携相助）
+      // ── P4：NPC Mind 月度调度（先于主循环，避免双重修炼/突破/云游）──
+      const mindNow = { year: this.state.currentYear, month: this.state.currentMonth };
+      if (!npc.mind) { npc.mind = generateInitialMind(npc); }
+      const mindResult = tickNpcMind(npc, npc.mind, mindNow);
+      npc.mind = mindResult.mind;
+
       const coupleBonus =
         npc.spouseId && this.state.npcs[npc.spouseId]?.soulState === 'Active' ? 1.15 : 1;
-      cultivateNpc(npc, {
-        qi: this.spiritQiMultOf(npc.locationId),
-        apprentice: this.isUndergraduateDisciple(npc) ? 1.5 : 1,
-        focus: (behavior.type === 'seclude' ? 1.5 : 1) * coupleBonus,
+      const qi = this.spiritQiMultOf(npc.locationId);
+      const apprenticeMultForCultivation = this.isUndergraduateDisciple(npc) ? 1.5 : 1;
+      const resolution = resolveNpcMindAction(npc, npc.mind, mindNow, {
+        rng: this.rng,
+        nodeSpiritQi: this.state.nodeSpiritQi,
+        coupleBonus,
+        qi,
+        apprentice: apprenticeMultForCultivation,
       });
+      const mindActionType = npc.mind.nextAction.type;
+      const mindHandled = resolution?.completed ?? false;
+      const mindHandledCultivation = mindHandled &&
+        (mindActionType === 'cultivate' || mindActionType === 'seclude');
+      const mindHandledBreakthrough = mindHandled && mindActionType === 'breakthrough';
+      const mindHandledWander = mindHandled && mindActionType === 'wander';
 
-      // 突破判定
-      const breakthrough = tryBreakthrough(npc, this.rng);
-      if (breakthrough.attempted) {
-        if (breakthrough.succeeded) {
-          const major = breakthrough.major;
+      // 修炼增长（仅当 Mind 未处理时）
+      if (!mindHandledCultivation) {
+        cultivateNpc(npc, {
+          qi,
+          apprentice: apprenticeMultForCultivation,
+          focus: (behavior.type === 'seclude' ? 1.5 : 1) * coupleBonus,
+        });
+      }
+
+      // 突破判定（仅当 Mind 未处理时）
+      if (!mindHandledBreakthrough) {
+        const breakthrough = tryBreakthrough(npc, this.rng);
+        if (breakthrough.attempted) {
+          const bKey = breakthrough.succeeded
+            ? (breakthrough.major ? 'breakthrough.major' : 'breakthrough.minor')
+            : 'breakthrough.fail';
+          const bRealm = breakthrough.succeeded
+            ? realmDisplay(npc.realm)
+            : realmDisplay(breakthrough.nextRealm ?? npc.realm);
           pushNpcEvent(
             {
-              key: major ? 'breakthrough.major' : 'breakthrough.minor',
-              vars: { npc: npc.name, realm: realmDisplay(npc.realm) },
-              involvedCharacterIds: [id],
-              locationId: npc.locationId,
-            },
-            [id],
-          );
-        } else {
-          pushNpcEvent(
-            {
-              key: 'breakthrough.fail',
-              vars: { npc: npc.name, realm: realmDisplay(breakthrough.nextRealm ?? npc.realm) },
+              key: bKey,
+              vars: { npc: npc.name, realm: bRealm },
               involvedCharacterIds: [id],
               locationId: npc.locationId,
             },
@@ -552,8 +575,12 @@ export class WorldEngine {
         );
       }
 
-      // 云游判定（§4.2 目的地优先投奔关系；逍遥/扬名者主动云游，常年在路上）
-      if (tryWander(npc, this.rng, behavior.type === 'wander' ? WANDER_ACTIVE_CHANCE : 0.02)) {
+      // 云游判定（Mind 处理基础 locationId 清零，主循环注入社交：投奔故友）
+      const shouldWanderSocial = mindHandledWander
+        ? true  // Mind 已云游，结算社交投奔
+        : tryWander(npc, this.rng, behavior.type === 'wander' ? WANDER_ACTIVE_CHANCE : 0.02);
+
+      if (shouldWanderSocial) {
         const friendEntry = Object.entries(npc.relations).find(
           ([, rel]) =>
             rel.bond >= 30 &&
@@ -561,7 +588,6 @@ export class WorldEngine {
         );
         const friend = friendEntry ? this.state.npcs[friendEntry[0]] : undefined;
         if (friend && friend.soulState === 'Active' && this.rng() < 0.5) {
-          // 投奔故人：落脚于好友所在处（关系轨道 → 空间轨道咬合）
           npc.locationId = friend.locationId;
           pushNpcEvent(
             {
@@ -572,7 +598,7 @@ export class WorldEngine {
             },
             [id, friend.id],
           );
-        } else {
+        } else if (!mindHandledWander) {
           pushNpcEvent(
             { key: 'travel.wander', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
             [id],
@@ -580,35 +606,29 @@ export class WorldEngine {
         }
       }
 
-      // P4：NPC Mind 月度调度——更新需求/目标/下一步行动
-      const mindNow = { year: this.state.currentYear, month: this.state.currentMonth };
-      if (!npc.mind) {
-        npc.mind = generateInitialMind(npc);
-      }
-      const mindResult = tickNpcMind(npc, npc.mind, mindNow);
-      npc.mind = mindResult.mind;
-
-      // C1：解析并执行 Mind 行动（首批闭环：cultivate/seclude/breakthrough/wander/trade/rest）
-      const resolution = resolveNpcMindAction(npc, npc.mind, mindNow, {
-        rng: this.rng,
-        nodeSpiritQi: this.state.nodeSpiritQi,
-      });
+      // 提交 Mind 行动状态 + 事件推送（Mind 决议已在修炼/突破之前完成）
       if (resolution) {
         npc.mind = commitMindAction(npc.mind, resolution, mindNow);
         if (resolution.completed && resolution.fact) {
-          // 世界新闻只显示 major 或可观察异常（非 minor 的失败）
-          const isNewsWorthy = resolution.severity !== 'minor' || resolution.failureReason;
-          if (isNewsWorthy) {
-            pushNpcEvent(
-              {
-                key: isNewsWorthy ? 'npc.mind.action' : 'npc.mind.minor',
-                vars: { npc: npc.name, action: mindResult.actionDescription, result: resolution.fact },
-                involvedCharacterIds: [id],
-                locationId: npc.locationId,
+          // 突破事件使用专门模板（保留 major 态以触发成名正反馈/因果链）
+          const isBreakthrough = mindActionType === 'breakthrough';
+          const eventKey = isBreakthrough
+            ? (resolution.success ? 'breakthrough.major' : 'breakthrough.fail')
+            : severityToTemplateKey(resolution.severity, !!resolution.failureReason);
+          pushNpcEvent(
+            {
+              key: eventKey,
+              vars: {
+                npc: npc.name,
+                realm: realmDisplay(npc.realm),
+                action: mindResult.actionDescription,
+                result: resolution.fact,
               },
-              [id],
-            );
-          }
+              involvedCharacterIds: [id],
+              locationId: npc.locationId,
+            },
+            [id],
+          );
         }
       }
     }

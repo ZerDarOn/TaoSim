@@ -9,7 +9,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
@@ -19,6 +21,7 @@
     "@taosim/contracts": "*"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "typescript": "~5.7.0",
     "vitest": "^3.0.0"
   }
