@@ -1,4 +1,4 @@
-import type { BattleState, BattleUnit, BattleCommand, BattleEvent, HexBattleMap, Character, Skill } from '@taosim/contracts';
+import type { BattleState, BattleUnit, BattleCommand, BattleEvent, HexBattleMap, Character, Skill, BattleStartOptions } from '@taosim/contracts';
 import { hexKey, hexDistance, hexNeighbors } from '@taosim/contracts';
 import { createSeededRng } from './seeded-rng.js';
 import { BATTLE_CONFIG } from './battle-config.js';
@@ -67,7 +67,13 @@ export class BattleEngine {
    *   2. 双方至少一名存活单位（hp > 0）→ { error: 'no_alive_unit' }
    *   3. 任一侧可放置格不足 → { error: 'not_enough_spawn_slots' }
    */
-  start(map: HexBattleMap, players: Character[], enemies: Character[], sceneConfig?: import('@taosim/contracts').BattleSceneConfig): { error?: string } {
+  start(
+    map: HexBattleMap,
+    players: Character[],
+    enemies: Character[],
+    sceneConfig?: import('@taosim/contracts').BattleSceneConfig,
+    startOptions: BattleStartOptions = {},
+  ): { error?: string } {
     const allIds = [...players, ...enemies].map((c) => c.id);
     if (new Set(allIds).size !== allIds.length) {
       return { error: 'duplicate_unit_id' };
@@ -93,14 +99,21 @@ export class BattleEngine {
     this.state.events = [];
     this.state.sceneConfig = sceneConfig;
     this.state.fled = false;
+    this.state.fledBy = undefined;
+    this.state.surrenderedBy = undefined;
+    this.state.endReason = undefined;
 
     for (const p of players) {
       this.state.characters[p.id] = this.cloneCharacter(p);
-      this.state.units[p.id] = this.makeUnit(p.id, 'Player', p.attributes.agility);
+      this.state.units[p.id] = this.makeUnit(
+        p.id, 'Player', p.attributes.agility, startOptions.controllers?.[p.id] ?? 'Human',
+      );
     }
     for (const e of enemies) {
       this.state.characters[e.id] = this.cloneCharacter(e);
-      this.state.units[e.id] = this.makeUnit(e.id, 'Enemy', e.attributes.agility);
+      this.state.units[e.id] = this.makeUnit(
+        e.id, 'Enemy', e.attributes.agility, startOptions.controllers?.[e.id] ?? 'AI',
+      );
     }
 
     for (const p of players) {
@@ -117,11 +130,16 @@ export class BattleEngine {
     return {};
   }
 
-  private makeUnit(id: string, team: 'Player' | 'Enemy', agility: number): BattleUnit {
+  private makeUnit(
+    id: string,
+    team: 'Player' | 'Enemy',
+    agility: number,
+    controller: 'Human' | 'AI',
+  ): BattleUnit {
     return {
       characterId: id,
       team,
-      controller: team === 'Player' ? 'Human' : 'AI',
+      controller,
       gauge: 0,
       actionReady: false,
       actionPoints: BATTLE_CONFIG.MAX_AP,
@@ -181,6 +199,8 @@ export class BattleEngine {
       this.state.currentTurnId = next;
       this.state.turnNumber += 1;
       const unit = this.state.units[next]!;
+      // 每次激活恢复本回合行动预算；否则单位开战消耗完初始 AP 后会永久失去行动能力。
+      unit.actionPoints = unit.maxActionPoints;
       unit.movePoints = Math.max(BATTLE_CONFIG.MOVE_BASE, BATTLE_CONFIG.MOVE_BASE + Math.floor(this.state.characters[next]!.attributes.agility / BATTLE_CONFIG.MOVE_AGILITY_DIVISOR));
       unit.maxMovePoints = unit.movePoints;
       this.emit('activation_start', next);
@@ -223,6 +243,7 @@ export class BattleEngine {
     if (!playerAlive || !enemyAlive) {
       this.state.phase = 'BattleEnd';
       this.state.winner = playerAlive ? 'Player' : 'Enemy';
+      this.state.endReason = 'elimination';
       this.emit('battle_end', undefined, undefined, { winner: this.state.winner ?? 'none' });
     }
   }
@@ -243,6 +264,8 @@ export class BattleEngine {
         return this.dispatchGuard(cmd.actorId);
       case 'Flee':
         return this.dispatchFlee(cmd.actorId);
+      case 'Surrender':
+        return this.dispatchSurrender(cmd.actorId);
       case 'EndActivation':
         return this.dispatchEndActivation(cmd.actorId);
       default:
@@ -582,9 +605,12 @@ export class BattleEngine {
 
     const player = this.state.characters[actorId]!;
     if (!player) return { error: 'unknown_actor' };
-    // 找第一个敌方存活单位作为追击者
+    const actorUnit = this.state.units[actorId];
+    if (!actorUnit) return { error: 'unknown_actor' };
+    const opponentTeam = actorUnit.team === 'Player' ? 'Enemy' : 'Player';
+    // 找第一个对方存活单位作为追击者；不再假设逃跑者一定是玩家阵营。
     const enemyId = Object.values(this.state.units).find(
-      (u) => u.team === 'Enemy' && this.state.characters[u.characterId]!.hp > 0,
+      (u) => u.team === opponentTeam && this.state.characters[u.characterId]!.hp > 0,
     )?.characterId;
     if (!enemyId) return { error: 'no_enemy' };
     const enemy = this.state.characters[enemyId]!;
@@ -597,6 +623,7 @@ export class BattleEngine {
       enemyRealm: enemy.realm,
       playerAgility: player.attributes.agility,
       enemyAgility: enemy.attributes.agility,
+      enemyPersonalityId: enemy.personalityId,
       battleType: 'encounter',
       distanceToEdge,
       rng: this.rng,
@@ -607,6 +634,9 @@ export class BattleEngine {
     if (result === 'success') {
       this.state.phase = 'BattleEnd';
       this.state.fled = true;
+      this.state.fledBy = actorId;
+      this.state.endReason = 'flee';
+      this.state.currentTurnId = null;
       this.emit('battle_end', undefined, undefined, { winner: 'none', fled: true });
       return {};
     }
@@ -634,6 +664,22 @@ export class BattleEngine {
     }
     // escape-hit/hit：仍消耗本回合（交由 EndActivation）
     this.emit('flee_hit', actorId);
+    return {};
+  }
+
+  private dispatchSurrender(actorId: string): { error?: string } {
+    const check = this.canAct(actorId);
+    if (!check.ok) return { error: check.error };
+    if (this.state.sceneConfig?.surrenderEnabled === false) return { error: 'surrender_disabled' };
+    const unit = this.state.units[actorId];
+    if (!unit) return { error: 'unknown_actor' };
+    this.state.phase = 'BattleEnd';
+    this.state.winner = unit.team === 'Player' ? 'Enemy' : 'Player';
+    this.state.surrenderedBy = actorId;
+    this.state.endReason = 'surrender';
+    this.state.currentTurnId = null;
+    this.emit('surrender', actorId);
+    this.emit('battle_end', undefined, undefined, { winner: this.state.winner, surrenderedBy: actorId });
     return {};
   }
 
@@ -732,28 +778,37 @@ export class BattleEngine {
 
   private resolveAiTurn(npcId: string): void {
     const npc = this.state.characters[npcId]!;
-    const playerIds = Object.values(this.state.units)
-      .filter((u) => u.team === 'Player' && this.state.characters[u.characterId]!.hp > 0)
+    const actorTeam = this.state.units[npcId]!.team;
+    const opponentIds = Object.values(this.state.units)
+      .filter((u) => u.team !== actorTeam && this.state.characters[u.characterId]!.hp > 0)
       .map((u) => u.characterId);
-    const decision = BattleAI.decideWithUtility(npc, playerIds, this);
+    const decision = BattleAI.decideWithUtility(npc, opponentIds, this);
+    this.emit('ai_decision', npcId, undefined, { action: decision.type });
+    let commandResult: { error?: string } = {};
     // 执行决策（任一命令失败都不阻塞——AI 兜底 Guard 永不失败）
     switch (decision.type) {
       case 'basicAttack':
-        this.dispatch({ type: 'BasicAttack', actorId: npcId, targetId: decision.targetId });
+        commandResult = this.dispatch({ type: 'BasicAttack', actorId: npcId, targetId: decision.targetId });
         break;
       case 'useSkill':
-        this.dispatch({ type: 'UseSkill', actorId: npcId, skillId: decision.skillId, targetId: decision.targetId });
+        commandResult = this.dispatch({ type: 'UseSkill', actorId: npcId, skillId: decision.skillId, targetId: decision.targetId });
         break;
       case 'move':
-        this.dispatch({ type: 'Move', actorId: npcId, to: decision.to });
+        commandResult = this.dispatch({ type: 'Move', actorId: npcId, to: decision.to });
         break;
       case 'flee':
-        this.dispatch({ type: 'Flee', actorId: npcId });
+        commandResult = this.dispatch({ type: 'Flee', actorId: npcId });
+        break;
+      case 'surrender':
+        commandResult = this.dispatch({ type: 'Surrender', actorId: npcId });
         break;
       case 'guard':
       default:
-        this.dispatch({ type: 'Guard', actorId: npcId });
+        commandResult = this.dispatch({ type: 'Guard', actorId: npcId });
         break;
+    }
+    if (commandResult.error) {
+      this.emit('ai_command_failed', npcId, undefined, { action: decision.type, error: commandResult.error });
     }
     // AI 决策后仍持有回合（没消耗完 AP 或未主动 EndActivation）→ 强制结算
     if (this.state.currentTurnId === npcId) {
@@ -762,7 +817,7 @@ export class BattleEngine {
       while (this.state.currentTurnId === npcId && extraActions < 3) {
         const unit = this.state.units[npcId]!;
         if (unit.actionPoints < 1) break;
-        const next = BattleAI.decideWithUtility(npc, playerIds, this);
+        const next = BattleAI.decideWithUtility(npc, opponentIds, this);
         if (next.type === 'basicAttack') {
           this.dispatch({ type: 'BasicAttack', actorId: npcId, targetId: next.targetId });
         } else if (next.type === 'useSkill') {

@@ -45,6 +45,7 @@ interface WorldMetrics {
   sectAbdications: number;   // 宗门权力（§2.2）：主动让贤
   sectUsurps: number;        // 宗门权力（§2.2）：夺位成功
   sectUsurpFails: number;    // 宗门权力（§2.2）：夺位失败被逐
+  sectUsurpStalemates: number; // 宗门权力（§2.2）：真实斗法但未分胜负
 }
 
 function baseState(npcs: Record<string, NpcRecord>): WorldState {
@@ -115,6 +116,7 @@ function simulate(seed: number): { metrics: WorldMetrics; events: BigEventLog[];
   const sectAbdications = allEvents.filter((e) => e.templateKey === 'social.sectAbdicate').length;
   const sectUsurps = allEvents.filter((e) => e.templateKey === 'social.sectUsurp').length;
   const sectUsurpFails = allEvents.filter((e) => e.templateKey === 'social.sectUsurpFail').length;
+  const sectUsurpStalemates = allEvents.filter((e) => e.templateKey === 'social.sectUsurpStalemate').length;
 
   return {
     metrics: {
@@ -140,6 +142,7 @@ function simulate(seed: number): { metrics: WorldMetrics; events: BigEventLog[];
       sectAbdications,
       sectUsurps,
       sectUsurpFails,
+      sectUsurpStalemates,
     },
     events: allEvents,
     legendary,
@@ -169,7 +172,7 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
         `  道侣 ${metrics.couples} 对 | 子嗣 ${metrics.children} | 道统传承 ${metrics.heritagePasses} 次`,
       );
       console.log(
-        `  宗门权力 让贤 ${metrics.sectAbdications} | 夺位成功 ${metrics.sectUsurps} | 夺位失败 ${metrics.sectUsurpFails}`,
+        `  宗门权力 让贤 ${metrics.sectAbdications} | 夺位成功 ${metrics.sectUsurps} | 夺位失败 ${metrics.sectUsurpFails} | 僵持 ${metrics.sectUsurpStalemates}`,
       );
     }
 
@@ -187,9 +190,9 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
       couplesMin: 5,                  // 代际：涌现道侣 ≥5 对（基线 0）
       childrenMin: 10,                // 代际：血脉子嗣 ≥10 人（基线 0）
       heritagePassesMin: 1,           // 代际：道统传承至少激活一次（基线 0）
-      // 宗门权力（§2.2 夺位）：低频涌现（需 seekFame 长老+修为反超+蓄势掷骰+斗法全胜），
-      // 逐种子天然波动 → 用 5 种子 × 50 年全窗合计判定权力轨道真实运转
-      sectUsurpsTotalMin: 2,
+      // 宗门权力（§2.2 夺位）：验证真实斗法轨道被激活，不钦定挑战者必须获胜。
+      // 若用“成功次数”作门槛，会反向迫使系统偏袒夺位者，破坏人物实力决定胜负的因果。
+      sectUsurpBattlesTotalMin: 2,
     };
 
     const failures: string[] = [];
@@ -216,15 +219,17 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
     }
 
     // 宗门权力（§2.2）：低频涌现事件按全窗合计判定（逐种子波动属天然涌现差异，非机制失效）
-    checkNames.push('宗门夺位合计≥');
+    checkNames.push('宗门夺位斗法合计≥');
     const totalUsurps = rows.reduce((s, r) => s + r.sectUsurps, 0);
     const totalAbdications = rows.reduce((s, r) => s + r.sectAbdications, 0);
     const totalUsurpFails = rows.reduce((s, r) => s + r.sectUsurpFails, 0);
-    if (totalUsurps < targets.sectUsurpsTotalMin) {
-      failures.push(`宗门 夺位成功合计 ${totalUsurps}<${targets.sectUsurpsTotalMin}`);
+    const totalUsurpStalemates = rows.reduce((s, r) => s + r.sectUsurpStalemates, 0);
+    const totalUsurpBattles = totalUsurps + totalUsurpFails + totalUsurpStalemates;
+    if (totalUsurpBattles < targets.sectUsurpBattlesTotalMin) {
+      failures.push(`宗门 夺位斗法合计 ${totalUsurpBattles}<${targets.sectUsurpBattlesTotalMin}`);
     }
     console.log(
-      `\n宗门权力合计：让贤 ${totalAbdications} | 夺位成功 ${totalUsurps} | 夺位失败 ${totalUsurpFails}（5 种子 × 50 年）`,
+      `\n宗门权力合计：让贤 ${totalAbdications} | 夺位成功 ${totalUsurps} | 夺位失败 ${totalUsurpFails} | 僵持 ${totalUsurpStalemates}（5 种子 × 50 年）`,
     );
 
     if (failures.length > 0) {

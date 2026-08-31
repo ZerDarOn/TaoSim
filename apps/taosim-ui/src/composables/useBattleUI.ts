@@ -1,20 +1,34 @@
 import { ref, computed, watch } from 'vue';
-import type { Skill, HexBattleMap } from '@taosim/contracts';
+import type { Character, Skill, HexBattleMap } from '@taosim/contracts';
 import { skillRange } from '@taosim/engine';
 import type { BattleUIPhase, FloatingText, ReachableTile, AttackTargetTile } from '@/battle/types';
 import { computeMoveRange, computeAttackTargets, findOccupant } from '@/battle/hex-utils';
-import { ATTACK_RANGE } from './useCombat';
-import type { useCombat } from './useCombat';
+const ATTACK_RANGE = 1;
 
-type Combat = ReturnType<typeof useCombat>;
+interface BattleUiCombatPort {
+  state: {
+    map: HexBattleMap;
+    characters: Record<string, Character>;
+    currentTurn: string | null;
+    selectedSkill: Skill | null;
+    movePoints: number;
+  };
+  selectSkill(skill: Skill): void;
+  movePlayer(q: number, r: number): unknown;
+  basicAttack(targetId: string): { defenderId: string; damage: number; crit?: boolean; missed?: boolean; guarded?: boolean } | null;
+  attackTarget(targetId: string): { defenderId: string; damage: number; crit?: boolean; missed?: boolean; guarded?: boolean } | null;
+  defend(): void;
+  endTurn(): void;
+  flee(battleType: 'duel' | 'encounter'): 'success' | 'escape-hit' | 'hit' | 'caught';
+}
 
 let floatId = 0;
 
 /**
- * 战斗 UI 状态机（设计文档 §5）。封装 useCombat，管理 phase/高亮/飘字。
+ * 战斗 UI 状态机（设计文档 §5）。只依赖最小命令端口，不感知具体战斗引擎。
  * 轮到玩家（currentTurn === playerId）时自动进入 command。
  */
-export function useBattleUI(combat: Combat, playerId: string) {
+export function useBattleUI(combat: BattleUiCombatPort, playerId: string) {
   const phase = ref<BattleUIPhase>('idle');
   const selectedSkill = ref<Skill | null>(null);
   const floatingTexts = ref<FloatingText[]>([]);

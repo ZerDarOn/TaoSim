@@ -12,6 +12,13 @@ export interface BattleOutcome {
   shouldGameOver: boolean;
 }
 
+export interface ResolveBattleOutcomeOptions {
+  /** 逃跑/投降可能在 HP 归零前结束，由 BattleEngine 提供真实胜方。 */
+  forcedWinner?: 'Player' | 'Enemy';
+  /** 对手逃跑时可判胜，但不能凭空获得其灵石或完整击败经验。 */
+  rewardsAllowed?: boolean;
+}
+
 /**
  * 战斗结果结算（多参战者聚合）。
  *
@@ -26,11 +33,14 @@ export function resolveBattleOutcome(
   player: Character,
   enemies: Character[],
   battleType: BattleType,
+  options: ResolveBattleOutcomeOptions = {},
 ): BattleOutcome {
   const playerAlive = player.hp > 0;
   const enemiesDead = enemies.every(e => e.hp <= 0);
-  const victory = playerAlive && enemiesDead;
-  const defeat = !playerAlive;
+  const victory = options.forcedWinner === 'Player'
+    || (options.forcedWinner === undefined && playerAlive && enemiesDead);
+  const defeat = options.forcedWinner === 'Enemy' || !playerAlive;
+  const rewardsAllowed = options.rewardsAllowed !== false;
 
   // 切磋模式：玩家 HP 保底 1，不死亡
   const playerHpAfter = battleType === 'duel' && defeat
@@ -38,7 +48,7 @@ export function resolveBattleOutcome(
     : Math.max(0, player.hp);
 
   // 经验：按所有敌人 cultivation.maxExp 聚合，切磋胜利给 20%；遭遇战胜利给 30%
-  const expGained = victory
+  const expGained = victory && rewardsAllowed
     ? Math.round(enemies.reduce((sum, e) => sum + e.cultivation.maxExp, 0) * (battleType === 'duel' ? 0.2 : 0.3))
     : 0;
 
@@ -49,7 +59,7 @@ export function resolveBattleOutcome(
     : 0;
 
   // 灵石：按所有敌人 spiritStones 聚合，仅遭遇战胜利掉落 50%
-  const spiritStonesGained = victory && battleType === 'encounter'
+  const spiritStonesGained = victory && rewardsAllowed && battleType === 'encounter'
     ? Math.round(enemies.reduce((sum, e) => sum + e.spiritStones, 0) * 0.5)
     : 0;
 

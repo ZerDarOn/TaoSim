@@ -83,9 +83,12 @@ describe('useBattleEngine (S7)', () => {
       }
     }
     combat._forcePlayerActivationForTest();
+    const apBefore = combat.state.characters.p!.ap;
     const hpBefore = combat.state.characters.e!.hp;
     const result = combat.basicAttack('e');
     expect(result).not.toBeNull();
+    expect(combat.state.characters.p!.ap).toBe(apBefore - 1);
+    expect(combat.state.characters.p!.ap).toBe(combat.state.engine!.getState().units.p!.actionPoints);
     // 普攻伤害 > 0（除非随机闪避）
     if (!result!.missed) {
       expect(combat.state.characters.e!.hp).toBeLessThan(hpBefore);

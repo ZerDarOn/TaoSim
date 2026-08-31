@@ -11,7 +11,7 @@ export { CombatEngine } from './combat/combat-engine.js';
 export { DamagePipeline } from './combat/damage-pipeline.js';
 export { NpcAI } from './combat/npc-ai.js';
 export { resolveBattleOutcome } from './combat/battle-resolver.js';
-export type { BattleOutcome, BattleType } from './combat/battle-resolver.js';
+export type { BattleOutcome, BattleType, ResolveBattleOutcomeOptions } from './combat/battle-resolver.js';
 
 // Battle System v2 (确定性状态机)
 export * from './battle/index.js';
@@ -102,6 +102,8 @@ export type { SceneType, ExpandOptions } from './world/scene-projection.js';
 
 // World Outcome (跨实体原子事务提交 — S3)
 export { commitOutcome } from './world/outcome-committer.js';
+export { simulateNamedNpcBattle, commitNamedNpcBattleSimulation, resolveAndCommitNamedNpcBattle, createNpcBattleEntityDelta } from './world/named-npc-battle.js';
+export type { NamedNpcBattleRequest, NamedNpcBattleSimulation, SimulateNamedNpcBattleResult, CommitNamedNpcBattleResult, CommitNamedNpcBattleOptions, CreateNpcBattleEntityDeltaInput } from './world/named-npc-battle.js';
 
 // NPC Query (按位置查 NPC — S5a：遭遇战优先选取真实世界 NPC)
 export { npcsByVenue, pickNearbyNpc } from './world/npc-query.js';

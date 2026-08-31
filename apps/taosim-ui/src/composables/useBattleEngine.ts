@@ -1,8 +1,8 @@
 // ============================================================
 // useBattleEngine — 新 BattleEngine 的 UI adapter（S7）
-// 目标：提供与 useCombat 完全相同的接口表面，让 useBattleUI 透明切换
+// 目标：提供 useBattleUI 所需的最小命令端口
 // 策略：包装 BattleEngine，维护一个响应式 state 镜像同步引擎内部状态
-// 旧路径（useCombat）保留为 legacy，通过 engineMode 开关切换
+// 旧 useCombat 仅保留历史回归测试，不再进入生产玩法
 // ============================================================
 
 import { reactive, onScopeDispose } from 'vue';
@@ -10,7 +10,6 @@ import type { Character, HexBattleMap, Skill, BattleSceneConfig, BattleState } f
 import { hexKey } from '@taosim/contracts';
 import {
   BattleEngine,
-  attemptFlee,
   type FleeResult,
 } from '@taosim/engine';
 
@@ -50,9 +49,10 @@ export function useBattleEngine(
   player: Character,
   enemies: Character[],
   sceneConfig?: BattleSceneConfig,
+  runtimeOptions: { seed?: number; battleId?: string } = {},
 ) {
   // 新 BattleEngine 是自包含状态机，state 内部维护
-  const engine = new BattleEngine(Date.now() % 2147483647);
+  const engine = new BattleEngine(runtimeOptions.seed ?? Date.now() % 2147483647, runtimeOptions.battleId);
   const startResult = engine.start(map, [player], enemies, sceneConfig);
   if (startResult.error) {
     // 不期望失败（start 只在 map 为空时失败）；若失败抛错让 UI 显式处理
@@ -95,6 +95,9 @@ export function useBattleEngine(
         gauge: unit.gauge,
         actionReady: unit.actionReady,
       };
+      // Character.ap 是现有技能面板的展示契约；权威值仍在 BattleUnit。
+      const character = engineState.characters[id];
+      if (character) character.ap = unit.actionPoints;
     }
   }
 
@@ -297,5 +300,5 @@ export function useBattleEngine(
   };
 }
 
-/** 类型导出：供 BattleOverlay 的 engineMode 开关使用 */
+/** 类型导出：供 UI 端口与测试使用。 */
 export type BattleEngineCombat = ReturnType<typeof useBattleEngine>;

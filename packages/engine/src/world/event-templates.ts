@@ -78,6 +78,9 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'social.sectUsurpFail', category: 'social', severity: 'major', visibility: 'regional',
     titlePattern: '{npc} 夺位失败，被逐出 {sect}',
     descriptionPattern: '{npc} 挑战{npc2}宗主之位不成，{reason}，颜面扫地，被逐出{sect}，{fate}' },
+  { key: 'social.sectUsurpStalemate', category: 'social', severity: 'normal', visibility: 'regional',
+    titlePattern: '{npc} 与 {npc2} 争位未决',
+    descriptionPattern: '{npc} 于{sect}挑战{npc2}，双方斗法难分高下，宗主之位暂且未变。' },
   { key: 'social.child', category: 'social', severity: 'normal', visibility: 'local',
     titlePattern: '{npc} 与 {npc2} 喜得子嗣 {child}',
     descriptionPattern: '{child} {birthDescription}于{location}，{blessing}。{npc}与{npc2}的衣钵有了传承之人' },
@@ -116,6 +119,9 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'combat.feed.lethal', category: 'combat', severity: 'major', visibility: 'world',
     titlePattern: '{loser} 陨落于 {winner} 之手',
     descriptionPattern: '{winner} 与 {loser} 的恩怨于{location}了结。{loser}陨落当场，{impact}，江湖震动' },
+  { key: 'combat.feed.stalemate', category: 'combat', severity: 'normal', visibility: 'local',
+    titlePattern: '{npcA} 与 {npcB} 激战未决',
+    descriptionPattern: '{npcA} 与 {npcB} 真正交手，却在此战中未能分出胜负。' },
 
   // ── 人口/世界（world）──
   { key: 'world.spawn', category: 'world', severity: 'minor', visibility: 'local',

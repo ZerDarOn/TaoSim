@@ -8,7 +8,8 @@ export type AiDecision =
   | { type: 'useSkill'; skillId: string; targetId: string }
   | { type: 'move'; to: { q: number; r: number } }
   | { type: 'guard' }
-  | { type: 'flee' };
+  | { type: 'flee' }
+  | { type: 'surrender' };
 
 /** C3 效用决策结果（含诊断信息） */
 export interface UtilityDecision {
@@ -270,6 +271,15 @@ export class BattleAI {
     if (state.sceneConfig?.fleeEnabled !== false) {
       candidates.push({
         action: { type: 'flee' },
+        estimatedDamage: 0,
+        estimatedRisk: 0,
+        utility: 0,
+      });
+    }
+
+    if (state.sceneConfig?.surrenderEnabled !== false && npc.hp < npc.maxHp * 0.2) {
+      candidates.push({
+        action: { type: 'surrender' },
         estimatedDamage: 0,
         estimatedRisk: 0,
         utility: 0,

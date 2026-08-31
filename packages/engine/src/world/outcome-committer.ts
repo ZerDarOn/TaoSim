@@ -44,6 +44,9 @@ export function commitOutcome(worldState: WorldState, outcome: WorldOutcome): Co
     };
   }
 
+  const validationError = validateOutcome(worldState, outcome);
+  if (validationError) return { status: 'validation_failed', reason: validationError };
+
   // ── 应用所有 EntityDelta ──
   for (const delta of outcome.entityDeltas) {
     applyEntityDelta(worldState, delta);
@@ -73,6 +76,53 @@ export function commitOutcome(worldState: WorldState, outcome: WorldOutcome): Co
   return { status: 'success', newRevision };
 }
 
+/** 所有可能失败的检查先于首个写入，保证 validation_failed 不留下部分状态。 */
+function validateOutcome(worldState: WorldState, outcome: WorldOutcome): string | undefined {
+  if (!outcome.outcomeId) return 'missing_outcome_id';
+  const entityIds = outcome.entityDeltas.map((delta) => delta.entityId);
+  if (new Set(entityIds).size !== entityIds.length) return 'duplicate_entity_delta';
+  const factIds = outcome.facts?.map((fact) => fact.factId) ?? [];
+  if (new Set(factIds).size !== factIds.length) return 'duplicate_fact_id';
+  const existingFactIds = new Set((worldState.facts ?? []).map((fact) => fact.factId));
+  if (factIds.some((factId) => !factId || existingFactIds.has(factId))) return 'fact_id_conflict';
+
+  const consumed = new Set<string>();
+  const gained = new Set<string>();
+  for (const delta of outcome.entityDeltas) {
+    const npc = worldState.npcs[delta.entityId];
+    if (npc && delta.spiritStonesDelta !== undefined
+      && (npc.spiritStones ?? 0) + delta.spiritStonesDelta < 0) {
+      return `negative_spirit_stones:${delta.entityId}`;
+    }
+    for (const assetId of delta.consumedAssetIds ?? []) {
+      if (consumed.has(assetId)) return `asset_consumed_twice:${assetId}`;
+      consumed.add(assetId);
+      const asset = worldState.assets?.[assetId];
+      if (!asset) return `consumed_asset_missing:${assetId}`;
+      if (asset.ownerId !== delta.entityId) return `consumed_asset_wrong_owner:${assetId}`;
+    }
+    for (const asset of delta.gainedAssets ?? []) {
+      if (!asset.assetId || gained.has(asset.assetId) || worldState.assets?.[asset.assetId]) {
+        return `gained_asset_conflict:${asset.assetId}`;
+      }
+      gained.add(asset.assetId);
+    }
+    for (const relation of delta.socialChanges ?? []) {
+      if (!relation.targetId
+        || relation.bond < -100 || relation.bond > 100
+        || relation.trust < 0 || relation.trust > 100
+        || relation.hatred < 0 || relation.hatred > 100
+        || relation.jealousy < 0 || relation.jealousy > 100) {
+        return `invalid_social_change:${delta.entityId}`;
+      }
+    }
+  }
+  for (const assetId of consumed) {
+    if (gained.has(assetId)) return `asset_consumed_and_gained:${assetId}`;
+  }
+  return undefined;
+}
+
 /** 应用单个实体差量到 WorldState（仅 NPC 与共享层；玩家 Character 由调用方处理） */
 function applyEntityDelta(worldState: WorldState, delta: EntityDelta): void {
   const npc = worldState.npcs[delta.entityId];
@@ -91,6 +141,17 @@ function applyEntityDelta(worldState: WorldState, delta: EntityDelta): void {
     const state = (worldState.socialStates[delta.entityId] ??= {});
     for (const entry of delta.socialChanges) {
       state[entry.targetId] = entry;
+      if (npc) {
+        // SocialState 是权威；旧世界规则仍读取 NpcRecord.relations，迁移期保持无损投影同步。
+        npc.relations[entry.targetId] = {
+          type: entry.type,
+          bond: entry.bond,
+          trust: entry.trust,
+          events: [...entry.events],
+          changedAt: { ...entry.changedAt },
+          direction: entry.direction,
+        };
+      }
     }
   }
 
@@ -98,17 +159,7 @@ function applyEntityDelta(worldState: WorldState, delta: EntityDelta): void {
   if (delta.consumedAssetIds && delta.consumedAssetIds.length > 0) {
     if (!worldState.assets) worldState.assets = {};
     for (const assetId of delta.consumedAssetIds) {
-      const asset = worldState.assets[assetId];
-      if (!asset) {
-        throw new Error(
-          `commitOutcome: consumed asset ${assetId} not found in worldState.assets`,
-        );
-      }
-      if (asset.ownerId !== delta.entityId) {
-        throw new Error(
-          `commitOutcome: consumed asset ${assetId} does not belong to ${delta.entityId}`,
-        );
-      }
+      // 所有权已在 validateOutcome 中统一验证，这里只执行不可失败的提交。
       delete worldState.assets[assetId];
     }
   }
@@ -180,6 +231,18 @@ function applyNpcDelta(worldState: WorldState, npc: NpcRecord, delta: EntityDelt
     npc.causeOfDeath = delta.killedBy
       ? `slain by ${delta.killedBy}`
       : 'slain';
+  }
+
+  if (delta.memoriesAdded && delta.memoriesAdded.length > 0 && npc.brain) {
+    const existingIds = new Set(npc.brain.memories.map((memory) => memory.memoryId));
+    const additions = delta.memoriesAdded.filter((memory) => !existingIds.has(memory.memoryId));
+    if (additions.length > 0) {
+      npc.brain = {
+        ...npc.brain,
+        revision: npc.brain.revision + 1,
+        memories: [...npc.brain.memories, ...additions].slice(-32),
+      };
+    }
   }
 }
 

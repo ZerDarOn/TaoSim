@@ -5,8 +5,10 @@
 // 在投影时精算战斗数值上限。纯函数，不修改输入 NpcRecord。
 // ============================================================
 
-import type { Character, NpcRecord, PersistentCondition, SocialState } from '@taosim/contracts';
+import type { Character, Item, NpcRecord, PersistentCondition, SocialState } from '@taosim/contracts';
 import { npcRecordToCharacter } from './npc-record-mapper.js';
+import { EquipmentManager } from '../equipment/equipment-manager.js';
+import { realmTier } from './npc-record-mapper.js';
 
 /** 场景类型：决定投影时哪些字段需要精算 */
 export type SceneType = 'battle' | 'trade' | 'dialog' | 'display';
@@ -63,6 +65,16 @@ export function expandForScene(record: NpcRecord, options: ExpandOptions): Chara
       character.spiritEnergy.max = Math.max(1, character.spiritEnergy.max - meridianPenalty);
       character.spiritEnergy.current = character.spiritEnergy.max;
     }
+  }
+
+  if (options.sceneType === 'battle' && EquipmentManager.getCombatBonuses(character).attack <= 0) {
+    const tier = realmTier(record.realm);
+    const weapon: Item = {
+      id: `realm_${record.id}_weapon`, name: '本命兵刃', tier, type: 'Equipment',
+      attributes: { attack: 10 + tier * 5 + Math.floor(record.attributes.comprehension * 0.5) },
+      element: record.weaponElement ?? 'Physical',
+    };
+    character.equipmentSlots = { ...character.equipmentSlots, weapon };
   }
 
   return character;

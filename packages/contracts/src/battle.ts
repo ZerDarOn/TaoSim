@@ -66,6 +66,7 @@ export type BattleCommand =
   | { type: 'UseSkill'; actorId: string; skillId: string; targetId: string }
   | { type: 'Guard'; actorId: string }
   | { type: 'Flee'; actorId: string }
+  | { type: 'Surrender'; actorId: string }
   | { type: 'EndActivation'; actorId: string };
 
 export type BattlePhase = 'Idle' | 'Running' | 'AwaitingCommand' | 'Resolving' | 'BattleEnd' | 'Looting';
@@ -80,6 +81,13 @@ export interface BattleSceneConfig {
   allowWaterWalk?: boolean;
   requireRevealed?: boolean;
   fleeEnabled?: boolean;
+  /** 是否允许投降；生死伏击可关闭，切磋通常开启。 */
+  surrenderEnabled?: boolean;
+}
+
+/** 启动时的控制权分配；未指定时沿用 Player=Human、Enemy=AI。 */
+export interface BattleStartOptions {
+  controllers?: Record<string, 'Human' | 'AI'>;
 }
 
 /**
@@ -110,6 +118,49 @@ export interface BattleState {
   sceneConfig?: BattleSceneConfig;
   /** 逃跑结果（S6）：玩家成功逃跑后置为 'Fled'，胜方仍为 null */
   fled?: boolean;
+  /** 逃跑者；兼容旧 fled 布尔值，同时允许任意阵营逃跑。 */
+  fledBy?: string;
+  /** 投降者。 */
+  surrenderedBy?: string;
+  /** 战斗真正结束的原因；后台与 UI 共享。 */
+  endReason?: 'elimination' | 'flee' | 'surrender';
+}
+
+export type NamedEncounterKind = 'duel' | 'deadly';
+export type NamedBattleTermination = 'elimination' | 'flee' | 'surrender' | 'stalemate';
+
+/** 可持久引用的具名遭遇上下文；不包含可重建的 Character 战斗副本。 */
+export interface NamedEncounterContext {
+  encounterId: string;
+  kind: NamedEncounterKind;
+  seed: number;
+  locationId: string;
+  startedAt: { year: number; month: number };
+  sideAIds: string[];
+  sideBIds: string[];
+  maxTicks: number;
+}
+
+export interface NamedBattleParticipantResult {
+  entityId: string;
+  side: 'A' | 'B';
+  hpAfter: number;
+  maxHp: number;
+  spiritEnergyAfter: number;
+  result: 'active' | 'down' | 'fled' | 'surrendered';
+}
+
+/** 同一战斗内核在 UI 与后台均产出的结构化结果。 */
+export interface NamedBattleResolution {
+  encounterId: string;
+  battleId: string;
+  termination: NamedBattleTermination;
+  winnerSide: 'A' | 'B' | null;
+  participants: NamedBattleParticipantResult[];
+  tickNumber: number;
+  turnNumber: number;
+  eventCount: number;
+  reachedTickLimit: boolean;
 }
 
 export interface LootEntry {

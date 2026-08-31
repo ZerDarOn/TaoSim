@@ -36,3 +36,5 @@ export { TERRAIN_MAP } from './atomic/terrain-mutate.js';
 // P6：效用评分 AI
 export { scoreAction, selectBestAction } from './utility-ai.js';
 export type { ActionCandidate, ScoreContext } from './utility-ai.js';
+export { NamedBattleSession } from './named-battle-session.js';
+export type { NamedBattleSessionOptions } from './named-battle-session.js';

@@ -134,6 +134,22 @@ describe('BattleEngine', () => {
     expect(unit.actionPoints).toBe(1);
   });
 
+  it('新一轮激活恢复完整 AP，单位不会在耗尽开局 AP 后永久失去行动能力', () => {
+    const engine = new BattleEngine(1);
+    engine.start(makeMap(), [makeChar('p', 10)], [makeChar('e', 10)]);
+    const state = stateOf(engine);
+    state.units.p!.actionPoints = 0;
+    state.units.p!.gauge = 100;
+    state.units.p!.actionReady = true;
+    state.units.e!.gauge = 0;
+    state.units.e!.actionReady = false;
+
+    engine.advanceTick();
+
+    expect(state.currentTurnId).toBe('p');
+    expect(state.units.p!.actionPoints).toBe(state.units.p!.maxActionPoints);
+  });
+
   it('就绪单位 gauge 不再被封顶在 100，保留溢出行动值', () => {
     const engine = new BattleEngine(1);
     engine.start(makeMap(), [makeChar('a', 10)], [makeChar('e', 1)]);

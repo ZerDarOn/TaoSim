@@ -12,6 +12,7 @@ import type { AssetInstance } from './asset.js';
 import type { Fact } from './fact.js';
 import type { TimeElapsed } from './world-time.js';
 import type { LocationRef } from './location.js';
+import type { BrainMemory } from './npc-brain.js';
 
 /** 实体差量：对单个实体的状态变更 */
 export interface EntityDelta {
@@ -54,6 +55,8 @@ export interface EntityDelta {
 
   /** 关系变化（追加，不覆盖） */
   socialChanges?: SocialEntry[];
+  /** 已发生事实形成的长期记忆；只追加有界记录。 */
+  memoriesAdded?: BrainMemory[];
 
   /** 消耗的资产 ID 列表（从所有者移除） */
   consumedAssetIds?: string[];
@@ -85,4 +88,5 @@ export interface WorldOutcome {
 export type CommitResult =
   | { status: 'success'; newRevision: number }
   | { status: 'version_conflict'; expected: number; actual: number }
+  | { status: 'validation_failed'; reason: string }
   | { status: 'already_applied'; outcomeId: string };

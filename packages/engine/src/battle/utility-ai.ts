@@ -7,6 +7,11 @@
 
 import type { AiDecision } from './battle-ai.js';
 
+const GUARD_BASE_UTILITY = 4;
+const GUARD_THREAT_WEIGHT = 8;
+const MOVE_TO_ENGAGE_UTILITY = 16;
+const MOVE_WHEN_ADJACENT_UTILITY = 1;
+
 /** 行动候选项（评估前） */
 export interface ActionCandidate {
   action: AiDecision;
@@ -71,10 +76,16 @@ export function scoreAction(candidate: ActionCandidate, ctx: ScoreContext): Acti
       break;
     }
 
+    case 'surrender': {
+      const dangerFactor = 1 - ctx.hpPercent;
+      utility = ctx.hpPercent < 0.2 ? 24 * dangerFactor : 0;
+      break;
+    }
+
     case 'guard': {
       // 有受伤风险时防御更有价值
       const threatLevel = candidate.estimatedRisk / 50;
-      utility = 10 + threatLevel * 15;
+      utility = GUARD_BASE_UTILITY + threatLevel * GUARD_THREAT_WEIGHT;
 
       // HP 低时更倾向防御而非硬抗
       if (ctx.hpPercent < 0.4) {
@@ -86,9 +97,9 @@ export function scoreAction(candidate: ActionCandidate, ctx: ScoreContext): Acti
     case 'move': {
       // 靠近敌人以获得攻击机会
       if (ctx.distanceToEnemy && ctx.distanceToEnemy > 1) {
-        utility = 8; // 需要移动才能攻击
+        utility = MOVE_TO_ENGAGE_UTILITY;
       } else {
-        utility = 2; // 已经很近了
+        utility = MOVE_WHEN_ADJACENT_UTILITY;
       }
       break;
     }

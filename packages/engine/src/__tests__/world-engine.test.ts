@@ -581,17 +581,18 @@ describe('动机与代际（§4.13：求偶→道侣→子嗣；道统传承）'
       name: '仇三刀',
       aspiration: 'seekDao',
       realm: 'Foundation_3',
-      locationId: 'VENUE_TIANJI_TAVERN',
+      // 寻仇只能在真实同场后开战；跨地点追踪与旅行由后续行动链负责。
+      locationId: 'VENUE_QINGYUN_HALL',
       spiritStones: 1000,
       attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
       relations: {
         NPC_AVENGER: { type: 'enemy', bond: -60, trust: 0, events: ['血仇'], changedAt: { year: 1, month: 1 } },
       },
     });
-    // 序列：各自修炼/云游 0.9，动机寻仇触发 0.0（< REVENGE_DUEL_CHANCE=0.25）
+    // 普通行动与具名遭遇使用独立随机流，新增月度规则不会偏移目标判定。
     const engine = new WorldEngine(
       { ...baseState, npcs: { [avenger.id]: avenger, [foe.id]: foe } },
-      { rng: seqRng([0.9, 0.9, 0.9, 0.9, 0.9, 0.0]) },
+      { rng: () => 0.9, encounterRng: () => 0.1 },
     );
     const result = engine.step();
     const combatEvent = result.events.find((e) => e.category === 'combat');
@@ -669,14 +670,15 @@ describe('宗门权力斗争（§2.2 权力轨道：让贤/夺位）', () => {
       realm: 'NascentSoul_1', // 修为高一境 → 有挑战资格
       socialRank: 'elder',
       factionId: 'FACT_QINGYUN',
-      locationId: 'VENUE_TIANJI_TAVERN',
+      // 宗门夺位是预先约定的宗内斗法，本用例把双方明确放在同一斗法场。
+      locationId: 'VENUE_QINGYUN_HALL',
       attributes: { physique: 40, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
     });
     const faction = makeQingyunFaction('NPC_LEADER', ['NPC_LEADER', 'NPC_USURPER']);
-    // 序列：世界事件 0.9 + 2 NPC 修炼 4×0.9；第 6 次 0.0 落夺位判定（< USURP_CHANCE=0.15）；斗法面板碾压定胜负
+    // 普通行动不云游，独立遭遇流命中夺位判定（15%）。
     const engine = new WorldEngine(
       { ...baseState, npcs: { [leader.id]: leader, [usurper.id]: usurper }, factions: { FACT_QINGYUN: faction } },
-      { rng: seqRng([0.9, 0.9, 0.9, 0.9, 0.9, 0.0]) },
+      { rng: () => 0.9, encounterRng: () => 0.1 },
     );
     const result = engine.step();
     const q = result.updatedState.factions!['FACT_QINGYUN']!;
@@ -701,17 +703,17 @@ describe('宗门权力斗争（§2.2 权力轨道：让贤/夺位）', () => {
       id: 'NPC_USURPER',
       name: '野心长老',
       aspiration: 'seekFame',
-      realm: 'SoulFormation_1', // 境界更高但面板孱弱 → 真实斗法仍败
+      realm: 'NascentSoul_1', // 同一大境界但面板孱弱 → 真实斗法仍可能败
       socialRank: 'elder',
       factionId: 'FACT_QINGYUN',
-      locationId: 'VENUE_TIANJI_TAVERN',
+      locationId: 'VENUE_QINGYUN_HALL',
       attributes: { physique: 5, comprehension: 5, perception: 5, agility: 5, luck: 5, charm: 5 },
     });
     const faction = makeQingyunFaction('NPC_LEADER', ['NPC_LEADER', 'NPC_USURPER']);
-    // 序列：世界事件 0.9 + 2 NPC 修炼 4×0.9；第 6 次 0.0 落夺位判定；斗法面板 5 vs 40 → 败
+    // 普通行动不云游，独立遭遇流命中夺位判定；斗法面板 5 vs 40 → 败。
     const engine = new WorldEngine(
       { ...baseState, npcs: { [leader.id]: leader, [usurper.id]: usurper }, factions: { FACT_QINGYUN: faction } },
-      { rng: seqRng([0.9, 0.9, 0.9, 0.9, 0.9, 0.0]) },
+      { rng: () => 0.9, encounterRng: () => 0.1 },
     );
     const result = engine.step();
     const q = result.updatedState.factions!['FACT_QINGYUN']!;

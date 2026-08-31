@@ -16,6 +16,7 @@ import {
   expireWorldResourceReservations,
   pruneWorldResourceReservations,
 } from './world-resource-reservation.js';
+import { commitNamedNpcBattleSimulation, simulateNamedNpcBattle } from './named-npc-battle.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -33,7 +34,7 @@ import {
   tryWander,
   tryWonder,
 } from './world-tick-rules.js';
-import { samplePairs, sectPowerDuel, socialEncounter, tryFeud, tryJealousy, rootGradeWeight } from './world-social-rules.js';
+import { samplePairs, socialEncounter, tryJealousy, rootGradeWeight } from './world-social-rules.js';
 import {
   chooseBehavior,
   evolveAspiration,
@@ -62,6 +63,8 @@ export interface MonthlyTickResult {
 
 export interface WorldEngineOptions {
   rng?: Rng;
+  /** 可注入的具名遭遇调度随机流；提供后，普通行动新增掷骰不会偏移仇杀与夺位。 */
+  encounterRng?: Rng;
   factions?: Record<string, Faction>;
   /** @deprecated 使用 npcBrainV2Mode；保留用于旧调用兼容。 */
   npcBrainV2Shadow?: boolean;
@@ -137,6 +140,16 @@ function factFromEvent(event: BigEventLog): Fact {
     visibility: factVisibilityOf(event),
     metadata: event.templateKey ? { templateKey: event.templateKey } : undefined,
   };
+}
+
+function eventAlreadyHasBattleFact(event: BigEventLog, facts: readonly Fact[]): boolean {
+  if (event.category !== 'combat') return false;
+  const eventParticipants = [...event.involvedCharacterIds].sort().join('|');
+  return facts.some((fact) => fact.type === 'battle'
+    && fact.at.year === event.year
+    && fact.at.month === event.month
+    && fact.locationId === event.locationId
+    && fact.participants.map((entry) => entry.entityId).sort().join('|') === eventParticipants);
 }
 
 /** 成名正反馈阈值：major/epoch 事件达到此数授予江湖绰号（§7.3） */
@@ -329,6 +342,7 @@ export class WorldEngine {
   private npcCounter = 0;
   private factions: Map<string, Faction> = new Map();
   private rng: Rng;
+  private encounterRng: Rng;
   /** 因果链（§2.4）：每 NPC 最近一条事件，新事件 relatedTo 指向前者 */
   private lastEventByNpc = new Map<string, BigEventLog>();
   /** 成名正反馈（§7.3）：每 NPC major/epoch 事件计数 */
@@ -348,6 +362,7 @@ export class WorldEngine {
   ) {
     this.state = {
       ...initialState,
+      globalFlags: { ...(initialState.globalFlags ?? {}) },
       npcs: { ...(initialState.npcs ?? {}) },
       eventLog: [...(initialState.eventLog ?? [])],
       factions: { ...(initialState.factions ?? options.factions ?? createInitialFactions()) },
@@ -361,6 +376,7 @@ export class WorldEngine {
       assetListings: { ...(initialState.assetListings ?? {}) },
     };
     this.rng = options.rng ?? Math.random;
+    this.encounterRng = options.encounterRng ?? this.rng;
     this.npcBrainV2Mode = options.npcBrainV2Mode
       ?? (options.npcBrainV2Shadow ? 'shadow' : 'legacy');
     this.npcBrainNodeRegistry = options.npcBrainNodeRegistry ?? createDefaultNpcBrainNodeRegistry();
@@ -855,34 +871,94 @@ export class WorldEngine {
     // 2. 社交相遇 + 寻仇（同地点/云游配对，关系轨道 §4.3/§4.4 — 阶段 1b）
     const now = { year: this.state.currentYear, month: this.state.currentMonth };
 
+    const nextNamedBattleId = (kind: string): string => {
+      const key = 'runtime.namedBattleSequence';
+      const sequence = Number(this.state.globalFlags[key] ?? 0) + 1;
+      this.state.globalFlags[key] = sequence;
+      return `named_battle:${kind}:${this.state.currentYear}:${this.state.currentMonth}:${sequence}`;
+    };
+
+    const recordNamedBattleFailure = (reason: string): void => {
+      const key = 'diagnostics.namedBattleFailures';
+      this.state.globalFlags[key] = Number(this.state.globalFlags[key] ?? 0) + 1;
+      const reasonKey = `${key}.${reason}`;
+      this.state.globalFlags[reasonKey] = Number(this.state.globalFlags[reasonKey] ?? 0) + 1;
+    };
+
     // 寻仇斗法统一出口（配对偶遇与动机寻仇共用）：真实斗法结算 + 事件 + 伤亡/遗府/乱世指数副作用
     // chance：被动配对 0.1；动机驱动（深仇主动出手）可抬高（行为槽 §4.13）
     const handleFeud = (a: NpcRecord, b: NpcRecord, chance = 0.1): void => {
-      const feud = tryFeud(a, b, now, this.rng, (n) => this.escapeDeath(n), chance);
-      if (!feud) return;
-      const winnerName = feud.attackerWins ? a.name : b.name;
-      const loserName = feud.attackerWins ? b.name : a.name;
+      const aHatesB = a.relations[b.id]?.type === 'enemy';
+      const bHatesA = b.relations[a.id]?.type === 'enemy';
+      if ((!aHatesB && !bHatesA) || this.encounterRng() >= chance) return;
+      const locationId = a.locationId;
+      if (!locationId || b.locationId !== locationId) return;
+      const request = {
+        encounterId: nextNamedBattleId('feud'), attackerId: a.id, defenderId: b.id,
+        kind: 'deadly' as const, locationId, seed: Math.floor(this.encounterRng() * 2_147_483_647),
+        allowFlee: true, allowSurrender: false,
+        lootPolicy: 'all_on_elimination' as const, relationPolicy: 'hostile' as const,
+      };
+      const simulated = simulateNamedNpcBattle(this.state, request);
+      if (simulated.status === 'failed') {
+        recordNamedBattleFailure(simulated.reason);
+        return;
+      }
+      const protectedEntityIds = new Set<string>();
+      for (const participant of simulated.simulation.resolution.participants) {
+        if (participant.result === 'down') {
+          const record = this.state.npcs[participant.entityId];
+          if (record && this.escapeDeath(record)) protectedEntityIds.add(record.id);
+        }
+      }
+      const committed = commitNamedNpcBattleSimulation(
+        this.state, request, simulated.simulation, { protectedEntityIds },
+      );
+      if (committed.status === 'failed') {
+        recordNamedBattleFailure(committed.reason);
+        return;
+      }
+      const winnerId = committed.resolution.winnerSide === 'A'
+        ? a.id
+        : committed.resolution.winnerSide === 'B' ? b.id : undefined;
+      const winner = winnerId ? this.state.npcs[winnerId] : undefined;
+      const loser = winnerId === a.id ? b : winnerId === b.id ? a : undefined;
+      const loserResult = loser
+        ? committed.resolution.participants.find((entry) => entry.entityId === loser.id)
+        : undefined;
+      const lethal = loser?.soulState !== 'Active';
+      const lootStones = loser
+        ? Math.max(0, committed.outcome.entityDeltas.find((entry) => entry.entityId === winnerId)?.spiritStonesDelta ?? 0)
+        : 0;
+      if (!winner || !loser || !loserResult) {
+        pushNpcEvent(
+          {
+            key: 'combat.feed.stalemate', vars: { npcA: a.name, npcB: b.name },
+            involvedCharacterIds: [a.id, b.id], locationId,
+          },
+          [a.id, b.id],
+        );
+        return;
+      }
+      const loserHpRatio = loserResult.hpAfter / Math.max(1, loserResult.maxHp);
+      const injuryYears = loserHpRatio <= 0.15 ? 10 : loserHpRatio <= 0.4 ? 5 : loserHpRatio < 0.95 ? 2 : 0;
       pushNpcEvent(
         {
-          key: feud.templateKey,
+          key: lethal ? 'combat.feed.lethal' : 'combat.feed.win',
           vars: {
-            winner: winnerName,
-            loser: loserName,
-            years: String(feud.injuryYears),
-            loot: String(feud.lootStones),
+            winner: winner.name, loser: loser.name,
+            years: String(injuryYears), loot: String(lootStones),
           },
-          involvedCharacterIds: [a.id, b.id],
-          locationId: a.locationId ?? b.locationId,
+          involvedCharacterIds: [a.id, b.id], locationId,
         },
         [a.id, b.id],
       );
-      if (feud.lethal) {
+      if (lethal) {
         npcPopulationChanged = true;
         // 仇杀陨落 → 世界伤亡累积（§2.2 世界轨道）
         this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 2);
         // 遗府闭环（涌现缺口 N4）：高境界（金丹+）仇杀陨落亦留遗府（死亡→新机缘 物质循环）
-        const loserNpc = feud.attackerWins ? b : a;
-        if (realmTier(loserNpc.realm) >= 3) this.registerHeritage(loserNpc);
+        if (realmTier(loser.realm) >= 3) this.registerHeritage(loser);
       }
     };
 
@@ -1122,10 +1198,27 @@ export class WorldEngine {
           if (challenger.id === currentLeader.id || challenger.socialRank === 'sectMaster') continue;
           if (challenger.aspiration !== 'seekFame') continue; // 无心者不妄动
           if (realmTier(challenger.realm) < realmTier(currentLeader.realm)) continue; // 实力不足不找死
-          if (this.rng() >= USURP_CHANCE) continue; // 蓄势良久，方一搏
-          // 真实斗法（面板定胜负，非机制钦定）：一旦出手即真刀真枪，无临阵退缩
-          const duel = sectPowerDuel(challenger, currentLeader, this.rng);
-          if (duel.attackerWins) {
+          if (this.encounterRng() >= USURP_CHANCE) continue; // 蓄势良久，方一搏
+          // 宗门夺位也使用统一战斗内核；双方必须真实同场，不能隔空挑战。
+          const locationId = challenger.locationId;
+          if (!locationId || currentLeader.locationId !== locationId) continue;
+          const request = {
+            encounterId: nextNamedBattleId('sect_usurp'), attackerId: challenger.id, defenderId: currentLeader.id,
+            kind: 'duel' as const, locationId, seed: Math.floor(this.encounterRng() * 2_147_483_647),
+            allowFlee: false, allowSurrender: false,
+            lootPolicy: 'none' as const, relationPolicy: 'preserve' as const,
+          };
+          const simulated = simulateNamedNpcBattle(this.state, request);
+          if (simulated.status === 'failed') {
+            recordNamedBattleFailure(simulated.reason);
+            continue;
+          }
+          const committed = commitNamedNpcBattleSimulation(this.state, request, simulated.simulation);
+          if (committed.status === 'failed') {
+            recordNamedBattleFailure(committed.reason);
+            continue;
+          }
+          if (committed.resolution.winnerSide === 'A') {
             // 夺位成功：新宗主继位，败者降为长老（性命仍在，宗门仍认其人）
             faction.leaderId = challenger.id;
             challenger.socialRank = 'sectMaster';
@@ -1139,7 +1232,7 @@ export class WorldEngine {
               },
               [challenger.id, currentLeader.id],
             );
-          } else {
+          } else if (committed.resolution.winnerSide === 'B') {
             // 夺位失败：颜面扫地，被逐出宗门（流放）
             challenger.factionId = undefined;
             challenger.socialRank = undefined;
@@ -1152,6 +1245,17 @@ export class WorldEngine {
                 locationId: challenger.locationId,
               },
               [challenger.id],
+            );
+          } else {
+            // 僵持不是失败：双方均未被击败，宗门权位与成员身份保持不变。
+            pushNpcEvent(
+              {
+                key: 'social.sectUsurpStalemate',
+                vars: { npc: challenger.name, npc2: currentLeader.name, sect: faction.name },
+                involvedCharacterIds: [challenger.id, currentLeader.id],
+                locationId: challenger.locationId,
+              },
+              [challenger.id, currentLeader.id],
             );
           }
           // duel undefined：斗法未成（被劝和/另有变故）→ 本月作罢
@@ -1509,6 +1613,7 @@ export class WorldEngine {
     if (this.npcBrainV2Mode === 'single-write') {
       for (const event of chronicleEvents) {
         if (this.knownFactIds.has(event.id)) continue;
+        if (eventAlreadyHasBattleFact(event, this.state.facts ?? [])) continue;
         this.state.facts!.push(factFromEvent(event));
         this.knownFactIds.add(event.id);
       }

@@ -73,6 +73,7 @@ function handleDuel() {
     title: `切磋 · ${npc.value.name}`,
     description: '点到即止的修士比试，败者保留一息生机',
     enemyNpcId,
+    sceneId: `duel_${npc.value.id}_${Date.now()}`,
   });
   // NPCInteractionEngine 仍用于记录好感度变化（在战斗结果中结算）
   interactionDone.value = true;

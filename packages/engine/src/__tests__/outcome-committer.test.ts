@@ -272,4 +272,22 @@ describe('commitOutcome', () => {
       'FACT_NEW_2',
     ]);
   });
+
+  it('跨实体校验失败时不留下前半段灵石或事实写入', () => {
+    const npc = makeNpc({ spiritStones: 100 });
+    const ws = makeWorldState({ npcs: { NPC_001: npc }, facts: [] });
+    const outcome = makeOutcome({
+      entityDeltas: [
+        { entityId: 'NPC_001', spiritStonesDelta: 50, consumedAssetIds: ['missing_asset'] },
+      ],
+      facts: [makeFact()],
+    });
+
+    expect(commitOutcome(ws, outcome)).toMatchObject({
+      status: 'validation_failed', reason: 'consumed_asset_missing:missing_asset',
+    });
+    expect(npc.spiritStones).toBe(100);
+    expect(ws.facts).toEqual([]);
+    expect(ws.worldRevision).toBe(0);
+  });
 });
