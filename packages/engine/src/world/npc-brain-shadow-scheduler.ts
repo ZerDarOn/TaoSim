@@ -101,6 +101,12 @@ export interface NpcBrainShadowMonthlyReport {
   committedCount: number;
   legacyFallbackCount: number;
   commitErrorCount: number;
+  knowledgeLearnedCount: number;
+  knowledgeQuestionedCount: number;
+  knowledgePrunedCount: number;
+  plansPreparedCount: number;
+  reservationsExpiredCount: number;
+  reservationsPrunedCount: number;
   hysteresisCount: number;
   satisficingCount: number;
   selectedCounts: Record<string, number>;
@@ -109,6 +115,7 @@ export interface NpcBrainShadowMonthlyReport {
   comparisonCounts: Record<string, number>;
   committedCounts: Record<string, number>;
   legacyFallbackCounts: Record<string, number>;
+  planningFailureCounts: Record<string, number>;
   evaluationErrorSamples: string[];
   differenceSamples: NpcBrainShadowDifference[];
 }
@@ -144,6 +151,12 @@ export function mergeNpcBrainShadowReports(
       committedCount: monthly.committedCount,
       legacyFallbackCount: monthly.legacyFallbackCount,
       commitErrorCount: monthly.commitErrorCount,
+      knowledgeLearnedCount: monthly.knowledgeLearnedCount,
+      knowledgeQuestionedCount: monthly.knowledgeQuestionedCount,
+      knowledgePrunedCount: monthly.knowledgePrunedCount,
+      plansPreparedCount: monthly.plansPreparedCount,
+      reservationsExpiredCount: monthly.reservationsExpiredCount,
+      reservationsPrunedCount: monthly.reservationsPrunedCount,
       hysteresisCount: monthly.hysteresisCount,
       satisficingCount: monthly.satisficingCount,
       selectedCounts: { ...monthly.selectedCounts },
@@ -151,6 +164,7 @@ export function mergeNpcBrainShadowReports(
       comparisonCounts: { ...monthly.comparisonCounts },
       committedCounts: { ...monthly.committedCounts },
       legacyFallbackCounts: { ...monthly.legacyFallbackCounts },
+      planningFailureCounts: { ...monthly.planningFailureCounts },
       evaluationErrorSamples: monthly.evaluationErrorSamples.slice(0, MAX_DIFFERENCE_SAMPLES),
       differenceSamples: monthly.differenceSamples.slice(0, MAX_DIFFERENCE_SAMPLES),
     };
@@ -167,6 +181,12 @@ export function mergeNpcBrainShadowReports(
     committedCount: aggregate.committedCount + monthly.committedCount,
     legacyFallbackCount: aggregate.legacyFallbackCount + monthly.legacyFallbackCount,
     commitErrorCount: aggregate.commitErrorCount + monthly.commitErrorCount,
+    knowledgeLearnedCount: aggregate.knowledgeLearnedCount + monthly.knowledgeLearnedCount,
+    knowledgeQuestionedCount: aggregate.knowledgeQuestionedCount + monthly.knowledgeQuestionedCount,
+    knowledgePrunedCount: aggregate.knowledgePrunedCount + monthly.knowledgePrunedCount,
+    plansPreparedCount: aggregate.plansPreparedCount + monthly.plansPreparedCount,
+    reservationsExpiredCount: aggregate.reservationsExpiredCount + monthly.reservationsExpiredCount,
+    reservationsPrunedCount: aggregate.reservationsPrunedCount + monthly.reservationsPrunedCount,
     hysteresisCount: aggregate.hysteresisCount + monthly.hysteresisCount,
     satisficingCount: aggregate.satisficingCount + monthly.satisficingCount,
     selectedCounts: { ...aggregate.selectedCounts },
@@ -174,6 +194,7 @@ export function mergeNpcBrainShadowReports(
     comparisonCounts: { ...aggregate.comparisonCounts },
     committedCounts: { ...aggregate.committedCounts },
     legacyFallbackCounts: { ...aggregate.legacyFallbackCounts },
+    planningFailureCounts: { ...aggregate.planningFailureCounts },
     evaluationErrorSamples: [...aggregate.evaluationErrorSamples, ...monthly.evaluationErrorSamples]
       .slice(0, MAX_DIFFERENCE_SAMPLES),
     differenceSamples: [...aggregate.differenceSamples, ...monthly.differenceSamples]
@@ -184,6 +205,7 @@ export function mergeNpcBrainShadowReports(
   mergeCounts(merged.comparisonCounts, monthly.comparisonCounts);
   mergeCounts(merged.committedCounts, monthly.committedCounts);
   mergeCounts(merged.legacyFallbackCounts, monthly.legacyFallbackCounts);
+  mergeCounts(merged.planningFailureCounts, monthly.planningFailureCounts);
   return merged;
 }
 
@@ -202,6 +224,12 @@ export class NpcBrainShadowReportBuilder {
       committedCount: 0,
       legacyFallbackCount: 0,
       commitErrorCount: 0,
+      knowledgeLearnedCount: 0,
+      knowledgeQuestionedCount: 0,
+      knowledgePrunedCount: 0,
+      plansPreparedCount: 0,
+      reservationsExpiredCount: 0,
+      reservationsPrunedCount: 0,
       hysteresisCount: 0,
       satisficingCount: 0,
       selectedCounts: {},
@@ -209,6 +237,7 @@ export class NpcBrainShadowReportBuilder {
       comparisonCounts: {},
       committedCounts: {},
       legacyFallbackCounts: {},
+      planningFailureCounts: {},
       evaluationErrorSamples: [],
       differenceSamples: [],
     };
@@ -282,6 +311,29 @@ export class NpcBrainShadowReportBuilder {
     if (this.report.evaluationErrorSamples.length < MAX_DIFFERENCE_SAMPLES) {
       this.report.evaluationErrorSamples.push(npcId);
     }
+  }
+
+  recordKnowledge(learned: number, questioned: number, pruned: number): void {
+    this.report.knowledgeLearnedCount += learned;
+    this.report.knowledgeQuestionedCount += questioned;
+    this.report.knowledgePrunedCount += pruned;
+  }
+
+  recordPlanPrepared(): void {
+    this.report.plansPreparedCount++;
+  }
+
+  recordPlanningFailure(reasonCode: string): void {
+    this.report.planningFailureCounts[reasonCode] =
+      (this.report.planningFailureCounts[reasonCode] ?? 0) + 1;
+  }
+
+  recordReservationsExpired(count: number): void {
+    this.report.reservationsExpiredCount += count;
+  }
+
+  recordReservationsPruned(count: number): void {
+    this.report.reservationsPrunedCount += count;
   }
 
   build(): NpcBrainShadowMonthlyReport {

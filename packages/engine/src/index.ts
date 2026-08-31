@@ -109,6 +109,18 @@ export { generateInitialMind, tickNpcMind, computeNeeds, resolveNpcMindAction, r
 export type { MindTickResult, NpcNeeds, NpcActionResolution, NpcActionResolutionOptions } from './world/npc-mind.js';
 export { commitNpcBrainAction } from './world/npc-brain-action-commit.js';
 export type { NpcBrainActionCommitResult } from './world/npc-brain-action-commit.js';
+export { buildNpcPerceptionSnapshot, createNpcPerceptionIndex, updateNpcKnowledge } from './world/npc-perception.js';
+export type { NpcKnowledgeUpdateResult, NpcPerceptionIndex } from './world/npc-perception.js';
+export { prepareNpcExplorePlan } from './world/npc-explore-planner.js';
+export type { PrepareNpcExplorePlanResult } from './world/npc-explore-planner.js';
+export { tradeNpcInformation } from './world/npc-information-trade.js';
+export type { NpcInformationTradeRequest, NpcInformationTradeResult, NpcInformationTradeFailureReason } from './world/npc-information-trade.js';
+export { purchaseNpcAsset } from './world/npc-asset-purchase.js';
+export type { NpcAssetPurchaseRequest, NpcAssetPurchaseResult, NpcAssetPurchaseFailureReason } from './world/npc-asset-purchase.js';
+export { prepareNpcTargetTracking, resolveNpcTargetSearchAtLocation } from './world/npc-target-tracking.js';
+export type { PrepareNpcTargetTrackingResult, ResolveNpcTargetTrackingResult, NpcTargetTrackingFailureReason } from './world/npc-target-tracking.js';
+export { reserveWorldResources, expireWorldResourceReservations, pruneWorldResourceReservations, completeWorldResourceReservations } from './world/world-resource-reservation.js';
+export type { ReserveWorldResourcesResult, ReservationFailureReason } from './world/world-resource-reservation.js';
 export { NpcBrainNodeRegistry, createDefaultNpcBrainNodeRegistry } from './world/npc-brain-node-registry.js';
 export type { NpcBrainCapabilityId, NpcBrainNodeDefinition, NpcBrainNodeContext } from './world/npc-brain-node-registry.js';
 export { evaluateNpcBrainShadow, getNpcBrainCommitEligibility, NpcBrainShadowReportBuilder, mergeNpcBrainShadowReports, DEFAULT_NPC_BRAIN_SATISFACTION_THRESHOLD } from './world/npc-brain-shadow-scheduler.js';

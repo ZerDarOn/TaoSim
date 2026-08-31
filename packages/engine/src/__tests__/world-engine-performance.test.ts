@@ -75,16 +75,27 @@ describe('WorldEngine 800 具名 NPC 性能基线', () => {
     singleWriteEngine.step();
     const durationMs = performance.now() - startedAt;
     const report = singleWriteEngine.getBrainShadowReport()!;
+    const yearStartedAt = performance.now();
+    singleWriteEngine.fastForward(11);
+    const remainingYearMs = performance.now() - yearStartedAt;
+    const finalState = singleWriteEngine.getState();
+    const reservationCount = Object.keys(finalState.resourceReservations ?? {}).length;
+    const serializedStateBytes = new TextEncoder().encode(JSON.stringify(finalState)).byteLength;
 
     console.info(
       `[NB2_SINGLE_WRITE_PERF] evaluated=${report.evaluatedNpcCount} `
       + `committed=${report.committedCount} fallback=${report.legacyFallbackCount} `
-      + `monthMs=${durationMs.toFixed(1)} errors=${report.commitErrorCount}`,
+      + `monthMs=${durationMs.toFixed(1)} remainingYearMs=${remainingYearMs.toFixed(1)} `
+      + `reservations=${reservationCount} stateMiB=${(serializedStateBytes / 1024 / 1024).toFixed(2)} `
+      + `errors=${report.commitErrorCount}`,
     );
 
     expect(report.evaluatedNpcCount).toBeGreaterThanOrEqual(790);
     expect(report.committedCount + report.legacyFallbackCount).toBe(report.evaluatedNpcCount);
     expect(report.commitErrorCount).toBe(0);
     expect(durationMs).toBeLessThan(1_000);
+    expect(remainingYearMs).toBeLessThan(10_000);
+    expect(reservationCount).toBeLessThan(10_000);
+    expect(serializedStateBytes).toBeLessThan(20 * 1024 * 1024);
   }, 15_000);
 });

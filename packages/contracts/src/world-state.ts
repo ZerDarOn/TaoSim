@@ -62,6 +62,10 @@ export interface WorldState {
   worldRevision?: number;
   /** S3：已应用 outcome 的幂等记录 */
   appliedOutcomeIds?: string[];
+  /** NB3：计划资源预留账本；Brain 只保存 reservationId 引用。 */
+  resourceReservations?: Record<string, import('./npc-planning.js').WorldResourceReservation>;
+  /** NB3.2：唯一资产挂牌账本；资产本体只保存所有权，不承载市场生命周期。 */
+  assetListings?: Record<string, import('./npc-planning.js').WorldAssetListing>;
   /**
    * P1：权威绝对时间（自世界开始以来的总分钟数）。
    * 年/月/日全部从此字段投影；旧 currentYear/currentMonth 在迁移期作为只读兼容投影。

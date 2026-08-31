@@ -16,11 +16,17 @@ export interface BrainInvariantIssue {
     | 'DANGLING_NPC_REF'
     | 'DANGLING_LOCATION'
     | 'DANGLING_ASSET_REF'
+    | 'DANGLING_FACT_REF'
     | 'BELIEF_CONFIDENCE_OUT_OF_RANGE'
     | 'EMOTION_OUT_OF_RANGE'
     | 'PLAN_GOAL_MISMATCH'
     | 'PLAN_STEP_OUT_OF_RANGE'
     | 'ACTION_PLAN_MISMATCH'
+    | 'DANGLING_RESERVATION'
+    | 'RESERVATION_OWNER_MISMATCH'
+    | 'ASSET_LISTING_DANGLING_ASSET'
+    | 'ASSET_LISTING_OWNER_MISMATCH'
+    | 'ASSET_LISTING_INVALID_PRICE'
     | 'DANGLING_CONDITION_OWNER'
     | 'CONDITION_OUT_OF_RANGE';
   severity: BrainInvariantSeverity;
@@ -59,6 +65,9 @@ function inspectRef(
   }
   if (ref.kind === 'asset' && !state.assets?.[ref.entityId]) {
     return [issue('DANGLING_ASSET_REF', 'error', path, `资产引用不存在：${ref.entityId}`, npcId)];
+  }
+  if (ref.kind === 'fact' && !state.facts?.some((fact) => fact.factId === ref.entityId)) {
+    return [issue('DANGLING_FACT_REF', 'error', path, `事实引用不存在：${ref.entityId}`, npcId)];
   }
   return [];
 }
@@ -165,6 +174,24 @@ function inspectNpc(
   if (brain.currentAction?.planId && brain.currentAction.planId !== brain.currentPlan?.planId) {
     issues.push(issue('ACTION_PLAN_MISMATCH', 'error', 'brain.currentAction.planId', '当前行动引用的计划不存在', npc.id));
   }
+  const reservationRefs = [
+    ...(brain.currentPlan?.steps.flatMap((step) => step.reservationIds) ?? []),
+    ...(brain.currentAction?.reservationIds ?? []),
+  ];
+  for (const reservationId of new Set(reservationRefs)) {
+    const reservation = state.resourceReservations?.[reservationId];
+    if (!reservation) {
+      issues.push(issue(
+        'DANGLING_RESERVATION', 'error', `brain.reservationIds.${reservationId}`,
+        `资源预留引用不存在：${reservationId}`, npc.id,
+      ));
+    } else if (reservation.ownerId !== npc.id) {
+      issues.push(issue(
+        'RESERVATION_OWNER_MISMATCH', 'error', `brain.reservationIds.${reservationId}`,
+        `资源预留属于 ${reservation.ownerId}，不是当前 NPC`, npc.id,
+      ));
+    }
+  }
   return issues;
 }
 
@@ -198,6 +225,34 @@ export function inspectWorldBrainInvariants(
         ));
       }
     });
+  }
+  for (const [reservationId, reservation] of Object.entries(state.resourceReservations ?? {})) {
+    if (!state.npcs[reservation.ownerId] && !state.archivedNpcs?.[reservation.ownerId]) {
+      issues.push(issue(
+        'RESERVATION_OWNER_MISMATCH', 'error', `resourceReservations.${reservationId}.ownerId`,
+        `资源预留所有者不存在：${reservation.ownerId}`, reservation.ownerId,
+      ));
+    }
+  }
+  for (const [listingId, listing] of Object.entries(state.assetListings ?? {})) {
+    const asset = state.assets?.[listing.assetId];
+    if (!asset) {
+      issues.push(issue(
+        'ASSET_LISTING_DANGLING_ASSET', 'error', `assetListings.${listingId}.assetId`,
+        `挂牌引用的资产不存在：${listing.assetId}`,
+      ));
+    } else if (listing.status === 'active' && asset.ownerId !== listing.sellerId) {
+      issues.push(issue(
+        'ASSET_LISTING_OWNER_MISMATCH', 'error', `assetListings.${listingId}.sellerId`,
+        `挂牌卖家 ${listing.sellerId} 不是资产当前所有者`,
+      ));
+    }
+    if (!Number.isFinite(listing.priceSpiritStones) || listing.priceSpiritStones <= 0) {
+      issues.push(issue(
+        'ASSET_LISTING_INVALID_PRICE', 'error', `assetListings.${listingId}.priceSpiritStones`,
+        `挂牌价格无效：${listing.priceSpiritStones}`,
+      ));
+    }
   }
   return issues;
 }

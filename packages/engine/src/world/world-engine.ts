@@ -1,4 +1,4 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker, PersistentCondition } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker, PersistentCondition, Fact, FactType, FactVisibility } from '@taosim/contracts';
 import { createInitialBrainState, parseRealm } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
@@ -7,8 +7,15 @@ import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
 import { deriveNpcHexPos, npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
 import { generateInitialMind, tickNpcMind, resolveNpcMindAction, commitMindAction } from './npc-mind.js';
-import type { NpcActionResolution } from './npc-mind.js';
+import type { NpcActionResolution, NpcActionResolutionOptions } from './npc-mind.js';
 import { commitNpcBrainAction } from './npc-brain-action-commit.js';
+import { buildNpcPerceptionSnapshot, createNpcPerceptionIndex, updateNpcKnowledge } from './npc-perception.js';
+import { prepareNpcExplorePlan } from './npc-explore-planner.js';
+import {
+  completeWorldResourceReservations,
+  expireWorldResourceReservations,
+  pruneWorldResourceReservations,
+} from './world-resource-reservation.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -101,6 +108,36 @@ export const EVENT_LOG_MAX = 2000;
 
 /** 死亡 NPC 从档案中除名（转 Oblivion）的宽限期（年） */
 export const OBLIVION_GRACE_YEARS = 10;
+
+function factTypeOf(event: BigEventLog): FactType {
+  if (event.templateKey?.startsWith('breakthrough.')) return 'breakthrough';
+  if (event.templateKey?.startsWith('death.')) return 'death';
+  if (event.templateKey === 'world.spawn' || event.templateKey === 'social.child') return 'birth';
+  if (event.templateKey?.startsWith('faction.')) return 'faction';
+  return {
+    combat: 'battle', cultivation: 'custom', travel: 'discovery', social: 'social',
+    economy: 'transaction', discovery: 'discovery', world: 'custom',
+  }[event.category] as FactType;
+}
+
+function factVisibilityOf(event: BigEventLog): FactVisibility {
+  return event.visibility === 'world' ? 'public' : 'local';
+}
+
+function factFromEvent(event: BigEventLog): Fact {
+  return {
+    factId: event.id,
+    type: factTypeOf(event),
+    at: { year: event.year, month: event.month },
+    locationId: event.locationId,
+    participants: event.involvedCharacterIds.map((entityId) => ({ entityId, role: 'participant' })),
+    title: event.title,
+    description: event.description,
+    causedBy: event.relatedEventIds,
+    visibility: factVisibilityOf(event),
+    metadata: event.templateKey ? { templateKey: event.templateKey } : undefined,
+  };
+}
 
 /** 成名正反馈阈值：major/epoch 事件达到此数授予江湖绰号（§7.3） */
 export const EPITHET_MAJOR_THRESHOLD = 3;
@@ -296,6 +333,8 @@ export class WorldEngine {
   private lastEventByNpc = new Map<string, BigEventLog>();
   /** 成名正反馈（§7.3）：每 NPC major/epoch 事件计数 */
   private majorCountByNpc = new Map<string, number>();
+  /** NB3 事实幂等索引：避免每月扫描全部历史事实。 */
+  private knownFactIds = new Set<string>();
   /** 世界内已用名字（百家姓取名去重：同一世界不重名；除名时归还，代际可复用） */
   private usedNames = new Set<string>();
   private readonly npcBrainV2Mode: 'legacy' | 'shadow' | 'single-write';
@@ -317,6 +356,9 @@ export class WorldEngine {
       worldTurmoil: initialState.worldTurmoil ?? 0,
       heritageSites: { ...(initialState.heritageSites ?? {}) },
       nodeSpiritQi: { ...(initialState.nodeSpiritQi ?? createInitialNodeSpiritQi()) },
+      facts: [...(initialState.facts ?? [])],
+      resourceReservations: { ...(initialState.resourceReservations ?? {}) },
+      assetListings: { ...(initialState.assetListings ?? {}) },
     };
     this.rng = options.rng ?? Math.random;
     this.npcBrainV2Mode = options.npcBrainV2Mode
@@ -352,6 +394,9 @@ export class WorldEngine {
         this.lastEventByNpc.set(id, e);
       }
     }
+    for (const fact of this.state.facts ?? []) {
+      this.knownFactIds.add(fact.factId);
+    }
   }
 
   /** 推进一个月，返回更新后的状态与事件列表 */
@@ -366,6 +411,10 @@ export class WorldEngine {
     const shadowReport = this.npcBrainV2Mode !== 'legacy'
       ? new NpcBrainShadowReportBuilder(shadowNow)
       : undefined;
+    const expiredReservations = expireWorldResourceReservations(this.state, shadowNow);
+    shadowReport?.recordReservationsExpired(expiredReservations);
+    const prunedReservations = pruneWorldResourceReservations(this.state, shadowNow);
+    shadowReport?.recordReservationsPruned(prunedReservations);
 
     // 区域灵气潮汐（生态与地形因果 §4.9：春生夏长、秋收冬藏 — 确定性，零 rng 消耗）
     this.applySeasonQiShift();
@@ -484,6 +533,9 @@ export class WorldEngine {
     };
 
     // 1. NPC 月度推进（寿元 / 修炼 / 突破 / 奇遇 / 云游）— 无 AI 涌现规则集 §4
+    const perceptionIndex = this.npcBrainV2Mode === 'single-write'
+      ? createNpcPerceptionIndex(this.state)
+      : undefined;
     for (const [id, npc] of Object.entries(this.state.npcs)) {
       if (npc.soulState !== 'Active') continue;
       npc.lifespan.age += 1 / 12;
@@ -542,7 +594,7 @@ export class WorldEngine {
         npc.spouseId && this.state.npcs[npc.spouseId]?.soulState === 'Active' ? 1.15 : 1;
       const qi = this.spiritQiMultOf(npc.locationId);
       const apprenticeMultForCultivation = this.isUndergraduateDisciple(npc) ? 1.5 : 1;
-      const actionOptions = {
+      const actionOptions: NpcActionResolutionOptions = {
         rng: this.rng,
         nodeSpiritQi: this.state.nodeSpiritQi,
         coupleBonus,
@@ -554,6 +606,19 @@ export class WorldEngine {
       let committedByBrain = false;
       let resolvedActionType = legacyActionType;
       let actionDescription = mindResult.actionDescription;
+      let perception = this.npcBrainV2Mode === 'single-write' && npc.brain
+        ? buildNpcPerceptionSnapshot(npc, this.state, mindNow, perceptionIndex!)
+        : undefined;
+
+      if (perception && npc.brain && shadowReport && (npc.brain as any).beliefs) {
+        const knowledge = updateNpcKnowledge(npc.brain, perception.observations, mindNow);
+        npc.brain = knowledge.brain;
+        shadowReport.recordKnowledge(
+          knowledge.learnedCount,
+          knowledge.questionedCount,
+          knowledge.prunedCount,
+        );
+      }
 
       if (shadowReport && npc.brain) {
         try {
@@ -566,27 +631,62 @@ export class WorldEngine {
           shadowReport.record(brainDecision, legacyActionType);
           if (this.npcBrainV2Mode === 'single-write') {
             if (brainDecision.selected && brainDecision.commitEligibility.eligible) {
-              try {
-                const committed = commitNpcBrainAction(
+              let canCommit = true;
+              let brainActionOptions = actionOptions;
+              let reservationIds: string[] = [];
+              if (brainDecision.activeGoalKind === 'explore') {
+                perception ??= buildNpcPerceptionSnapshot(npc, this.state, mindNow, perceptionIndex!);
+                const planned = prepareNpcExplorePlan(this.state, npc, npc.brain, perception, mindNow);
+                if (planned.status === 'failed') {
+                  canCommit = false;
+                  shadowReport.recordPlanningFailure(planned.reason);
+                  shadowReport.recordLegacyFallback(`planning_${planned.reason}`);
+                } else {
+                  npc.brain = planned.brain;
+                  reservationIds = planned.reservationIds;
+                  brainActionOptions = { ...actionOptions, targetLocationId: planned.targetLocationId };
+                  shadowReport.recordPlanPrepared();
+                }
+              }
+              if (canCommit) {
+                try {
+                  const committed = commitNpcBrainAction(
                   npc,
                   npc.brain,
                   brainDecision.selected.capabilityId,
                   brainDecision.activeGoalKind,
                   mindNow,
-                  actionOptions,
+                  brainActionOptions,
                 );
-                npc.brain = committed.brain;
-                resolution = committed.resolution;
-                primaryActionClaimed = true;
-                committedByBrain = true;
-                resolvedActionType = brainDecision.selected.capabilityId;
-                actionDescription = brainDecision.selected.label;
-                if (!committed.alreadyCommitted) {
-                  shadowReport.recordCommit(brainDecision.selected.capabilityId);
+                  npc.brain = committed.brain;
+                  resolution = committed.resolution;
+                  primaryActionClaimed = true;
+                  committedByBrain = true;
+                  resolvedActionType = brainDecision.selected.capabilityId;
+                  actionDescription = brainDecision.selected.label;
+                  if (!committed.alreadyCommitted) {
+                    shadowReport.recordCommit(brainDecision.selected.capabilityId);
+                  }
+                  if (committed.resolution?.completed) {
+                    completeWorldResourceReservations(
+                      this.state,
+                      reservationIds,
+                      committed.resolution.success === false ? 'released' : 'consumed',
+                      mindNow,
+                      committed.resolution.failureReason,
+                    );
+                  }
+                } catch (error) {
+                  // 提交器在副本上结算；异常时权威 NPC 未被部分写入，安全回退旧链。
+                  completeWorldResourceReservations(
+                    this.state,
+                    reservationIds,
+                    'released',
+                    mindNow,
+                    error instanceof Error ? error.message : 'commit_error',
+                  );
+                  shadowReport.recordCommitError(npc.id);
                 }
-              } catch {
-                // 提交器在副本上结算；异常时权威 NPC 未被部分写入，安全回退旧链。
-                shadowReport.recordCommitError(npc.id);
               }
             } else {
               shadowReport.recordLegacyFallback(brainDecision.commitEligibility.reasonCode);
@@ -1406,6 +1506,13 @@ export class WorldEngine {
     // 不进全量 eventLog（上帝视角编年史只留 normal+ 叙事）
     const chronicleEvents = events.filter((e) => e.severity !== 'minor');
     this.state.eventLog = trimEventLog([...this.state.eventLog, ...chronicleEvents]);
+    if (this.npcBrainV2Mode === 'single-write') {
+      for (const event of chronicleEvents) {
+        if (this.knownFactIds.has(event.id)) continue;
+        this.state.facts!.push(factFromEvent(event));
+        this.knownFactIds.add(event.id);
+      }
+    }
 
     // 氛围层（§spec 3.1）：人口增长 + 凡人升格（独立 rng；放末尾——
     // 升格 NPC 下月才参与 NPC 循环，避免干扰本月主 rng 序列）

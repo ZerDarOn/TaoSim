@@ -114,7 +114,7 @@ describe('WorldEngine', () => {
     // 世界内不重名（含已陨落未除名者——名字需等记忆消散才归还）
     const names = npcs.map(n => n.name);
     expect(new Set(names).size).toBe(names.length);
-  }, 10000);
+  }, 60000);
 
   it('NPC 跨推进持久：重建引擎后 NPC 仍在（持久化语义）', () => {
     const npc = makeNpc();

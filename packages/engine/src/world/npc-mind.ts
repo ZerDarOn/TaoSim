@@ -297,6 +297,8 @@ export interface NpcActionResolutionOptions {
   coupleBonus?: number;
   qi?: number;
   apprentice?: number;
+  /** NB3 计划已验证的旅行目的地；旧 Mind 省略时保持原云游语义。 */
+  targetLocationId?: string;
 }
 
 export function getNpcActionDuration(actionType: string): number | undefined {
@@ -409,13 +411,15 @@ export function resolveNpcCapabilityAction(
     }
 
     case 'wander': {
-      // 云游：清空 locationId，由 WorldEngine 重新分配位置
+      // 有计划目的地时真实到达；旧链无目的地时保持云游并由 WorldEngine 下月落脚。
       const oldLocId = npc.locationId;
-      npc.locationId = undefined;
-      npc.moveState = 'wandering';
-      fact = oldLocId
-        ? `${npc.name}离开${oldLocId}，外出云游`
-        : `${npc.name}云游四方`;
+      npc.locationId = options.targetLocationId;
+      npc.moveState = options.targetLocationId ? 'resident' : 'wandering';
+      fact = options.targetLocationId
+        ? `${npc.name}从${oldLocId ?? '无名之地'}前往${options.targetLocationId}`
+        : oldLocId
+          ? `${npc.name}离开${oldLocId}，外出云游`
+          : `${npc.name}云游四方`;
       severity = 'minor';
       break;
     }

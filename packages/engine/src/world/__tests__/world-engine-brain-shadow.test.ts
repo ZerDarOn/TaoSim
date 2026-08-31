@@ -39,6 +39,15 @@ function world(records: NpcRecord[]): WorldState {
   };
 }
 
+function withoutNb3Metadata(state: WorldState): WorldState {
+  const copy = JSON.parse(JSON.stringify(state)) as WorldState;
+  copy.facts = [];
+  copy.resourceReservations = {};
+  for (const record of Object.values(copy.npcs)) delete record.brain;
+  for (const record of Object.values(copy.archivedNpcs ?? {})) delete record.brain;
+  return copy;
+}
+
 describe('WorldEngine NB2 brain shadow integration', () => {
   it('开启 shadow 后世界结果与关闭时完全一致，差异只进入聚合报告', () => {
     const initial = world([npc('npc_1')]);
@@ -171,7 +180,7 @@ describe('WorldEngine NB2 brain shadow integration', () => {
     legacy.step();
     singleWrite.step();
 
-    expect(singleWrite.getState()).toEqual(legacy.getState());
+    expect(withoutNb3Metadata(singleWrite.getState())).toEqual(withoutNb3Metadata(legacy.getState()));
     expect(singleWrite.getBrainShadowReport()).toMatchObject({
       committedCount: 0,
       legacyFallbackCount: 1,
@@ -191,11 +200,61 @@ describe('WorldEngine NB2 brain shadow integration', () => {
     legacy.step();
     expect(() => singleWrite.step()).not.toThrow();
 
-    expect(singleWrite.getState()).toEqual(legacy.getState());
+    expect(withoutNb3Metadata(singleWrite.getState())).toEqual(withoutNb3Metadata(legacy.getState()));
     expect(singleWrite.getBrainShadowReport()).toMatchObject({
       evaluationErrorCount: 1,
       legacyFallbackCount: 1,
       legacyFallbackCounts: { evaluation_error: 1 },
     });
+  });
+
+  it('NB3 探索者依据本地认知建立三步计划、预留行动槽并到达真实场所', () => {
+    const explorer = npc('npc_explorer', 'wander');
+    explorer.locationId = 'VENUE_TIANJI_TAVERN';
+    const engine = new WorldEngine(world([explorer]), {
+      rng: createSeededRng(20260831), npcBrainV2Mode: 'single-write',
+    });
+
+    engine.step();
+    const state = engine.getState();
+    const record = state.npcs.npc_explorer!;
+    const plan = record.brain?.currentPlan;
+
+    expect(record.locationId).not.toBe('VENUE_TIANJI_TAVERN');
+    expect(record.locationId).toMatch(/^VENUE_TIANJI_/);
+    expect(plan?.steps.map((step) => step.capabilityId)).toEqual([
+      'observe_local_area', 'reserve_primary_action', 'wander',
+    ]);
+    expect(plan?.status).toBe('completed');
+    expect(record.brain?.currentAction?.targets).toEqual([
+      { kind: 'location', entityId: record.locationId },
+    ]);
+    const reservationId = record.brain?.currentAction?.reservationIds[0]!;
+    expect(state.resourceReservations?.[reservationId]?.status).toBe('consumed');
+    expect(engine.getBrainShadowReport()).toMatchObject({
+      plansPreparedCount: 1,
+      committedCounts: { wander: 1 },
+    });
+  });
+
+  it('只有实际产生的 normal+ 事件才在月末形成结构化事实', () => {
+    const cultivator = npc('npc_fact');
+    cultivator.cultivation = { currentExp: 100, maxExp: 100 };
+    const engine = new WorldEngine(world([cultivator]), {
+      rng: createSeededRng(19), npcBrainV2Mode: 'single-write',
+    });
+
+    const result = engine.step();
+    const chronicleEvents = result.events.filter((event) => event.severity !== 'minor');
+    const facts = engine.getState().facts ?? [];
+
+    expect(chronicleEvents.length).toBeGreaterThan(0);
+    for (const event of chronicleEvents) {
+      expect(facts).toContainEqual(expect.objectContaining({
+        factId: event.id,
+        title: event.title,
+        description: event.description,
+      }));
+    }
   });
 });

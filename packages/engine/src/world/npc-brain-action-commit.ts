@@ -43,6 +43,8 @@ function createAction(
   npcId: string,
   capabilityId: NpcBrainCapabilityId,
   planId: string,
+  targets: BrainActionState['targets'],
+  reservationIds: string[],
   now: BrainTime,
 ): BrainActionState {
   return {
@@ -50,8 +52,8 @@ function createAction(
     capabilityId,
     planId,
     status: 'planned',
-    targets: [],
-    reservationIds: [],
+    targets,
+    reservationIds,
     progress: 0,
     plannedAt: { ...now },
   };
@@ -79,10 +81,10 @@ function activePlan(
   capabilityId: NpcBrainCapabilityId,
   now: BrainTime,
 ): BrainPlanState {
+  const currentStep = brain.currentPlan?.steps[brain.currentPlan.currentStepIndex];
   if (brain.currentPlan?.goalId === goal.goalId
     && brain.currentPlan.status === 'active'
-    && brain.currentAction?.capabilityId === capabilityId
-    && (brain.currentAction.status === 'planned' || brain.currentAction.status === 'executing')) {
+    && currentStep?.capabilityId === capabilityId) {
     return { ...brain.currentPlan, steps: brain.currentPlan.steps.map((step) => ({ ...step })) };
   }
   const planId = `${npcId}:brain-plan:${capabilityId}:${now.year}:${now.month}`;
@@ -123,9 +125,22 @@ export function commitNpcBrainAction(
   const incumbent = brain.currentAction;
   const canContinue = incumbent?.capabilityId === capabilityId
     && (incumbent.status === 'planned' || incumbent.status === 'executing');
+  const planStep = plan.steps[plan.currentStepIndex];
   const action = canContinue
-    ? { ...incumbent, planId: plan.planId }
-    : createAction(npc.id, capabilityId, plan.planId, now);
+    ? {
+        ...incumbent,
+        planId: plan.planId,
+        targets: planStep?.targets.map((target) => ({ ...target })) ?? incumbent.targets,
+        reservationIds: [...(planStep?.reservationIds ?? incumbent.reservationIds)],
+      }
+    : createAction(
+        npc.id,
+        capabilityId,
+        plan.planId,
+        planStep?.targets.map((target) => ({ ...target })) ?? [],
+        [...(planStep?.reservationIds ?? [])],
+        now,
+      );
   const elapsedBefore = canContinue ? Math.round(action.progress * duration) : 0;
   const stagedNpc = cloneNpc(npc);
   const resolution = resolveNpcCapabilityAction(stagedNpc, capabilityId, elapsedBefore, now, options);

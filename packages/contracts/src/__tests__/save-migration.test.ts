@@ -126,11 +126,11 @@ function makeV4Payload(): SavePayload {
 
 describe('SaveMigrationRunner', () => {
   describe('v1→v4 全链迁移', () => {
-    it('v1 存档迁移到 v7：补 npcs + eventLog + elapsedMinutes + watchedNpcIds，schemaVersion=7', () => {
+    it('v1 存档迁移到 v8：补 npcs + eventLog + elapsedMinutes + watchedNpcIds + NB3 账本', () => {
       const v1 = makeV1Payload();
       const result = SaveMigrationRunner.migrate(v1);
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
@@ -150,11 +150,11 @@ describe('SaveMigrationRunner', () => {
   });
 
   describe('v3→v5 迁移', () => {
-    it('v3 存档迁移到 v7：schemaVersion 正确升版', () => {
+    it('v3 存档迁移到 v8：schemaVersion 正确升版', () => {
       const v3 = makeV3Payload();
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
     });
 
     it('v3 存档的废弃字段保留但不影响权威数据', () => {
@@ -182,7 +182,7 @@ describe('SaveMigrationRunner', () => {
       v3.overworldMap = { continents: [{ id: 'c1', name: '假大陆', nodes: [] }] };
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
       // 废弃字段保留原值（不破坏）
       expect(result.activeNPCs).toBeDefined();
       expect(result.overworldMap).toBeDefined();
@@ -195,7 +195,7 @@ describe('SaveMigrationRunner', () => {
       // currentYear=5, currentMonth=3 → (5-1)*12 + (3-1) = 50 月 → 50 * 43200 = 2160000 分
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v4)));
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
       expect(result.watchedNpcIds).toEqual([]);
     });
@@ -208,7 +208,7 @@ describe('SaveMigrationRunner', () => {
       v5.worldState.elapsedMinutes = 50 * 43200;
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v5)));
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
       expect(result.header.saveId).toBe('save_v4');
       expect(result.worldState.currentYear).toBe(5);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
@@ -252,7 +252,7 @@ describe('SaveMigrationRunner', () => {
 
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v6)));
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
       expect(result.worldState.npcs.npc_legacy?.brain?.currentGoal?.kind).toBe('seek_revenge');
       expect(result.worldState.npcs.npc_legacy?.brain?.currentGoal?.targets[0]).toEqual({
         kind: 'npc', entityId: 'npc_enemy',
@@ -283,7 +283,7 @@ describe('SaveMigrationRunner', () => {
       delete v3.playerMapState;
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(8);
     });
 
     it('v3 存档完全无 graveyard 时迁移成功（补默认）', () => {
@@ -291,6 +291,21 @@ describe('SaveMigrationRunner', () => {
       delete v3.graveyard;
       // graveyard 是必填字段，但旧存档可能缺失——迁移不应崩溃
       expect(() => SaveMigrationRunner.migrate(v3)).not.toThrow();
+    });
+  });
+
+  describe('v7 → v8（NB3 事实与资源预留）', () => {
+    it('为旧世界补空事实账本和资源预留账本', () => {
+      const v7 = makeV4Payload();
+      v7.header.schemaVersion = 7;
+      delete v7.worldState.facts;
+      delete v7.worldState.resourceReservations;
+
+      const result = SaveMigrationRunner.migrate(v7);
+
+      expect(result.header.schemaVersion).toBe(8);
+      expect(result.worldState.facts).toEqual([]);
+      expect(result.worldState.resourceReservations).toEqual({});
     });
   });
 

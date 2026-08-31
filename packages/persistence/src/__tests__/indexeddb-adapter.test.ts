@@ -20,7 +20,7 @@ async function getAdapterClass() {
   return _adapterMod.IndexedDBStorageAdapter;
 }
 
-function makePayload(saveId: string, schemaVersion = 7): SavePayload {
+function makePayload(saveId: string, schemaVersion = 8): SavePayload {
   return {
     header: {
       saveId,
@@ -138,12 +138,25 @@ describe('IndexedDBStorageAdapter (fake-indexeddb)', () => {
           poisons: [], meridianDamage: 15,
         },
       };
+      payload.worldState.facts = [{
+        factId: 'fact_1', type: 'discovery', at: { year: 5, month: 6 }, participants: [],
+        title: '秘境现世', description: '秘境真实出现', visibility: 'public',
+      }];
+      payload.worldState.resourceReservations = {
+        reservation_1: {
+          reservationId: 'reservation_1', ownerId: 'npc_brain', planId: 'plan_1',
+          resource: { kind: 'action_slot', resourceId: 'npc_brain:5:6', amount: 1 },
+          status: 'active', createdAt: { year: 5, month: 6 }, expiresAt: { year: 5, month: 7 },
+        },
+      };
 
       await adapter.save(payload);
       const loaded = await adapter.load(id);
 
       expect(loaded?.worldState.npcs.npc_brain?.brain).toEqual(brain);
       expect(loaded?.worldState.conditions?.npc_brain?.injuries[0]?.source).toBe('旧战');
+      expect(loaded?.worldState.facts?.[0]?.factId).toBe('fact_1');
+      expect(loaded?.worldState.resourceReservations?.reservation_1?.status).toBe('active');
     });
 
     it('加载不存在的存档返回 null', async () => {

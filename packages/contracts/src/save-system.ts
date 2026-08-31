@@ -12,7 +12,7 @@ import type { PlayerMapState } from './multi-layer-map.js';
 import { createInitialBrainState } from './npc-brain.js';
 
 /** 新存档必须写入的唯一版本号；避免 UI 与迁移链再次分叉。 */
-export const CURRENT_SAVE_SCHEMA_VERSION = 7;
+export const CURRENT_SAVE_SCHEMA_VERSION = 8;
 
 export interface SaveHeader {
   saveId: string;
@@ -70,7 +70,7 @@ export interface SavePayload {
 }
 
 // ---- 存档版本迁移 ----
-// 当前 schemaVersion = 7
+// 当前 schemaVersion = 8
 // v1 → v2：WorldState 新增 npcs 字段（NPC 持久化档案），旧存档补空对象
 // v2 → v3：WorldState 新增 eventLog 字段（全量事件流），旧存档补空数组
 // v3 → v4：废弃 activeNPCs/overworldMap/factions/marketInventories 四个伪权威占位字段；
@@ -78,6 +78,7 @@ export interface SavePayload {
 // v4 → v5：P1 引入 elapsedMinutes（权威绝对时间）；旧存档从 currentYear/currentMonth 计算
 // v5 → v6：C2 引入 watchedNpcIds（关注列表）；旧存档补空数组
 // v6 → v7：NB1 引入版本化 NPC Brain；从 NpcRecord + 旧 MindState 确定性初始化
+// v7 → v8：NB3 引入事实账本与世界级资源预留账本
 export class SaveMigrationRunner {
   private static migrations: Map<number, (oldData: any) => any> = new Map([
     [
@@ -160,6 +161,19 @@ export class SaveMigrationRunner {
         if (worldState.archivedNpcs && typeof worldState.archivedNpcs === 'object') {
           hydrateRecords(worldState.archivedNpcs);
         }
+        return data;
+      },
+    ],
+    [
+      7,
+      (data) => {
+        const worldState = data.worldState ?? {};
+        worldState.facts = Array.isArray(worldState.facts) ? worldState.facts : [];
+        worldState.resourceReservations = worldState.resourceReservations
+          && typeof worldState.resourceReservations === 'object'
+          ? worldState.resourceReservations
+          : {};
+        data.worldState = worldState;
         return data;
       },
     ],

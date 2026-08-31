@@ -103,4 +103,31 @@ describe('inspectWorldBrainInvariants', () => {
     expect(inspectWorldBrainInvariants(world(record)).map((issue) => issue.code))
       .toContain('BRAIN_SCHEMA_VERSION_UNSUPPORTED');
   });
+
+  it('报告悬空、错主和非法价格的唯一资产挂牌', () => {
+    const seller = npc('seller');
+    const state = world(seller);
+    state.assets = {
+      sword: {
+        assetId: 'sword', templateId: 'sword', name: '孤剑', rarity: 'rare', ownerId: 'other',
+        origin: { source: 'loot', at: { year: 1, month: 1 } }, combatBonuses: {},
+      },
+    };
+    state.assetListings = {
+      wrong_owner: {
+        listingId: 'wrong_owner', assetId: 'sword', sellerId: 'seller', venueId: 'venue_1',
+        priceSpiritStones: 0, status: 'active', listedAt: { year: 3, month: 2 },
+      },
+      missing_asset: {
+        listingId: 'missing_asset', assetId: 'missing', sellerId: 'seller', venueId: 'venue_1',
+        priceSpiritStones: 10, status: 'active', listedAt: { year: 3, month: 2 },
+      },
+    };
+
+    expect(inspectWorldBrainInvariants(state).map((entry) => entry.code)).toEqual(expect.arrayContaining([
+      'ASSET_LISTING_OWNER_MISMATCH',
+      'ASSET_LISTING_INVALID_PRICE',
+      'ASSET_LISTING_DANGLING_ASSET',
+    ]));
+  });
 });

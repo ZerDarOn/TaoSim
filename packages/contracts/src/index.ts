@@ -16,6 +16,7 @@ export * from './save-system.js';
 export * from './world-state.js';
 export * from './npc-record.js';
 export * from './npc-brain.js';
+export * from './npc-planning.js';
 export * from './event-log.js';
 export * from './population.js';
 export * from './battle-preview.js';
