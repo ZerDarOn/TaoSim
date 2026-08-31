@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import type { WorldState, SavePayload, SaveHeader, GraveMarker } from '@taosim/contracts';
-import { parseRealm } from '@taosim/contracts';
+import { CURRENT_SAVE_SCHEMA_VERSION, parseRealm } from '@taosim/contracts';
 import { WorldEngine, generateLegendaryNpcs } from '@taosim/engine';
 import { IndexedDBStorageAdapter, MigrationService } from '@taosim/persistence';
 import { usePlayerStore } from '@/stores/player';
@@ -88,7 +88,7 @@ export const useAppStore = defineStore('app', {
         npcs: Object.fromEntries(generateLegendaryNpcs().map((n) => [n.id, n])),
         eventLog: [],
       };
-      const engine = new WorldEngine(initialState);
+      const engine = new WorldEngine(initialState, { npcBrainV2Mode: 'single-write' });
 
       // ── 阶段 2：万物化生，NPC 涌现 ──
       onProgress?.(15, '万物化生，修士涌现…');
@@ -147,7 +147,7 @@ export const useAppStore = defineStore('app', {
       const payload: SavePayload = {
         header: {
           saveId: `save_${Date.now()}`,
-          schemaVersion: 6,
+          schemaVersion: CURRENT_SAVE_SCHEMA_VERSION,
           gameVersion: '0.2.0',
           timestamp: Date.now(),
           playTimeMonths: (this.currentWorldState.currentYear - 1) * 12 + this.currentWorldState.currentMonth - 1,

@@ -1,5 +1,5 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker } from '@taosim/contracts';
-import { parseRealm } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker, PersistentCondition } from '@taosim/contracts';
+import { createInitialBrainState, parseRealm } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { VENUE_CATALOG, getVenue, getVenuesByNode } from '../overworld/map-catalog.js';
@@ -7,6 +7,8 @@ import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
 import { deriveNpcHexPos, npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
 import { generateInitialMind, tickNpcMind, resolveNpcMindAction, commitMindAction } from './npc-mind.js';
+import type { NpcActionResolution } from './npc-mind.js';
+import { commitNpcBrainAction } from './npc-brain-action-commit.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -32,11 +34,34 @@ import {
   motivationPressuresOf,
   rollInitialAspiration,
 } from './world-motivation.js';
+import {
+  NpcBrainNodeRegistry,
+  createDefaultNpcBrainNodeRegistry,
+} from './npc-brain-node-registry.js';
+import {
+  evaluateNpcBrainShadow,
+  DEFAULT_NPC_BRAIN_SATISFACTION_THRESHOLD,
+  NpcBrainShadowReportBuilder,
+  mergeNpcBrainShadowReports,
+  type NpcBrainShadowMonthlyReport,
+  type NpcBrainShadowAggregateReport,
+} from './npc-brain-shadow-scheduler.js';
 
 export interface MonthlyTickResult {
   updatedState: WorldState;
   events: BigEventLog[];
   npcPopulationChanged: boolean;
+}
+
+export interface WorldEngineOptions {
+  rng?: Rng;
+  factions?: Record<string, Faction>;
+  /** @deprecated 使用 npcBrainV2Mode；保留用于旧调用兼容。 */
+  npcBrainV2Shadow?: boolean;
+  /** NB2：legacy 不评估，shadow 只诊断，single-write 对完整覆盖目标单写并安全回退。 */
+  npcBrainV2Mode?: 'legacy' | 'shadow' | 'single-write';
+  /** 可注入节点库，用于测试、MOD 与逐节点开关。 */
+  npcBrainNodeRegistry?: NpcBrainNodeRegistry;
 }
 
 /**
@@ -100,6 +125,26 @@ export const CHILD_COOLDOWN_YEARS = 8;
 
 /** 道侣每月生育概率（修仙以传承替代繁殖：少量、低频、重血脉） */
 export const CHILD_CHANCE_PER_MONTH = 0.02;
+
+/** NB1 兼容层：只补长期认知档案，不参与或改写现有 Mind 行为选择。 */
+function ensureNpcBrain(
+  npc: NpcRecord,
+  now: { year: number; month: number },
+  condition?: PersistentCondition,
+): void {
+  if (npc.brain) return;
+  npc.brain = createInitialBrainState({
+    npcId: npc.id,
+    personalityId: npc.personalityId,
+    aspiration: npc.aspiration,
+    birthYear: npc.birthYear,
+    birthMonth: npc.birthMonth,
+    legacyMind: npc.mind,
+    relations: npc.relations,
+    biography: npc.biography,
+    condition,
+  }, now);
+}
 
 // Mind action event severity → template key
 function severityToTemplateKey(severity: string, hasFailureReason: boolean): string {
@@ -253,10 +298,14 @@ export class WorldEngine {
   private majorCountByNpc = new Map<string, number>();
   /** 世界内已用名字（百家姓取名去重：同一世界不重名；除名时归还，代际可复用） */
   private usedNames = new Set<string>();
+  private readonly npcBrainV2Mode: 'legacy' | 'shadow' | 'single-write';
+  private readonly npcBrainNodeRegistry: NpcBrainNodeRegistry;
+  private lastBrainShadowReport?: NpcBrainShadowMonthlyReport;
+  private brainShadowAggregateReport?: NpcBrainShadowAggregateReport;
 
   constructor(
     initialState: WorldState,
-    options: { rng?: Rng; factions?: Record<string, Faction> } = {},
+    options: WorldEngineOptions = {},
   ) {
     this.state = {
       ...initialState,
@@ -270,7 +319,17 @@ export class WorldEngine {
       nodeSpiritQi: { ...(initialState.nodeSpiritQi ?? createInitialNodeSpiritQi()) },
     };
     this.rng = options.rng ?? Math.random;
+    this.npcBrainV2Mode = options.npcBrainV2Mode
+      ?? (options.npcBrainV2Shadow ? 'shadow' : 'legacy');
+    this.npcBrainNodeRegistry = options.npcBrainNodeRegistry ?? createDefaultNpcBrainNodeRegistry();
     this.factions = new Map(Object.entries(this.state.factions ?? {}));
+    const loadedAt = { year: this.state.currentYear, month: this.state.currentMonth };
+    for (const npc of Object.values(this.state.npcs)) {
+      ensureNpcBrain(npc, loadedAt, this.state.conditions?.[npc.id]);
+    }
+    for (const npc of Object.values(this.state.archivedNpcs ?? {})) {
+      ensureNpcBrain(npc, loadedAt, this.state.conditions?.[npc.id]);
+    }
     // 从现存 NPC id（NPC_<year>_<month>_<n>）恢复自增计数器，避免跨会话 id 冲突
     let maxCounter = 0;
     for (const id of Object.keys(this.state.npcs)) {
@@ -303,6 +362,10 @@ export class WorldEngine {
   /** 内部推进逻辑；skipStateCopy=true 时跳过末尾深拷贝（快进优化） */
   private stepInternal(skipStateCopy: boolean): MonthlyTickResult {
     this.advanceCalendar();
+    const shadowNow = { year: this.state.currentYear, month: this.state.currentMonth };
+    const shadowReport = this.npcBrainV2Mode !== 'legacy'
+      ? new NpcBrainShadowReportBuilder(shadowNow)
+      : undefined;
 
     // 区域灵气潮汐（生态与地形因果 §4.9：春生夏长、秋收冬藏 — 确定性，零 rng 消耗）
     this.applySeasonQiShift();
@@ -474,25 +537,79 @@ export class WorldEngine {
       const mindNow = { year: this.state.currentYear, month: this.state.currentMonth };
       if (!npc.mind) { npc.mind = generateInitialMind(npc); }
       const mindResult = tickNpcMind(npc, npc.mind, mindNow);
-      npc.mind = mindResult.mind;
-
+      const legacyActionType = mindResult.mind.nextAction.type;
       const coupleBonus =
         npc.spouseId && this.state.npcs[npc.spouseId]?.soulState === 'Active' ? 1.15 : 1;
       const qi = this.spiritQiMultOf(npc.locationId);
       const apprenticeMultForCultivation = this.isUndergraduateDisciple(npc) ? 1.5 : 1;
-      const resolution = resolveNpcMindAction(npc, npc.mind, mindNow, {
+      const actionOptions = {
         rng: this.rng,
         nodeSpiritQi: this.state.nodeSpiritQi,
         coupleBonus,
         qi,
         apprentice: apprenticeMultForCultivation,
-      });
-      const mindActionType = npc.mind.nextAction.type;
-      const mindHandled = resolution?.completed ?? false;
+      };
+      let resolution: NpcActionResolution | null | undefined;
+      let primaryActionClaimed = false;
+      let committedByBrain = false;
+      let resolvedActionType = legacyActionType;
+      let actionDescription = mindResult.actionDescription;
+
+      if (shadowReport && npc.brain) {
+        try {
+          const brainDecision = evaluateNpcBrainShadow(npc, npc.brain, {
+            now: mindNow,
+            registry: this.npcBrainNodeRegistry,
+            condition: this.state.conditions?.[npc.id],
+            satisfactionThreshold: DEFAULT_NPC_BRAIN_SATISFACTION_THRESHOLD,
+          });
+          shadowReport.record(brainDecision, legacyActionType);
+          if (this.npcBrainV2Mode === 'single-write') {
+            if (brainDecision.selected && brainDecision.commitEligibility.eligible) {
+              try {
+                const committed = commitNpcBrainAction(
+                  npc,
+                  npc.brain,
+                  brainDecision.selected.capabilityId,
+                  brainDecision.activeGoalKind,
+                  mindNow,
+                  actionOptions,
+                );
+                npc.brain = committed.brain;
+                resolution = committed.resolution;
+                primaryActionClaimed = true;
+                committedByBrain = true;
+                resolvedActionType = brainDecision.selected.capabilityId;
+                actionDescription = brainDecision.selected.label;
+                if (!committed.alreadyCommitted) {
+                  shadowReport.recordCommit(brainDecision.selected.capabilityId);
+                }
+              } catch {
+                // 提交器在副本上结算；异常时权威 NPC 未被部分写入，安全回退旧链。
+                shadowReport.recordCommitError(npc.id);
+              }
+            } else {
+              shadowReport.recordLegacyFallback(brainDecision.commitEligibility.reasonCode);
+            }
+          }
+        } catch {
+          // 评估永远不能阻断权威世界推进；错误只进入有界聚合诊断并回退旧链。
+          shadowReport.recordEvaluationError(npc.id, legacyActionType);
+          if (this.npcBrainV2Mode === 'single-write') {
+            shadowReport.recordLegacyFallback('evaluation_error');
+          }
+        }
+      }
+
+      if (!committedByBrain) {
+        npc.mind = mindResult.mind;
+        resolution = resolveNpcMindAction(npc, npc.mind, mindNow, actionOptions);
+      }
+      const mindHandled = primaryActionClaimed || (resolution?.completed ?? false);
       const mindHandledCultivation = mindHandled &&
-        (mindActionType === 'cultivate' || mindActionType === 'seclude');
-      const mindHandledBreakthrough = mindHandled && mindActionType === 'breakthrough';
-      const mindHandledWander = mindHandled && mindActionType === 'wander';
+        (resolvedActionType === 'cultivate' || resolvedActionType === 'seclude');
+      const mindHandledBreakthrough = mindHandled && resolvedActionType === 'breakthrough';
+      const mindHandledWander = mindHandled && resolvedActionType === 'wander';
 
       // 修炼增长（仅当 Mind 未处理时）
       if (!mindHandledCultivation) {
@@ -608,10 +725,12 @@ export class WorldEngine {
 
       // 提交 Mind 行动状态 + 事件推送（Mind 决议已在修炼/突破之前完成）
       if (resolution) {
-        npc.mind = commitMindAction(npc.mind, resolution, mindNow);
+        if (!committedByBrain) {
+          npc.mind = commitMindAction(npc.mind, resolution, mindNow);
+        }
         if (resolution.completed && resolution.fact) {
           // 突破事件使用专门模板（保留 major 态以触发成名正反馈/因果链）
-          const isBreakthrough = mindActionType === 'breakthrough';
+          const isBreakthrough = resolvedActionType === 'breakthrough';
           const eventKey = isBreakthrough
             ? (resolution.success ? 'breakthrough.major' : 'breakthrough.fail')
             : severityToTemplateKey(resolution.severity, !!resolution.failureReason);
@@ -621,7 +740,7 @@ export class WorldEngine {
               vars: {
                 npc: npc.name,
                 realm: realmDisplay(npc.realm),
-                action: mindResult.actionDescription,
+                action: actionDescription,
                 result: resolution.fact,
               },
               involvedCharacterIds: [id],
@@ -1295,6 +1414,14 @@ export class WorldEngine {
     // 嫉妒追捧（§spec 3.3.2）：同格高资质者招致嫉妒/敬仰（独立 rng，空间局部化 §spec 3.5）
     this.tickJealousy();
 
+    this.lastBrainShadowReport = shadowReport?.build();
+    if (this.lastBrainShadowReport) {
+      this.brainShadowAggregateReport = mergeNpcBrainShadowReports(
+        this.brainShadowAggregateReport,
+        this.lastBrainShadowReport,
+      );
+    }
+
     // 快进模式跳过深拷贝——调用方通过 fastForward 在循环结束后统一 getState()
     const updatedState = skipStateCopy ? this.state : this.getState();
     return { updatedState, events, npcPopulationChanged };
@@ -1327,6 +1454,20 @@ export class WorldEngine {
     const interrupted = completedMonths < months;
     const progress = completedMonths / months;
     return { events, progress, interrupted: interrupted || undefined };
+  }
+
+  /** NB2：最近一个月的聚合影子报告；关闭开关时为 undefined。 */
+  public getBrainShadowReport(): NpcBrainShadowMonthlyReport | undefined {
+    return this.lastBrainShadowReport
+      ? JSON.parse(JSON.stringify(this.lastBrainShadowReport)) as NpcBrainShadowMonthlyReport
+      : undefined;
+  }
+
+  /** NB2：当前引擎会话的跨月聚合报告；不进入 WorldState/存档。 */
+  public getBrainShadowAggregateReport(): NpcBrainShadowAggregateReport | undefined {
+    return this.brainShadowAggregateReport
+      ? JSON.parse(JSON.stringify(this.brainShadowAggregateReport)) as NpcBrainShadowAggregateReport
+      : undefined;
   }
 
   /**
@@ -1450,6 +1591,7 @@ export class WorldEngine {
     record.hexPos = npcHexPos(record.locationId, this.gridOf()) ?? undefined;
     record.moveState = 'resident';
     record.affinityMatrixSeed = rng();
+    ensureNpcBrain(record, { year: this.state.currentYear, month: this.state.currentMonth });
     return record;
   }
 
@@ -1830,6 +1972,7 @@ export class WorldEngine {
       lastUpdate: { year: this.state.currentYear, month: this.state.currentMonth },
     };
     record.aspiration = rollInitialAspiration(record, this.rng);
+    ensureNpcBrain(record, changedAt);
     parentA.childrenIds = [...(parentA.childrenIds ?? []), id];
     parentB.childrenIds = [...(parentB.childrenIds ?? []), id];
     return record;

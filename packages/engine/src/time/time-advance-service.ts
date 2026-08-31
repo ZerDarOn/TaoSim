@@ -49,7 +49,7 @@ export class TimeAdvanceService {
     const allEvents: BigEventLog[] = [];
 
     // P1：通过 WorldClockService 推进（维护权威 elapsedMinutes）
-    const engine = new WorldEngine(worldState);
+    const engine = new WorldEngine(worldState, { npcBrainV2Mode: 'single-write' });
     const clock = new WorldClockService(engine);
     for (let i = 0; i < months; i++) {
       const stepResult = clock.stepMonth();

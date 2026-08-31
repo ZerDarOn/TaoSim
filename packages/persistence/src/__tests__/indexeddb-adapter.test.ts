@@ -2,7 +2,7 @@
  * IndexedDBStorageAdapter 测试 — 使用 fake-indexeddb 模拟浏览器 IndexedDB 环境。
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import type { SavePayload } from '@taosim/contracts';
+import { createInitialBrainState, type SavePayload } from '@taosim/contracts';
 
 // 安装 fake-indexeddb 到 global（一次性）
 beforeAll(async () => {
@@ -20,7 +20,7 @@ async function getAdapterClass() {
   return _adapterMod.IndexedDBStorageAdapter;
 }
 
-function makePayload(saveId: string, schemaVersion = 6): SavePayload {
+function makePayload(saveId: string, schemaVersion = 7): SavePayload {
   return {
     header: {
       saveId,
@@ -99,6 +99,51 @@ describe('IndexedDBStorageAdapter (fake-indexeddb)', () => {
 
       const loaded = await adapter.load(id);
       expect(loaded!.player.name).toBe('覆盖后名字');
+    });
+
+    it('无损保存 Brain 的错误信念、记忆、计划以及独立的长期身体状态', async () => {
+      const adapter = await createAdapter();
+      const id = 'idb_brain_' + Date.now();
+      const payload = makePayload(id);
+      const brain = createInitialBrainState({
+        npcId: 'npc_brain',
+        personalityId: 'cautious',
+        aspiration: 'seekDao',
+        birthYear: 1,
+        birthMonth: 1,
+      }, { year: 5, month: 6 });
+      brain.beliefs.false_belief = {
+        beliefId: 'false_belief',
+        topic: 'intent',
+        subject: { kind: 'npc', entityId: 'npc_other' },
+        value: 'hostile',
+        source: { type: 'hearsay' },
+        observedAt: { year: 5, month: 6 },
+        confidence: 0.6,
+        status: 'active',
+      };
+      brain.memories.push({
+        memoryId: 'memory_1', kind: 'rumor', at: { year: 5, month: 6 },
+        participantIds: ['npc_other'], summary: '误信传闻', valence: -20, salience: 60,
+      });
+      brain.currentPlan = {
+        planId: 'plan_1', goalId: brain.currentGoal!.goalId, status: 'active',
+        steps: [{ stepId: 'step_1', capabilityId: 'investigate', status: 'pending', targets: [], reservationIds: [] }],
+        currentStepIndex: 0, createdAt: { year: 5, month: 6 }, updatedAt: { year: 5, month: 6 }, revision: 1,
+      };
+      payload.worldState.npcs.npc_brain = { id: 'npc_brain', brain } as any;
+      payload.worldState.conditions = {
+        npc_brain: {
+          injuries: [{ level: 'moderate', source: '旧战', acquiredAt: { year: 5, month: 5 } }],
+          poisons: [], meridianDamage: 15,
+        },
+      };
+
+      await adapter.save(payload);
+      const loaded = await adapter.load(id);
+
+      expect(loaded?.worldState.npcs.npc_brain?.brain).toEqual(brain);
+      expect(loaded?.worldState.conditions?.npc_brain?.injuries[0]?.source).toBe('旧战');
     });
 
     it('加载不存在的存档返回 null', async () => {

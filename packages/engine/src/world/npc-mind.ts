@@ -291,6 +291,18 @@ const ACTION_DURATION: Record<string, number> = {
   rest: 1,
 };
 
+export interface NpcActionResolutionOptions {
+  rng?: Rng;
+  nodeSpiritQi?: Record<string, number>;
+  coupleBonus?: number;
+  qi?: number;
+  apprentice?: number;
+}
+
+export function getNpcActionDuration(actionType: string): number | undefined {
+  return ACTION_DURATION[actionType];
+}
+
 /**
  * C1：解析 Mind 行动并执行。
  *
@@ -299,23 +311,13 @@ const ACTION_DURATION: Record<string, number> = {
  *
  * 其余行动类型返回 null（调用方继续使用旧随机规则）。
  */
-export function resolveNpcMindAction(
+export function resolveNpcCapabilityAction(
   npc: NpcRecord,
-  mind: MindState,
+  actionType: string,
+  elapsedMonthsBefore: number,
   currentTime: { year: number; month: number },
-  options: {
-    rng?: Rng;
-    nodeSpiritQi?: Record<string, number>;
-    /** 道侣双修加成（默认 1） */
-    coupleBonus?: number;
-    /** 灵气乘数（由调用方传入，避免重复计算） */
-    qi?: number;
-    /** 师徒传承修炼加成（默认 1） */
-    apprentice?: number;
-  },
+  options: NpcActionResolutionOptions,
 ): NpcActionResolution | null {
-  const actionType = mind.nextAction.type;
-
   // 非首批闭环行动：返回 null，由旧随机规则处理
   if (!(actionType in ACTION_DURATION)) {
     return null;
@@ -325,7 +327,7 @@ export function resolveNpcMindAction(
 
   // —— Validation ——
   // 多步行动：检查是否仍在进行中
-  const elapsedThisTick = (mind.actionMonthsElapsed ?? 0) + 1;
+  const elapsedThisTick = elapsedMonthsBefore + 1;
   const isLastMonth = elapsedThisTick >= duration;
 
   // 强制检查：突破需要修为 >= maxExp
@@ -460,6 +462,22 @@ export function resolveNpcMindAction(
     severity,
     npc,
   };
+}
+
+/** 旧 Mind 适配层；实际效果与新 Brain Action 共用同一个能力执行器。 */
+export function resolveNpcMindAction(
+  npc: NpcRecord,
+  mind: MindState,
+  currentTime: { year: number; month: number },
+  options: NpcActionResolutionOptions,
+): NpcActionResolution | null {
+  return resolveNpcCapabilityAction(
+    npc,
+    mind.nextAction.type,
+    mind.actionMonthsElapsed ?? 0,
+    currentTime,
+    options,
+  );
 }
 
 /**

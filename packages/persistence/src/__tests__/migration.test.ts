@@ -25,7 +25,7 @@ function makeMinimalPlayer(): any {
 function baseHeader(overrides: Partial<any> = {}) {
   return {
     saveId: 'save_test',
-    schemaVersion: 6,
+    schemaVersion: 7,
     gameVersion: '0.3.0',
     timestamp: Date.now(),
     playTimeMonths: 10,
@@ -105,9 +105,9 @@ function makeV5Payload(): any {
   return p;
 }
 
-function makeV6Payload(): any {
+function makeV7Payload(): any {
   const p = makeV4Payload();
-  p.header.schemaVersion = 6;
+  p.header.schemaVersion = 7;
   p.worldState.elapsedMinutes = 50 * 43200;
   p.watchedNpcIds = ['npc_1', 'npc_2'];
   return p;
@@ -118,11 +118,11 @@ function makeV6Payload(): any {
 // ============================================================
 
 describe('MigrationService', () => {
-  describe('loadWithMigration — v1→v6 全链迁移', () => {
-    it('v1 存档迁移到 v6：补 npcs + eventLog + elapsedMinutes + watchedNpcIds', () => {
+  describe('loadWithMigration — v1→v7 全链迁移', () => {
+    it('v1 存档迁移到 v7：补 npcs + eventLog + elapsedMinutes + watchedNpcIds', () => {
       const result = MigrationService.loadWithMigration(makeV1Payload());
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
@@ -134,54 +134,54 @@ describe('MigrationService', () => {
     });
   });
 
-  describe('loadWithMigration — v2→v6', () => {
-    it('v2 迁移到 v6', () => {
+  describe('loadWithMigration — v2→v7', () => {
+    it('v2 迁移到 v7', () => {
       const result = MigrationService.loadWithMigration(makeV2Payload());
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
       expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
-  describe('loadWithMigration — v3→v6', () => {
-    it('v3 迁移到 v6', () => {
+  describe('loadWithMigration — v3→v7', () => {
+    it('v3 迁移到 v7', () => {
       const result = MigrationService.loadWithMigration(makeV3Payload());
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
-  describe('loadWithMigration — v4→v6', () => {
-    it('v4 迁移到 v6：elapsedMinutes 正确计算 + watchedNpcIds 补 []', () => {
+  describe('loadWithMigration — v4→v7', () => {
+    it('v4 迁移到 v7：elapsedMinutes 正确计算 + watchedNpcIds 补 []', () => {
       const result = MigrationService.loadWithMigration(JSON.parse(JSON.stringify(makeV4Payload())));
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       // currentYear=1, currentMonth=1 → (1-1)*12 + (1-1)=0 → 0 minutes
       expect(result.worldState.elapsedMinutes).toBe(0);
       expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
-  describe('loadWithMigration — v5→v6', () => {
-    it('v5 迁移到 v6', () => {
+  describe('loadWithMigration — v5→v7', () => {
+    it('v5 迁移到 v7', () => {
       const result = MigrationService.loadWithMigration(JSON.parse(JSON.stringify(makeV5Payload())));
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
-  describe('loadWithMigration — 已是 v6', () => {
-    it('v6 存档不变', () => {
-      const original = makeV6Payload();
+  describe('loadWithMigration — 已是 v7', () => {
+    it('v7 存档不变', () => {
+      const original = makeV7Payload();
       const result = MigrationService.loadWithMigration(JSON.parse(JSON.stringify(original)));
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.header.saveId).toBe('save_test');
       expect(result.player.id).toBe('player_1');
       expect(result.watchedNpcIds).toEqual(['npc_1', 'npc_2']);
@@ -241,19 +241,20 @@ describe('MigrationService', () => {
 
   describe('registerMigration', () => {
     it('注册自定义迁移步骤后生效', () => {
-      // 注册 v6→v7 自定义迁移
+      // 使用远离内建版本链的编号，避免覆盖产品迁移步骤
       let called = false;
-      MigrationService.registerMigration(6, (data: any) => {
+      MigrationService.registerMigration(99, (data: any) => {
         called = true;
         data.customField = 'migrated';
         return data;
       });
 
-      const v6 = makeV6Payload();
-      const result = MigrationService.loadWithMigration(v6);
+      const custom = makeV7Payload();
+      custom.header.schemaVersion = 99;
+      const result = MigrationService.loadWithMigration(custom);
 
       expect(called).toBe(true);
-      expect(result.header.schemaVersion).toBe(7);
+      expect(result.header.schemaVersion).toBe(100);
       expect((result as any).customField).toBe('migrated');
     });
   });

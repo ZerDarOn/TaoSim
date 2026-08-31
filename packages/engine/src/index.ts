@@ -4,6 +4,7 @@
 
 // World Engine (月度 Tick 驱动)
 export { WorldEngine, trimEventLog, EVENT_LOG_MAX } from './world/world-engine.js';
+export type { WorldEngineOptions, MonthlyTickResult } from './world/world-engine.js';
 
 // Combat Engine (Hex 战棋)
 export { CombatEngine } from './combat/combat-engine.js';
@@ -104,10 +105,18 @@ export { commitOutcome } from './world/outcome-committer.js';
 
 // NPC Query (按位置查 NPC — S5a：遭遇战优先选取真实世界 NPC)
 export { npcsByVenue, pickNearbyNpc } from './world/npc-query.js';
-export { generateInitialMind, tickNpcMind, computeNeeds, resolveNpcMindAction, commitMindAction } from './world/npc-mind.js';
-export type { MindTickResult, NpcNeeds, NpcActionResolution } from './world/npc-mind.js';
+export { generateInitialMind, tickNpcMind, computeNeeds, resolveNpcMindAction, resolveNpcCapabilityAction, commitMindAction, getNpcActionDuration } from './world/npc-mind.js';
+export type { MindTickResult, NpcNeeds, NpcActionResolution, NpcActionResolutionOptions } from './world/npc-mind.js';
+export { commitNpcBrainAction } from './world/npc-brain-action-commit.js';
+export type { NpcBrainActionCommitResult } from './world/npc-brain-action-commit.js';
+export { NpcBrainNodeRegistry, createDefaultNpcBrainNodeRegistry } from './world/npc-brain-node-registry.js';
+export type { NpcBrainCapabilityId, NpcBrainNodeDefinition, NpcBrainNodeContext } from './world/npc-brain-node-registry.js';
+export { evaluateNpcBrainShadow, getNpcBrainCommitEligibility, NpcBrainShadowReportBuilder, mergeNpcBrainShadowReports, DEFAULT_NPC_BRAIN_SATISFACTION_THRESHOLD } from './world/npc-brain-shadow-scheduler.js';
+export type { NpcBrainShadowDecision, NpcBrainCommitEligibility, NpcBrainShadowMonthlyReport, NpcBrainShadowAggregateReport, NpcBrainShadowDifference } from './world/npc-brain-shadow-scheduler.js';
 export { Watchlist, filterEventRelevance } from './world/watchlist.js';
 export type { EventRelevanceLayer } from './world/watchlist.js';
+export { inspectWorldBrainInvariants } from './world/npc-brain-invariants.js';
+export type { BrainInvariantIssue, BrainInvariantOptions } from './world/npc-brain-invariants.js';
 
 // Sect Presets (宗门预设 — 社会轨道 §2.2)
 export { SECT_PRESETS, createInitialFactions } from './world/sect-presets.js';

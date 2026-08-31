@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryStorageAdapter } from '../storage-adapter.js';
 import type { SavePayload, SaveHeader } from '@taosim/contracts';
 
-function makePayload(saveId: string, schemaVersion = 6): SavePayload {
+function makePayload(saveId: string, schemaVersion = 7): SavePayload {
   return {
     header: {
       saveId,

@@ -7,6 +7,7 @@
 
 import type { RealmFullPath, SoulState, SpiritRoot, Gender } from './character.js';
 import type { SkillElement } from './skill.js';
+import type { BrainState } from './npc-brain.js';
 
 /** 先天出身（因）：决定出生起点——只塑造面板与初始条件，不提供任何概率加成（机制特权禁止） */
 export type BornOrigin = 'mortal' | 'fortune' | 'reincarnated' | 'inherited';
@@ -155,6 +156,9 @@ export interface NpcRecord {
   // ── P4：NPC Mind（持久化心智状态）──
   /** 心智状态（意愿/目标/计划/下一步行动）；旧 NPC 迁移时从 aspiration 推导 */
   mind?: MindState;
+
+  // ── NB1：版本化长期认知（NB2 前只作为持久化兼容层，不接管行动选择）──
+  brain?: BrainState;
 }
 
 // ── P4：NPC Mind 类型 ──

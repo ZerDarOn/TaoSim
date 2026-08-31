@@ -126,11 +126,11 @@ function makeV4Payload(): SavePayload {
 
 describe('SaveMigrationRunner', () => {
   describe('v1→v4 全链迁移', () => {
-    it('v1 存档迁移到 v6：补 npcs + eventLog + elapsedMinutes + watchedNpcIds，schemaVersion=6', () => {
+    it('v1 存档迁移到 v7：补 npcs + eventLog + elapsedMinutes + watchedNpcIds，schemaVersion=7', () => {
       const v1 = makeV1Payload();
       const result = SaveMigrationRunner.migrate(v1);
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
@@ -150,11 +150,11 @@ describe('SaveMigrationRunner', () => {
   });
 
   describe('v3→v5 迁移', () => {
-    it('v3 存档迁移到 v6：schemaVersion 正确升版', () => {
+    it('v3 存档迁移到 v7：schemaVersion 正确升版', () => {
       const v3 = makeV3Payload();
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
     });
 
     it('v3 存档的废弃字段保留但不影响权威数据', () => {
@@ -182,7 +182,7 @@ describe('SaveMigrationRunner', () => {
       v3.overworldMap = { continents: [{ id: 'c1', name: '假大陆', nodes: [] }] };
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       // 废弃字段保留原值（不破坏）
       expect(result.activeNPCs).toBeDefined();
       expect(result.overworldMap).toBeDefined();
@@ -190,25 +190,25 @@ describe('SaveMigrationRunner', () => {
   });
 
   describe('v4→v6 迁移（P1：elapsedMinutes + C2：watchedNpcIds）', () => {
-    it('v4 存档迁移到 v6：elapsedMinutes 正确 + watchedNpcIds 补 []', () => {
+    it('v4 存档迁移到 v7：elapsedMinutes 正确 + watchedNpcIds 补 []', () => {
       const v4 = makeV4Payload();
       // currentYear=5, currentMonth=3 → (5-1)*12 + (3-1) = 50 月 → 50 * 43200 = 2160000 分
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v4)));
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
       expect(result.watchedNpcIds).toEqual([]);
     });
   });
 
   describe('v5→v6 round-trip', () => {
-    it('v5 存档经迁移后升至 v6，watchedNpcIds 补 []，其他数据不变', () => {
+    it('v5 存档经迁移后升至 v7，watchedNpcIds 补 []，其他数据不变', () => {
       const v5 = makeV4Payload();
       v5.header.schemaVersion = 5;
       v5.worldState.elapsedMinutes = 50 * 43200;
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v5)));
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
       expect(result.header.saveId).toBe('save_v4');
       expect(result.worldState.currentYear).toBe(5);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
@@ -219,13 +219,71 @@ describe('SaveMigrationRunner', () => {
     });
   });
 
+  describe('v6→v7 NPC Brain 迁移', () => {
+    it('从 NPC 档案与旧 Mind 确定性补 Brain，并保留长期身体状态', () => {
+      const v6 = makeV4Payload();
+      v6.header.schemaVersion = 6;
+      v6.worldState.conditions = {
+        npc_legacy: {
+          injuries: [{ level: 'severe', source: '旧伤', acquiredAt: { year: 4, month: 8 } }],
+          poisons: [],
+          meridianDamage: 20,
+        },
+      };
+      v6.worldState.npcs.npc_legacy = {
+        id: 'npc_legacy',
+        personalityId: 'cautious',
+        aspiration: 'seekRevenge',
+        birthYear: 1,
+        birthMonth: 2,
+        mind: {
+          currentGoal: { type: 'seek_revenge', targetNpcId: 'npc_enemy' },
+          needs: { longevity: 0, social: 0, dao: 0, fame: 0, safety: 0 },
+          nextAction: { type: 'challenge' },
+          actionStatus: 'planned',
+        },
+      } as any;
+      v6.worldState.archivedNpcs = {
+        npc_archived: {
+          id: 'npc_archived', personalityId: 'scholar', aspiration: 'seekDao',
+          birthYear: 1, birthMonth: 1,
+        } as any,
+      };
+
+      const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v6)));
+
+      expect(result.header.schemaVersion).toBe(7);
+      expect(result.worldState.npcs.npc_legacy?.brain?.currentGoal?.kind).toBe('seek_revenge');
+      expect(result.worldState.npcs.npc_legacy?.brain?.currentGoal?.targets[0]).toEqual({
+        kind: 'npc', entityId: 'npc_enemy',
+      });
+      expect(result.worldState.conditions?.npc_legacy?.injuries[0]?.source).toBe('旧伤');
+      expect(result.worldState.archivedNpcs?.npc_archived?.brain?.currentGoal?.kind)
+        .toBe('cultivate_to_breakthrough');
+    });
+
+    it('已有 Brain 不会被迁移覆盖', () => {
+      const v6 = makeV4Payload();
+      v6.header.schemaVersion = 6;
+      v6.worldState.npcs.npc_existing = {
+        id: 'npc_existing',
+        brain: { schemaVersion: 1, revision: 9, marker: 'keep-me' },
+      } as any;
+
+      const result = SaveMigrationRunner.migrate(v6);
+
+      expect((result.worldState.npcs.npc_existing?.brain as any).marker).toBe('keep-me');
+      expect(result.worldState.npcs.npc_existing?.brain?.revision).toBe(9);
+    });
+  });
+
   describe('旧字段容忍', () => {
     it('v3 存档完全无 playerMapState 时迁移成功', () => {
       const v3 = makeV3Payload();
       delete v3.playerMapState;
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(6);
+      expect(result.header.schemaVersion).toBe(7);
     });
 
     it('v3 存档完全无 graveyard 时迁移成功（补默认）', () => {
