@@ -421,6 +421,36 @@ describe('动机与代际（§4.13：求偶→道侣→子嗣；道统传承）'
     expect(result.events.some((e) => e.title === '慕容郎 与 苏婉清 结为道侣')).toBe(true);
   });
 
+  it.fails('结构靶标：NPC 一个月不得同时完成修炼与求偶两个主行动', () => {
+    const seeker = makeNpc({
+      id: 'NPC_SINGLE_ACTION_SEEKER',
+      name: '求缘者',
+      gender: 'Male',
+      aspiration: 'seekPartner',
+      locationId: 'VENUE_QINGYUN_HALL',
+      lifespan: { age: 40, maxLifespan: 100 },
+    });
+    const candidate = makeNpc({
+      id: 'NPC_SINGLE_ACTION_CANDIDATE',
+      name: '候选道友',
+      gender: 'Female',
+      aspiration: 'seekDao',
+      locationId: 'VENUE_TIANJI_TAVERN',
+      lifespan: { age: 35, maxLifespan: 100 },
+    });
+    const expBefore = seeker.cultivation.currentExp;
+    const engine = new WorldEngine(
+      { ...baseState, npcs: { [seeker.id]: seeker, [candidate.id]: candidate } },
+      { rng: seqRng([0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.0]) },
+    );
+
+    const after = engine.step().updatedState.npcs[seeker.id]!;
+    const cultivated = after.cultivation.currentExp > expBefore;
+    const coupled = after.spouseId === candidate.id;
+
+    expect(cultivated && coupled).toBe(false);
+  });
+
   it('子嗣：道侣喜得子嗣——血脉灵根/面板由父母继承（面板因果），代际可溯源', () => {
     const pa = makeNpc({
       id: 'NPC_PA',
@@ -595,7 +625,7 @@ describe('宗门权力斗争（§2.2 权力轨道：让贤/夺位）', () => {
       socialRank: 'sectMaster',
       factionId: 'FACT_QINGYUN',
       locationId: 'VENUE_QINGYUN_HALL',
-      lifespan: { age: 86, maxLifespan: 100 }, // longevity 0.86 > 0.85 → 萌生退意
+      lifespan: { age: 99, maxLifespan: 100 }, // 退意概率约 18.8%，固定 0.1 可稳定命中
     });
     const elder = makeNpc({
       id: 'NPC_ELDER_1',
@@ -607,10 +637,11 @@ describe('宗门权力斗争（§2.2 权力轨道：让贤/夺位）', () => {
       locationId: 'VENUE_TIANJI_TAVERN',
     });
     const faction = makeQingyunFaction('NPC_OLD_MASTER', ['NPC_OLD_MASTER', 'NPC_ELDER_1']);
-    // 序列：世界事件 0.9 + 2 NPC 修炼 4×0.9；第 6 次 0.0 落让贤掷骰（< 基准 0.0133）
+    // 0.1 足以抑制稀有世界事件/奇遇，又低于该掌门的让贤概率；
+    // 不再依赖让贤判定是本月第几次 rng 调用。
     const engine = new WorldEngine(
       { ...baseState, npcs: { [oldMaster.id]: oldMaster, [elder.id]: elder }, factions: { FACT_QINGYUN: faction } },
-      { rng: seqRng([0.9, 0.9, 0.9, 0.9, 0.9, 0.0]) },
+      { rng: () => 0.1 },
     );
     const result = engine.step();
     const q = result.updatedState.factions!['FACT_QINGYUN']!;

@@ -1,9 +1,10 @@
 # Phase 0.5：运行时接线与活世界收口方案
 
 > 日期：2026-08-10  
-> 状态：待实施  
+> 状态：历史收口方案；既有接线结论保留，NPC Mind 与具名 NPC 战斗的后续演进已被新方案取代
 > 上位方案：[Phase 0.5：活世界底座修复执行方案](phase0.5-living-world-execution-plan.md)  
 > 目的：修正“模块已实现、测试已通过，但正式玩法没有使用”的假完成状态。
+> 当前上位修订：[NPC 大脑与真实战斗架构方案](npc-brain-and-combat-architecture.md)
 
 ## 1. 结论
 

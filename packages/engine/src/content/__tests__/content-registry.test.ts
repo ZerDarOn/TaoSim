@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { ContentRegistry } from '../content-registry.js';
 import type { PillRecipe, ForgeRecipe } from '../../crafting/recipe-registry.js';
 import type { Skill } from '@taosim/contracts';
@@ -39,13 +39,12 @@ describe('ContentRegistry', () => {
       const recipe: PillRecipe = {
         id: 'test-pill-1',
         name: '测试丹',
-        type: 'Pill',
-        description: '测试用丹药',
-        requiredRealm: 'QiRefinement_1',
+        type: 'pill',
+        tier: 1,
         requiredMaterials: [],
+        yinYangThreshold: 0.5,
         baseSuccessRate: 1,
-        effects: [],
-      } as PillRecipe;
+      };
       ContentRegistry.registerPillRecipe(recipe);
       expect(ContentRegistry.pillRecipes).toHaveLength(1);
       expect(ContentRegistry.pillRecipes[0]!.id).toBe('test-pill-1');
@@ -55,13 +54,12 @@ describe('ContentRegistry', () => {
       const recipe: PillRecipe = {
         id: 'test-pill-dup',
         name: '重复丹',
-        type: 'Pill',
-        description: '重复测试',
-        requiredRealm: 'QiRefinement_1',
+        type: 'pill',
+        tier: 1,
         requiredMaterials: [],
+        yinYangThreshold: 0.5,
         baseSuccessRate: 1,
-        effects: [],
-      } as PillRecipe;
+      };
       ContentRegistry.registerPillRecipe(recipe);
       ContentRegistry.registerPillRecipe(recipe);
       expect(ContentRegistry.pillRecipes).toHaveLength(1);
@@ -71,14 +69,17 @@ describe('ContentRegistry', () => {
       const recipe: ForgeRecipe = {
         id: 'test-forge-1',
         name: '测试剑',
-        type: 'Weapon',
-        subtype: 'Sword',
-        description: '测试用武器',
-        requiredRealm: 'QiRefinement_1',
-        requiredMaterials: [],
-        baseSuccessRate: 1,
-        effects: [],
-      } as ForgeRecipe;
+        type: 'forge',
+        tier: 1,
+        mainMaterialId: 'MAT_TEST_IRON',
+        optionalAuxMaterials: [],
+        outputItem: {
+          id: 'ITEM_TEST_SWORD',
+          name: '测试剑',
+          type: 'Equipment',
+          attributes: { attack: 1 },
+        },
+      };
       ContentRegistry.registerForgeRecipe(recipe);
       expect(ContentRegistry.forgeRecipes).toHaveLength(1);
       expect(ContentRegistry.forgeRecipes[0]!.id).toBe('test-forge-1');
@@ -88,16 +89,12 @@ describe('ContentRegistry', () => {
       const skill: Skill = {
         id: 'test-skill-1',
         name: '测试剑法',
-        description: '测试用技能',
-        category: 'Martial',
-        realm: 'QiRefinement_1',
-        requiredWeaponType: undefined,
-        ranges: [],
-        effects: [],
-        spiritEnergyCost: 10,
+        quality: 'Huang',
+        type: 'Active',
+        primitives: [],
+        cost: { ap: 1, spiritEnergy: 10 },
         cooldownTurns: 5,
-        type: 'Active' as any,
-      } as Skill;
+      };
       ContentRegistry.registerSkill(skill);
       expect(ContentRegistry.skills).toHaveLength(1);
       expect(ContentRegistry.skills[0]!.id).toBe('test-skill-1');

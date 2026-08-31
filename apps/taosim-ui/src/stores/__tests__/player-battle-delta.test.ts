@@ -128,4 +128,8 @@ describe('commitBattleDelta', () => {
     expect(store.character!.inventory.find(s => s.item.id === 'med1')!.count).toBe(5); // 3 + 2
     expect(store.character!.inventory.find(s => s.item.id === 'new1')!.count).toBe(1);
   });
+
+  it.todo('结构靶标：BattleOverlay 胜利只通过统一场景事务提交玩家与世界 NPC');
+  it.todo('结构靶标：BattleOverlay 失败仍保存敌方实际伤势与战斗事实');
+  it.todo('结构靶标：逃跑及追击伤害生成终局结果并持久化到玩家');
 });

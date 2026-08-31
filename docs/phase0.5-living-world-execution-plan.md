@@ -5,6 +5,7 @@
 > 上位约束：[统一修仙世界模拟架构方案](systemic-cultivation-world-blueprint.md)
 > 前置审计：[Phase 0 契约层审计](phase0-audit/06-migration-acceptance-plan.md)
 > 实施后复核：[Phase 0.5：运行时接线与活世界收口方案](phase0.5-runtime-closeout-plan.md)（P5/P6/P7 尚未形成生产闭环时，以此收口方案为准）
+> 后续上位修订：[NPC 大脑与真实战斗架构方案](npc-brain-and-combat-architecture.md)（P4 NPC Mind、P6 战斗 AI 与具名 NPC 冲突以此为准；不得继续扩展现有固定目标映射）
 
 ## 1. 本轮目标
 
