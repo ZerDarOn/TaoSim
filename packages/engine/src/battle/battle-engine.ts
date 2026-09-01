@@ -116,6 +116,11 @@ export class BattleEngine {
       );
     }
 
+    for (const [id, gauge] of Object.entries(startOptions.initialGaugeById ?? {})) {
+      const unit = this.state.units[id];
+      if (unit && Number.isFinite(gauge)) unit.gauge = Math.max(0, Math.min(99, gauge));
+    }
+
     for (const p of players) {
       const slot = this.findStartSlot('left');
       if (slot) this.placeUnit(p.id, slot.q, slot.r);

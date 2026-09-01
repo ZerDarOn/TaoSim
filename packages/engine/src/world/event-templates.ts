@@ -122,6 +122,12 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'combat.feed.stalemate', category: 'combat', severity: 'normal', visibility: 'local',
     titlePattern: '{npcA} 与 {npcB} 激战未决',
     descriptionPattern: '{npcA} 与 {npcB} 真正交手，却在此战中未能分出胜负。' },
+  { key: 'combat.ambush', category: 'combat', severity: 'normal', visibility: 'local',
+    titlePattern: '{attacker} 偷袭 {defender}',
+    descriptionPattern: '{attacker}循着情报于{location}截住{defender}，{detection}。{outcome}' },
+  { key: 'combat.ambush.lethal', category: 'combat', severity: 'major', visibility: 'world',
+    titlePattern: '{loser} 在伏击中陨落',
+    descriptionPattern: '{attacker}追查、准备并于{location}发起偷袭，{detection}。{winner}最终杀死{loser}，这段恩怨成了世界中的新事实' },
 
   // ── 人口/世界（world）──
   { key: 'world.spawn', category: 'world', severity: 'minor', visibility: 'local',

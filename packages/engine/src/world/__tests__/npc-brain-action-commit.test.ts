@@ -53,4 +53,11 @@ describe('commitNpcBrainAction', () => {
     expect(result.brain.currentAction).toMatchObject({ status: 'succeeded', progress: 1 });
     expect(record.cultivation.currentExp).toBeGreaterThan(initialExp);
   });
+
+  it('通用单步提交器明确拒绝多步复仇能力', () => {
+    const record = npc();
+    expect(() => commitNpcBrainAction(
+      record, brainFor(record), 'revenge_ambush', 'seek_revenge', { year: 1, month: 2 }, {},
+    )).toThrowError(/advanceNpcRevengeAmbush/);
+  });
 });

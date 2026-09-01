@@ -82,4 +82,21 @@ describe('named NPC battle world closure', () => {
     ]);
     expect(state.npcs.attacker!.relations.defender).toBeUndefined();
   });
+
+  it('伏击先手是可重放的遭遇上下文，而不是战斗外直接判胜', () => {
+    const state = world();
+    const simulated = simulateNamedNpcBattle(state, {
+      encounterId: 'ambush_1', attackerId: 'attacker', defenderId: 'defender',
+      kind: 'deadly', locationId: 'arena', seed: 17,
+      approach: 'ambush', ambushDetected: false, attackerInitialGauge: 70,
+      allowFlee: true, allowSurrender: false,
+    });
+
+    expect(simulated.status).toBe('simulated');
+    if (simulated.status !== 'simulated') return;
+    expect(simulated.simulation.context).toMatchObject({
+      approach: 'ambush', ambushDetected: false, initialGaugeById: { attacker: 70 },
+    });
+    expect(simulated.simulation.resolution.turnNumber).toBeGreaterThan(0);
+  });
 });

@@ -5,7 +5,7 @@ import type {
   PersistentCondition,
 } from '@taosim/contracts';
 
-export type NpcBrainCapabilityId = 'cultivate' | 'seclude' | 'breakthrough' | 'wander';
+export type NpcBrainCapabilityId = 'cultivate' | 'seclude' | 'breakthrough' | 'wander' | 'revenge_ambush';
 
 export interface NpcBrainNodeContext {
   npc: Readonly<NpcRecord>;
@@ -34,7 +34,7 @@ export interface NpcBrainNodeEvaluation {
 export interface NpcBrainNodeDefinition {
   nodeId: string;
   capabilityId: NpcBrainCapabilityId;
-  category: 'cultivation' | 'exploration';
+  category: 'cultivation' | 'exploration' | 'conflict';
   source: 'core';
   label: string;
   /** 满意选择的稳定考虑顺序；数值越小越先考虑。 */
@@ -66,6 +66,10 @@ export class NpcBrainNodeRegistry {
     const entry = this.nodes.get(nodeId);
     if (!entry) throw new Error(`NpcBrainNodeRegistry: 未知节点 ${nodeId}`);
     entry.enabled = enabled;
+  }
+
+  isEnabled(nodeId: string): boolean {
+    return this.nodes.get(nodeId)?.enabled === true;
   }
 
   list(): ReadonlyArray<Readonly<RegisteredNode>> {
@@ -202,11 +206,43 @@ const wanderNode: NpcBrainNodeDefinition = {
   },
 };
 
+const revengeAmbushNode: NpcBrainNodeDefinition = {
+  nodeId: 'revenge_ambush',
+  capabilityId: 'revenge_ambush',
+  category: 'conflict',
+  source: 'core',
+  label: '调查并偷袭仇敌',
+  considerationOrder: 5,
+  cooldownMonths: 0,
+  evaluate({ npc, brain, activeGoalKind }) {
+    if (activeGoalKind !== 'seek_revenge') {
+      return { allowed: false, reasonCode: 'no_revenge_goal', reason: '当前没有复仇目标' };
+    }
+    const hasGrudge = Object.values(npc.relations)
+      .some((relation) => (relation.type === 'enemy' || relation.type === 'rival') && relation.bond < 0);
+    if (!hasGrudge) {
+      return { allowed: false, reasonCode: 'no_enemy_relation', reason: '没有可执行的仇敌关系' };
+    }
+    return {
+      allowed: true,
+      considerations: {
+        goalFit: 100,
+        opportunity: 90,
+        urgency: Math.max(brain.emotion.anger, 65),
+        profileFit: (brain.profile.behavioralBiases.aggression + brain.profile.behavioralBiases.patience) / 2,
+        riskCost: (100 - brain.profile.behavioralBiases.riskTolerance) * 0.08,
+        timeCost: 10,
+      },
+    };
+  },
+};
+
 export function createDefaultNpcBrainNodeRegistry(): NpcBrainNodeRegistry {
   const registry = new NpcBrainNodeRegistry();
   registry.register(cultivateNode);
   registry.register(secludeNode);
   registry.register(breakthroughNode);
   registry.register(wanderNode);
+  registry.register(revengeAmbushNode);
   return registry;
 }

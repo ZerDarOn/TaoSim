@@ -89,6 +89,52 @@ describe('NPC world transactions', () => {
     expect(state.resourceReservations).toBeUndefined();
   });
 
+  it('拒绝把不相干事实伪装成精确信念的因果来源', () => {
+    const state = world();
+    state.npcs.seller!.brain!.beliefs.location = {
+      beliefId: 'location', topic: 'location', subject: { kind: 'npc', entityId: 'target' },
+      value: 'VENUE_TIANJI_SHOP', source: { type: 'observation' }, observedAt: NOW,
+      confidence: 1, status: 'active',
+    };
+
+    expect(tradeNpcInformation(state, {
+      transactionId: 'trade_mismatched_cause', buyerId: 'buyer', sellerId: 'seller',
+      beliefId: 'location', factId: 'fact_secret_cache', priceSpiritStones: 10,
+    }, NOW)).toMatchObject({ status: 'failed', reason: 'belief_fact_mismatch' });
+    expect(state.npcs.buyer!.spiritStones).toBe(100);
+    expect(state.facts).toHaveLength(1);
+  });
+
+  it('买方认知已满时仍保留刚购买的目标情报，但不抬高其可信度', () => {
+    const state = world();
+    const buyer = state.npcs.buyer!;
+    buyer.brain!.beliefs = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`direct_${index}`, {
+      beliefId: `direct_${index}`,
+      topic: 'location' as const,
+      subject: { kind: 'npc' as const, entityId: `crowd_${index}` },
+      value: 'VENUE_TIANJI_TAVERN',
+      source: { type: 'observation' as const },
+      observedAt: { ...NOW },
+      confidence: 1,
+      status: 'active' as const,
+    }]));
+    const seller = state.npcs.seller!;
+    seller.brain!.beliefs.target = {
+      beliefId: 'target', topic: 'location', subject: { kind: 'npc', entityId: 'target' },
+      value: 'VENUE_TIANJI_SHOP', source: { type: 'observation' }, observedAt: { year: 2, month: 2 },
+      confidence: 0.8, status: 'active',
+    };
+
+    expect(tradeNpcInformation(state, {
+      transactionId: 'trade_full_mind', buyerId: 'buyer', sellerId: 'seller',
+      beliefId: 'target', priceSpiritStones: 10,
+    }, NOW).status).toBe('completed');
+    expect(Object.keys(buyer.brain!.beliefs)).toHaveLength(32);
+    expect(buyer.brain!.beliefs['belief:location:npc:target']).toMatchObject({
+      value: 'VENUE_TIANJI_SHOP', confidence: 0.68,
+    });
+  });
+
   it('唯一资产只允许一个买家成交，所有权、灵石与挂牌同时结算', () => {
     const state = world();
     state.npcs.rival = npc('rival', 'VENUE_TIANJI_TAVERN', 100);

@@ -5,7 +5,7 @@
 // 在投影时精算战斗数值上限。纯函数，不修改输入 NpcRecord。
 // ============================================================
 
-import type { Character, Item, NpcRecord, PersistentCondition, SocialState } from '@taosim/contracts';
+import type { AssetInstance, Character, Item, NpcRecord, PersistentCondition, SocialState } from '@taosim/contracts';
 import { npcRecordToCharacter } from './npc-record-mapper.js';
 import { EquipmentManager } from '../equipment/equipment-manager.js';
 import { realmTier } from './npc-record-mapper.js';
@@ -25,6 +25,8 @@ export interface ExpandOptions {
   socialState?: SocialState;
   /** 当前年份/月份（用于伤势恢复判定） */
   currentTime?: { year: number; month: number };
+  /** 当前实体真实拥有的重要资产；战斗场景中投影为临时装备，不改写资产本体。 */
+  assets?: readonly AssetInstance[];
 }
 
 /** 伤势等级 → HP 上限扣减 */
@@ -75,6 +77,33 @@ export function expandForScene(record: NpcRecord, options: ExpandOptions): Chara
       element: record.weaponElement ?? 'Physical',
     };
     character.equipmentSlots = { ...character.equipmentSlots, weapon };
+  }
+
+  if (options.sceneType === 'battle' && options.assets?.length) {
+    const projected = options.assets
+      .filter((asset) => asset.ownerId === record.id)
+      .map((asset) => ({
+        asset,
+        value: (asset.combatBonuses.attack ?? 0)
+          + (asset.combatBonuses.defense ?? 0)
+          + (asset.combatBonuses.critRate ?? 0),
+      }))
+      .filter((entry) => entry.value > 0)
+      .sort((a, b) => b.value - a.value || a.asset.assetId.localeCompare(b.asset.assetId))
+      .map(({ asset }) => asset)
+      .map((asset): Item => ({
+        id: asset.assetId,
+        templateId: asset.templateId,
+        name: asset.name,
+        tier: ({ common: 1, uncommon: 1, rare: 2, epic: 3, legendary: 4 } as const)[asset.rarity],
+        type: 'Equipment',
+        attributes: { ...asset.combatBonuses },
+        element: asset.element,
+      }));
+    character.equipmentSlots = {
+      ...character.equipmentSlots,
+      treasures: [...character.equipmentSlots.treasures, ...projected].slice(0, 3),
+    };
   }
 
   return character;

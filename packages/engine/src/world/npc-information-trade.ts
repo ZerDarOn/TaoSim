@@ -20,6 +20,7 @@ export type NpcInformationTradeFailureReason =
   | 'not_co_located'
   | 'fact_not_found'
   | 'seller_does_not_believe_fact'
+  | 'belief_fact_mismatch'
   | 'transaction_state_conflict';
 
 export type NpcInformationTradeResult =
@@ -30,7 +31,10 @@ export interface NpcInformationTradeRequest {
   transactionId: string;
   buyerId: string;
   sellerId: string;
-  factId: string;
+  /** 兼容旧调用：按事实引用寻找卖方信念。 */
+  factId?: string;
+  /** 精确购买卖方的一条信念；用于地点、意图等不必先成为公共事实的情报。 */
+  beliefId?: string;
   priceSpiritStones: number;
 }
 
@@ -53,6 +57,15 @@ function beliefForFact(beliefs: Record<string, BrainBelief>, factId: string): Br
       || (belief.subject.kind === 'fact' && belief.subject.entityId === factId)));
 }
 
+function tradedBelief(
+  beliefs: Record<string, BrainBelief>,
+  request: Readonly<NpcInformationTradeRequest>,
+): BrainBelief | undefined {
+  const exact = request.beliefId ? beliefs[request.beliefId] : undefined;
+  if (exact?.status === 'active') return exact;
+  return request.factId ? beliefForFact(beliefs, request.factId) : undefined;
+}
+
 function createTransactionFact(
   request: NpcInformationTradeRequest,
   now: BrainTime,
@@ -70,10 +83,11 @@ function createTransactionFact(
     ],
     title: '完成一笔情报交易',
     description: `双方以 ${request.priceSpiritStones} 灵石交易了一则情报。`,
-    causedBy: [request.factId],
+    causedBy: request.factId ? [request.factId] : undefined,
     visibility: 'secret',
     metadata: {
-      tradedFactId: request.factId,
+      tradedBeliefId: request.beliefId ?? '',
+      tradedFactId: request.factId ?? '',
       priceSpiritStones: request.priceSpiritStones,
     },
   };
@@ -92,7 +106,7 @@ export function tradeNpcInformation(
   if (world.facts?.some((fact) => fact.factId === completedFactId || fact.outcomeId === request.transactionId)) {
     return { status: 'already_completed', factId: completedFactId, reservationIds: [] };
   }
-  if (!request.transactionId || request.buyerId === request.sellerId
+  if (!request.transactionId || (!request.factId && !request.beliefId) || request.buyerId === request.sellerId
     || !Number.isFinite(request.priceSpiritStones) || request.priceSpiritStones <= 0) {
     return { status: 'failed', reason: 'invalid_trade' };
   }
@@ -105,25 +119,33 @@ export function tradeNpcInformation(
   if (!buyer.locationId || buyer.locationId !== seller.locationId) {
     return { status: 'failed', reason: 'not_co_located' };
   }
-  if (!world.facts?.some((fact) => fact.factId === request.factId)) {
+  if (request.factId && !world.facts?.some((fact) => fact.factId === request.factId)) {
     return { status: 'failed', reason: 'fact_not_found' };
   }
-  const sellerBelief = seller.brain && beliefForFact(seller.brain.beliefs, request.factId);
+  const sellerBelief = seller.brain && tradedBelief(seller.brain.beliefs, request);
   if (!sellerBelief || !buyer.brain) {
     return { status: 'failed', reason: 'seller_does_not_believe_fact' };
+  }
+  if (request.beliefId && request.factId
+    && sellerBelief.source.factId !== request.factId
+    && !(sellerBelief.subject.kind === 'fact' && sellerBelief.subject.entityId === request.factId)) {
+    return { status: 'failed', reason: 'belief_fact_mismatch' };
   }
 
   const message: NpcKnowledgeMessage = {
     messageId: `${request.transactionId}:information`,
-    topic: 'fact',
-    subject: { kind: 'fact', entityId: request.factId },
-    value: true,
-    source: { type: 'hearsay', sourceEntityId: seller.id, factId: request.factId },
+    topic: sellerBelief.topic,
+    subject: { ...sellerBelief.subject },
+    value: sellerBelief.value,
+    source: { type: 'hearsay', sourceEntityId: seller.id, factId: request.factId ?? sellerBelief.source.factId },
     observedAt: { ...now },
     confidence: Math.max(0.3, Math.min(0.85, sellerBelief.confidence * 0.85)),
     expiresAt: addMonths(now, 12),
   };
-  const nextBuyerBrain = updateNpcKnowledge(buyer.brain, [message], now).brain;
+  // 付费交易的目标情报必须进入买方认知；只提高裁剪优先级，不伪造可信度。
+  const nextBuyerBrain = updateNpcKnowledge(buyer.brain, [message], now, {
+    retainMessageIds: [message.messageId],
+  }).brain;
   const reservationIds = [
     `${request.transactionId}:action`,
     `${request.transactionId}:stones`,

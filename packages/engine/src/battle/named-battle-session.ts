@@ -14,6 +14,7 @@ import { BattleEngine } from './battle-engine.js';
 export interface NamedBattleSessionOptions {
   sceneConfig?: BattleSceneConfig;
   controllers?: BattleStartOptions['controllers'];
+  initialGaugeById?: BattleStartOptions['initialGaugeById'];
 }
 
 /**
@@ -39,7 +40,7 @@ export class NamedBattleSession {
       sideA,
       sideB,
       options.sceneConfig,
-      { controllers: options.controllers },
+      { controllers: options.controllers, initialGaugeById: options.initialGaugeById },
     );
     if (started.error) throw new Error(`NamedBattleSession.start: ${started.error}`);
   }

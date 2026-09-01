@@ -42,7 +42,11 @@ function nextMonth(now: BrainTime): BrainTime {
   return now.month === 12 ? { year: now.year + 1, month: 1 } : { year: now.year, month: now.month + 1 };
 }
 
-function activeLocationBelief(brain: BrainState, targetId: string, now: BrainTime): BrainBelief | undefined {
+export function findActionableTargetLocationBelief(
+  brain: Readonly<BrainState>,
+  targetId: string,
+  now: BrainTime,
+): BrainBelief | undefined {
   return Object.values(brain.beliefs)
     .filter((belief) => belief.topic === 'location'
       && belief.subject.kind === 'npc'
@@ -84,7 +88,7 @@ export function prepareNpcTargetTracking(
   if (tracker.soulState !== 'Active' || target.soulState !== 'Active') {
     return { status: 'failed', reason: 'tracker_or_target_inactive' };
   }
-  const belief = activeLocationBelief(tracker.brain, targetId, now);
+  const belief = findActionableTargetLocationBelief(tracker.brain, targetId, now);
   if (!belief) return { status: 'failed', reason: 'no_actionable_location_belief' };
   const believedLocationId = belief.value as string;
   const planId = `${tracker.id}:brain-plan:track:${targetId}:${now.year}:${now.month}`;

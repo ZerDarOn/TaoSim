@@ -52,11 +52,14 @@ export interface NpcBrainShadowDecision {
 export interface NpcBrainCommitEligibility {
   eligible: boolean;
   reasonCode: 'covered_goal' | 'no_recommendation' | 'goal_not_fully_covered';
+  /** 复杂闭环由专用编排器提交，不得送入通用单步 Action 提交器。 */
+  executor?: 'revenge_ambush';
 }
 
 const SINGLE_WRITE_CAPABILITIES_BY_GOAL: Readonly<Record<string, readonly NpcBrainCapabilityId[]>> = {
   cultivate_to_breakthrough: ['cultivate', 'seclude', 'breakthrough'],
   explore: ['wander'],
+  seek_revenge: ['revenge_ambush'],
 };
 
 /**
@@ -70,7 +73,9 @@ export function getNpcBrainCommitEligibility(
   if (!capabilityId) return { eligible: false, reasonCode: 'no_recommendation' };
   const covered = SINGLE_WRITE_CAPABILITIES_BY_GOAL[activeGoalKind];
   return covered?.includes(capabilityId)
-    ? { eligible: true, reasonCode: 'covered_goal' }
+    ? capabilityId === 'revenge_ambush'
+      ? { eligible: true, reasonCode: 'covered_goal', executor: 'revenge_ambush' }
+      : { eligible: true, reasonCode: 'covered_goal' }
     : { eligible: false, reasonCode: 'goal_not_fully_covered' };
 }
 

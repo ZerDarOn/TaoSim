@@ -17,6 +17,7 @@ import {
   pruneWorldResourceReservations,
 } from './world-resource-reservation.js';
 import { commitNamedNpcBattleSimulation, simulateNamedNpcBattle } from './named-npc-battle.js';
+import { advanceNpcRevengeAmbush } from './npc-revenge-ambush.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -372,8 +373,12 @@ export class WorldEngine {
       heritageSites: { ...(initialState.heritageSites ?? {}) },
       nodeSpiritQi: { ...(initialState.nodeSpiritQi ?? createInitialNodeSpiritQi()) },
       facts: [...(initialState.facts ?? [])],
-      resourceReservations: { ...(initialState.resourceReservations ?? {}) },
-      assetListings: { ...(initialState.assetListings ?? {}) },
+      conditions: structuredClone(initialState.conditions ?? {}),
+      socialStates: structuredClone(initialState.socialStates ?? {}),
+      assets: structuredClone(initialState.assets ?? {}),
+      resourceReservations: structuredClone(initialState.resourceReservations ?? {}),
+      assetListings: structuredClone(initialState.assetListings ?? {}),
+      appliedOutcomeIds: [...(initialState.appliedOutcomeIds ?? [])],
     };
     this.rng = options.rng ?? Math.random;
     this.encounterRng = options.encounterRng ?? this.rng;
@@ -620,7 +625,7 @@ export class WorldEngine {
       let resolution: NpcActionResolution | null | undefined;
       let primaryActionClaimed = false;
       let committedByBrain = false;
-      let resolvedActionType = legacyActionType;
+      let resolvedActionType: string = legacyActionType;
       let actionDescription = mindResult.actionDescription;
       let perception = this.npcBrainV2Mode === 'single-write' && npc.brain
         ? buildNpcPerceptionSnapshot(npc, this.state, mindNow, perceptionIndex!)
@@ -636,7 +641,66 @@ export class WorldEngine {
         );
       }
 
-      if (shadowReport && npc.brain) {
+      const revengeAmbush = this.npcBrainV2Mode === 'single-write' && npc.brain
+          ? advanceNpcRevengeAmbush(this.state, npc.id, mindNow, {
+            rng: this.encounterRng,
+            enabled: this.npcBrainNodeRegistry.isEnabled('revenge_ambush'),
+            localNpcIds: perception?.observations
+              .filter((entry) => entry.topic === 'location' && entry.subject.kind === 'npc')
+              .map((entry) => entry.subject.entityId),
+            protectFromDeath: (candidate) => this.escapeDeath(candidate),
+          })
+        : undefined;
+      if (revengeAmbush && revengeAmbush.status !== 'not_applicable') {
+        const diagnosticRoot = 'diagnostics.revengeAmbush';
+        this.state.globalFlags[diagnosticRoot] = Number(this.state.globalFlags[diagnosticRoot] ?? 0) + 1;
+        const transitionKey = `${diagnosticRoot}.${revengeAmbush.stage ?? 'none'}.${revengeAmbush.status}`;
+        this.state.globalFlags[transitionKey] = Number(this.state.globalFlags[transitionKey] ?? 0) + 1;
+        if (revengeAmbush.reason) {
+          const reasonKey = `${diagnosticRoot}.reason.${revengeAmbush.reason}`;
+          this.state.globalFlags[reasonKey] = Number(this.state.globalFlags[reasonKey] ?? 0) + 1;
+        }
+      }
+      if (revengeAmbush?.claimedAction) {
+        primaryActionClaimed = true;
+        committedByBrain = true;
+        resolvedActionType = revengeAmbush.stage ?? 'execute_ambush';
+        actionDescription = revengeAmbush.stage ?? '执行寻仇计划';
+      }
+      if (revengeAmbush?.status === 'battle_resolved' && revengeAmbush.resolution && revengeAmbush.targetId) {
+        const defender = this.state.npcs[revengeAmbush.targetId];
+        const winnerId = revengeAmbush.resolution.winnerSide === 'A'
+          ? npc.id
+          : revengeAmbush.resolution.winnerSide === 'B' ? revengeAmbush.targetId : undefined;
+        const loserId = winnerId === npc.id ? revengeAmbush.targetId : winnerId ? npc.id : undefined;
+        const winner = winnerId ? this.state.npcs[winnerId] : undefined;
+        const loser = loserId ? this.state.npcs[loserId] : undefined;
+        const lethal = !!loser && loser.soulState !== 'Active';
+        const outcome = winner
+          ? `${winner.name}在真实斗法中取胜`
+          : '双方激战未能分出胜负';
+        pushNpcEvent({
+          key: lethal ? 'combat.ambush.lethal' : 'combat.ambush',
+          vars: {
+            attacker: npc.name,
+            defender: defender?.name ?? revengeAmbush.targetId,
+            detection: revengeAmbush.ambushDetected ? '行踪暴露，双方正面交锋' : '潜伏得手，抢得先机',
+            outcome,
+            winner: winner?.name ?? '无人',
+            loser: loser?.name ?? '无人',
+          },
+          involvedCharacterIds: [npc.id, revengeAmbush.targetId],
+          locationId: npc.locationId ?? defender?.locationId,
+        }, [npc.id, revengeAmbush.targetId]);
+        if (lethal && loser) {
+          npcPopulationChanged = true;
+          this.state.worldTurmoil = Math.min(100, (this.state.worldTurmoil ?? 0) + 2);
+          if (realmTier(loser.realm) >= 3) this.registerHeritage(loser);
+        }
+      }
+      if (npc.soulState !== 'Active') continue;
+
+      if (shadowReport && npc.brain && (!revengeAmbush || revengeAmbush.status === 'not_applicable')) {
         try {
           const brainDecision = evaluateNpcBrainShadow(npc, npc.brain, {
             now: mindNow,
@@ -646,7 +710,8 @@ export class WorldEngine {
           });
           shadowReport.record(brainDecision, legacyActionType);
           if (this.npcBrainV2Mode === 'single-write') {
-            if (brainDecision.selected && brainDecision.commitEligibility.eligible) {
+            if (brainDecision.selected && brainDecision.commitEligibility.eligible
+              && brainDecision.commitEligibility.executor !== 'revenge_ambush') {
               let canCommit = true;
               let brainActionOptions = actionOptions;
               let reservationIds: string[] = [];
@@ -994,17 +1059,19 @@ export class WorldEngine {
     }
 
     // 动机寻仇（§4.13 行为槽：深仇者主动出手——实力足以一战才出手，否则苦修蓄势）
-    for (const [id, npc] of Object.entries(this.state.npcs)) {
-      if (npc.soulState !== 'Active' || npc.aspiration !== 'seekRevenge') continue;
-      if (motivationPressuresOf(npc).grudge <= 0) continue;
-      const enemy = this.strongestEnemy(npc);
-      if (!enemy) {
-        // 仇人已陨/仇怨已淡 → 执念放下，转求道（经历塑形）
-        npc.aspiration = 'seekDao';
-        continue;
+    if (this.npcBrainV2Mode !== 'single-write') {
+      for (const npc of Object.values(this.state.npcs)) {
+        if (npc.soulState !== 'Active' || npc.aspiration !== 'seekRevenge') continue;
+        if (motivationPressuresOf(npc).grudge <= 0) continue;
+        const enemy = this.strongestEnemy(npc);
+        if (!enemy) {
+          // 仇人已陨/仇怨已淡 → 执念放下，转求道（经历塑形）
+          npc.aspiration = 'seekDao';
+          continue;
+        }
+        if (!this.canAffordChallenge(npc, enemy)) continue;
+        handleFeud(npc, enemy, REVENGE_DUEL_CHANCE);
       }
-      if (!this.canAffordChallenge(npc, enemy)) continue; // 实力未足 → 本月苦修蓄势
-      handleFeud(npc, enemy, REVENGE_DUEL_CHANCE); // 深仇主动出手：触发概率高于被动配对
     }
 
     // 2a. 代际与传承（§4.13 自主性 + 代际链：求缘→道侣→双修→子嗣；寿元将尽→传道统）

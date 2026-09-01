@@ -154,6 +154,11 @@ export interface NpcKnowledgeUpdateResult {
   prunedCount: number;
 }
 
+export interface NpcKnowledgeUpdateOptions {
+  /** 本次事务必须留下的消息；仅影响容量裁剪顺序，不提高可信度。 */
+  retainMessageIds?: readonly string[];
+}
+
 function beliefIdOf(message: NpcKnowledgeMessage): string {
   return `belief:${message.topic}:${message.subject.kind}:${message.subject.entityId}`;
 }
@@ -163,6 +168,7 @@ export function updateNpcKnowledge(
   brain: Readonly<BrainState>,
   messages: readonly NpcKnowledgeMessage[],
   now: BrainTime,
+  options: NpcKnowledgeUpdateOptions = {},
 ): NpcKnowledgeUpdateResult {
   const beliefs: Record<string, BrainBelief> = Object.fromEntries(
     Object.entries(brain.beliefs).map(([id, belief]) => [id, { ...belief }]),
@@ -199,7 +205,23 @@ export function updateNpcKnowledge(
     learnedCount++;
   }
 
-  const ranked = Object.entries(beliefs).sort(([, a], [, b]) => {
+  const retainedBeliefIds = new Set(messages
+    .filter((message) => options.retainMessageIds?.includes(message.messageId))
+    .map(beliefIdOf));
+  const activePlanTargetIds = new Set(
+    brain.currentPlan?.status === 'active'
+      ? brain.currentPlan.steps.flatMap((step) => step.targets.map((target) => target.entityId))
+      : [],
+  );
+  for (const [beliefId, belief] of Object.entries(beliefs)) {
+    if (activePlanTargetIds.has(belief.subject.entityId)
+      || (typeof belief.value === 'string' && activePlanTargetIds.has(belief.value))) {
+      retainedBeliefIds.add(beliefId);
+    }
+  }
+  const ranked = Object.entries(beliefs).sort(([idA, a], [idB, b]) => {
+    const retentionDelta = Number(retainedBeliefIds.has(idB)) - Number(retainedBeliefIds.has(idA));
+    if (retentionDelta !== 0) return retentionDelta;
     const statusRank = (belief: BrainBelief) => belief.status === 'active' ? 1 : 0;
     return statusRank(b) - statusRank(a)
       || b.confidence - a.confidence

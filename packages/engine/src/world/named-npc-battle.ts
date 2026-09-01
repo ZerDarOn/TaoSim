@@ -32,6 +32,10 @@ export interface NamedNpcBattleRequest {
   allowSurrender?: boolean;
   lootPolicy?: 'none' | 'partial' | 'all_on_elimination';
   relationPolicy?: 'hostile' | 'preserve';
+  approach?: 'open' | 'ambush';
+  ambushDetected?: boolean;
+  /** 已通过侦察结算获得的先手值；只改变 ATB 起点。 */
+  attackerInitialGauge?: number;
 }
 
 export interface NamedNpcBattleSimulation {
@@ -81,15 +85,22 @@ export function simulateNamedNpcBattle(
   const now = { year: world.currentYear, month: world.currentMonth };
   const attackerCharacter = expandForScene(attacker, {
     sceneType: 'battle', condition: world.conditions?.[attacker.id], currentTime: now,
+    assets: Object.values(world.assets ?? {}).filter((asset) => asset.ownerId === attacker.id),
   });
   const defenderCharacter = expandForScene(defender, {
     sceneType: 'battle', condition: world.conditions?.[defender.id], currentTime: now,
+    assets: Object.values(world.assets ?? {}).filter((asset) => asset.ownerId === defender.id),
   });
   const context: NamedEncounterContext = {
     encounterId: request.encounterId, kind: request.kind, seed: request.seed,
     locationId: request.locationId, startedAt: now,
     sideAIds: [attacker.id], sideBIds: [defender.id],
     maxTicks: request.maxTicks ?? DEFAULT_MAX_TICKS,
+    approach: request.approach,
+    ambushDetected: request.ambushDetected,
+    initialGaugeById: request.attackerInitialGauge
+      ? { [attacker.id]: request.attackerInitialGauge }
+      : undefined,
   };
   try {
     const session = new NamedBattleSession(
@@ -103,6 +114,7 @@ export function simulateNamedNpcBattle(
           surrenderEnabled: request.allowSurrender ?? request.kind === 'duel',
         },
         controllers: { [attacker.id]: 'AI', [defender.id]: 'AI' },
+        initialGaugeById: context.initialGaugeById,
       },
     );
     const resolution = session.runToCompletion();
@@ -220,6 +232,8 @@ function outcomeFact(
       turns: simulation.resolution.turnNumber,
       ticks: simulation.resolution.tickNumber,
       winnerId: winnerId ?? '',
+      approach: request.approach ?? 'open',
+      ambushDetected: request.ambushDetected ?? false,
     },
   };
 }
@@ -265,7 +279,11 @@ export function commitNamedNpcBattleSimulation(
       kind: winnerId === npc.id ? 'success' : winnerId ? 'trauma' : 'experience',
       at: { ...now }, factId,
       participantIds: [attacker.id, defender.id], locationId: request.locationId,
-      summary: winnerId === npc.id ? '在一场具名斗法中取胜。' : winnerId ? '在一场具名斗法中落败。' : '一场斗法陷入僵持。',
+      summary: request.approach === 'ambush'
+        ? (npc.id === attacker.id
+            ? `对仇敌发起偷袭，${request.ambushDetected ? '却被提前察觉' : '抢得了先机'}。`
+            : `遭到仇敌偷袭，${request.ambushDetected ? '及时察觉' : '被对方抢得先机'}。`)
+        : winnerId === npc.id ? '在一场具名斗法中取胜。' : winnerId ? '在一场具名斗法中落败。' : '一场斗法陷入僵持。',
       valence: winnerId === npc.id ? 25 : winnerId ? -45 : -10,
       salience: request.kind === 'deadly' ? 90 : 70,
     }];

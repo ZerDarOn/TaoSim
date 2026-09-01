@@ -94,14 +94,23 @@ describe('evaluateNpcBrainShadow', () => {
     expect(evaluate(wanderer).commitEligibility).toEqual({ eligible: true, reasonCode: 'covered_goal' });
   });
 
-  it('只按完整目标闭环开放单写，不让局部节点吞掉求偶、复仇或延寿', () => {
-    for (const aspiration of ['seekPartner', 'seekRevenge', 'seekLongevity'] as const) {
+  it('只按完整目标闭环开放单写，复仇闭环完成后不再与求偶、延寿一起被拦截', () => {
+    for (const aspiration of ['seekPartner', 'seekLongevity'] as const) {
       const result = evaluate(npc({ aspiration }));
       expect(result.commitEligibility).toEqual({
         eligible: false,
         reasonCode: 'goal_not_fully_covered',
       });
     }
+    const avenger = npc({ aspiration: 'seekRevenge' });
+    avenger.relations.enemy = {
+      type: 'enemy', bond: -80, trust: 0, events: ['家仇'], changedAt: { year: 2, month: 1 },
+    };
+    const revenge = evaluate(avenger);
+    expect(revenge.selected?.capabilityId).toBe('revenge_ambush');
+    expect(revenge.commitEligibility).toEqual({
+      eligible: true, reasonCode: 'covered_goal', executor: 'revenge_ambush',
+    });
   });
 
   it('NPC 转志后使用当前状态推导目标，不被 NB1 初始化快照锁死', () => {
@@ -199,7 +208,7 @@ describe('evaluateNpcBrainShadow', () => {
     });
 
     expect(result.selected).toBeUndefined();
-    expect(result.rejected).toHaveLength(4);
+    expect(result.rejected).toHaveLength(createDefaultNpcBrainNodeRegistry().list().length);
     expect(result.rejected.every((entry) => entry.reasonCode === 'recovering')).toBe(true);
   });
 });

@@ -113,6 +113,9 @@ export function commitNpcBrainAction(
   now: BrainTime,
   options: NpcActionResolutionOptions,
 ): NpcBrainActionCommitResult {
+  if (capabilityId === 'revenge_ambush') {
+    throw new Error('多步复仇能力必须由 advanceNpcRevengeAmbush 编排提交');
+  }
   if (sameTime(brain.lastEvaluatedAt, now)) {
     return { brain: brain as BrainState, alreadyCommitted: true };
   }

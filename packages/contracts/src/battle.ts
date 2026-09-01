@@ -88,6 +88,8 @@ export interface BattleSceneConfig {
 /** 启动时的控制权分配；未指定时沿用 Player=Human、Enemy=AI。 */
 export interface BattleStartOptions {
   controllers?: Record<string, 'Human' | 'AI'>;
+  /** 场景先手差量；用于已由世界规则结算成功的伏击等，不代表自动命中或自动胜利。 */
+  initialGaugeById?: Record<string, number>;
 }
 
 /**
@@ -139,6 +141,12 @@ export interface NamedEncounterContext {
   sideAIds: string[];
   sideBIds: string[];
   maxTicks: number;
+  /** 遭遇如何发生；仅保存已被世界规则确认的入口条件。 */
+  approach?: 'open' | 'ambush';
+  /** 伏击是否在入战前被目标察觉。 */
+  ambushDetected?: boolean;
+  /** 已结算的初始 ATB，保证遭遇上下文可重放。 */
+  initialGaugeById?: Record<string, number>;
 }
 
 export interface NamedBattleParticipantResult {
