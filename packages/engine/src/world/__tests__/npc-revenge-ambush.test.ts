@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialBrainState, type BrainTime, type NpcRecord, type WorldState } from '@taosim/contracts';
 import { advanceNpcRevengeAmbush } from '../npc-revenge-ambush.js';
+import { assessAmbushEnvironment } from '../npc-ambush-environment.js';
 import { WorldEngine } from '../world-engine.js';
 
 const START: BrainTime = { year: 3, month: 1 };
@@ -145,5 +146,79 @@ describe('NPC revenge ambush vertical slice', () => {
     }));
     expect(state.eventLog).toContainEqual(expect.objectContaining({ templateKey: expect.stringContaining('combat.ambush') }));
     expect(state.globalFlags['diagnostics.revengeAmbush.execute_ambush.battle_resolved']).toBe(1);
+  });
+
+  it('受管辖地点的真实在场守卫会阻止袭击，并让目击者形成事实与记忆', () => {
+    const state = scenario();
+    const protectedVenue = 'VENUE_TIANJI_TAVERN';
+    state.npcs.target!.locationId = protectedVenue;
+    state.npcs.seller!.brain!.beliefs['seller:target-location']!.value = protectedVenue;
+    const guard = npc('guard', protectedVenue, 'seekFame', 40);
+    guard.socialRank = 'elder';
+    state.npcs.guard = guard;
+    const options = { rng: () => 0.99 };
+
+    for (let index = 1; index <= 4; index++) {
+      advanceNpcRevengeAmbush(state, 'attacker', month(index), options);
+    }
+    const blocked = advanceNpcRevengeAmbush(state, 'attacker', month(5), options);
+
+    expect(blocked).toMatchObject({
+      status: 'blocked', reason: 'guard_intervention', claimedAction: true,
+      guardIds: ['guard'], lawLevel: 'strict',
+    });
+    expect(state.facts).toContainEqual(expect.objectContaining({
+      title: expect.stringContaining('守卫制止'),
+      participants: expect.arrayContaining([expect.objectContaining({ entityId: 'guard', role: 'guard' })]),
+    }));
+    expect(state.facts?.some((fact) => fact.type === 'battle')).toBe(false);
+    expect(state.npcs.guard!.brain!.memories).toContainEqual(expect.objectContaining({
+      participantIds: expect.arrayContaining(['attacker', 'target']),
+    }));
+  });
+
+  it('有执法身份也不会固定介入：个人关系经历可以压过身份倾向', () => {
+    const state = scenario();
+    const protectedVenue = 'VENUE_TIANJI_TAVERN';
+    state.npcs.attacker!.locationId = protectedVenue;
+    state.npcs.target!.locationId = protectedVenue;
+    const conflictedGuard = npc('guard', protectedVenue, 'seekFame', 40);
+    conflictedGuard.socialRank = 'elder';
+    conflictedGuard.relations.attacker = {
+      type: 'benefactor', bond: 100, trust: 100, events: ['救命之恩'], changedAt: { year: 2, month: 1 },
+    };
+    conflictedGuard.relations.target = {
+      type: 'enemy', bond: -100, trust: 0, events: ['灭族旧恨'], changedAt: { year: 2, month: 1 },
+    };
+    state.npcs.guard = conflictedGuard;
+
+    expect(assessAmbushEnvironment(state, 'attacker', 'target', protectedVenue)).toMatchObject({
+      lawLevel: 'strict', witnessIds: ['guard'], guardIds: [], intervention: 'none',
+    });
+  });
+
+  it('无人制止时，战斗、目击事实、记忆和威胁认知在同一 outcome 中提交', () => {
+    const state = scenario();
+    state.npcs.witness = npc('witness', 'mountain');
+    const options = { rng: () => 0.99 };
+    for (let index = 1; index <= 4; index++) {
+      advanceNpcRevengeAmbush(state, 'attacker', month(index), options);
+    }
+    const revisionBeforeBattle = state.worldRevision ?? 0;
+
+    expect(advanceNpcRevengeAmbush(state, 'attacker', month(5), options)).toMatchObject({
+      status: 'battle_resolved', witnessIds: ['witness'], lawLevel: 'none',
+    });
+    expect(state.worldRevision).toBe(revisionBeforeBattle + 1);
+    expect(state.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'battle' }),
+      expect.objectContaining({ title: expect.stringContaining('被人目睹') }),
+    ]));
+    expect(state.npcs.witness!.brain!.memories).toContainEqual(expect.objectContaining({
+      factId: expect.stringContaining('witnessed-crime'),
+    }));
+    expect(state.npcs.witness!.brain!.beliefs['witness:belief:threat:attacker']).toMatchObject({
+      value: 'committed_ambush', confidence: 1,
+    });
   });
 });

@@ -128,6 +128,9 @@ export const EVENT_TEMPLATES: EventTemplate[] = [
   { key: 'combat.ambush.lethal', category: 'combat', severity: 'major', visibility: 'world',
     titlePattern: '{loser} 在伏击中陨落',
     descriptionPattern: '{attacker}追查、准备并于{location}发起偷袭，{detection}。{winner}最终杀死{loser}，这段恩怨成了世界中的新事实' },
+  { key: 'combat.ambush.prevented', category: 'combat', severity: 'normal', visibility: 'local',
+    titlePattern: '{attacker} 的袭击被守卫制止',
+    descriptionPattern: '{attacker}试图在{location}袭击{defender}，但{guards}名在场守卫及时介入，斗法未能发生' },
 
   // ── 人口/世界（world）──
   { key: 'world.spawn', category: 'world', severity: 'minor', visibility: 'local',

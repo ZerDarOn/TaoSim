@@ -12,7 +12,7 @@ import type { AssetInstance } from './asset.js';
 import type { Fact } from './fact.js';
 import type { TimeElapsed } from './world-time.js';
 import type { LocationRef } from './location.js';
-import type { BrainMemory } from './npc-brain.js';
+import type { BrainBelief, BrainMemory } from './npc-brain.js';
 
 /** 实体差量：对单个实体的状态变更 */
 export interface EntityDelta {
@@ -57,6 +57,8 @@ export interface EntityDelta {
   socialChanges?: SocialEntry[];
   /** 已发生事实形成的长期记忆；只追加有界记录。 */
   memoriesAdded?: BrainMemory[];
+  /** 由同一事实形成或修正的个人信念；按 beliefId 幂等覆盖并保持有界。 */
+  beliefsUpserted?: BrainBelief[];
 
   /** 消耗的资产 ID 列表（从所有者移除） */
   consumedAssetIds?: string[];

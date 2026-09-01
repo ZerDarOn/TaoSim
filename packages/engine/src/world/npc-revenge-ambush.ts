@@ -16,6 +16,12 @@ import { tradeNpcInformation } from './npc-information-trade.js';
 import { findActionableTargetLocationBelief } from './npc-target-tracking.js';
 import { commitNamedNpcBattleSimulation, simulateNamedNpcBattle } from './named-npc-battle.js';
 import { completeWorldResourceReservations, reserveWorldResources } from './world-resource-reservation.js';
+import {
+  assessAmbushEnvironment,
+  commitGuardIntervention,
+  createAmbushWitnessOutcomeAdditions,
+  type LocationLawLevel,
+} from './npc-ambush-environment.js';
 
 const MAX_MEMORIES = 32;
 const AMBUSH_INITIATIVE_GAUGE = 70;
@@ -40,6 +46,8 @@ export type NpcRevengeAmbushFailureReason =
   | 'target_not_at_believed_location'
   | 'resource_unavailable'
   | 'travel_failed'
+  | 'guard_intervention'
+  | 'environment_commit_failed'
   | 'battle_failed';
 
 export interface NpcRevengeAmbushResult {
@@ -50,6 +58,9 @@ export interface NpcRevengeAmbushResult {
   claimedAction: boolean;
   reason?: NpcRevengeAmbushFailureReason | string;
   ambushDetected?: boolean;
+  witnessIds?: string[];
+  guardIds?: string[];
+  lawLevel?: LocationLawLevel;
   resolution?: NamedBattleResolution;
 }
 
@@ -489,9 +500,32 @@ export function advanceNpcRevengeAmbush(
     }
     const reservationId = reserveMainAction(world, attacker, livePlan.planId, stage, now);
     if (!reservationId) return { status: 'failed', stage, attackerId, targetId: target.id, claimedAction: false, reason: 'resource_unavailable' };
+    const environment = assessAmbushEnvironment(world, attacker.id, target.id, attacker.locationId);
+    const encounterId = `${livePlan.planId}:battle:${now.year}:${now.month}`;
+    if (environment.intervention === 'guard_blocked') {
+      const intervention = commitGuardIntervention(world, attacker.id, target.id, now, encounterId, environment);
+      if (intervention.status === 'validation_failed' || intervention.status === 'version_conflict') {
+        completeWorldResourceReservations(world, [reservationId], 'released', now, 'environment_commit_failed');
+        recordAction(attacker, stage, now, 'failed', [targetRef(target.id)], [reservationId], 'environment_commit_failed');
+        return {
+          status: 'failed', stage, attackerId, targetId: target.id, claimedAction: true,
+          reason: 'environment_commit_failed', witnessIds: environment.witnessIds,
+          guardIds: environment.guardIds, lawLevel: environment.lawLevel,
+        };
+      }
+      completeWorldResourceReservations(world, [reservationId], 'consumed', now);
+      updateCurrentStep(attacker, now, 'failed', {
+        reason: 'guard_intervention', targets: [targetRef(target.id)], reservationIds: [reservationId], advance: false,
+      });
+      recordAction(attacker, stage, now, 'failed', [targetRef(target.id)], [reservationId], 'guard_intervention');
+      return {
+        status: 'blocked', stage, attackerId, targetId: target.id, claimedAction: true,
+        reason: 'guard_intervention', witnessIds: environment.witnessIds,
+        guardIds: environment.guardIds, lawLevel: environment.lawLevel,
+      };
+    }
     const preparedValue = preparationValue(world, attacker.id);
     const ambushDetected = resolveDetection(attacker, target, preparedValue, options.rng);
-    const encounterId = `${livePlan.planId}:battle:${now.year}:${now.month}`;
     const request = {
       encounterId, attackerId: attacker.id, defenderId: target.id, kind: 'deadly' as const,
       locationId: attacker.locationId, seed: Math.floor(options.rng() * 2_147_483_647),
@@ -511,7 +545,14 @@ export function advanceNpcRevengeAmbush(
       const record = world.npcs[participant.entityId];
       if (record && options.protectFromDeath?.(record)) protectedEntityIds.add(record.id);
     }
-    const committed = commitNamedNpcBattleSimulation(world, request, simulated.simulation, { protectedEntityIds });
+    const witnessAdditions = createAmbushWitnessOutcomeAdditions(
+      world, attacker.id, target.id, now, encounterId, environment,
+    );
+    const committed = commitNamedNpcBattleSimulation(world, request, simulated.simulation, {
+      protectedEntityIds,
+      additionalFacts: witnessAdditions ? [witnessAdditions.fact] : undefined,
+      additionalEntityDeltas: witnessAdditions?.entityDeltas,
+    });
     if (committed.status === 'failed') {
       completeWorldResourceReservations(world, [reservationId], 'released', now, committed.reason);
       recordAction(attacker, stage, now, 'failed', [targetRef(target.id)], [reservationId], committed.reason);
@@ -534,7 +575,8 @@ export function advanceNpcRevengeAmbush(
     recordAction(attacker, stage, now, 'succeeded', [targetRef(target.id)], [reservationId]);
     return {
       status: 'battle_resolved', stage, attackerId, targetId: target.id, claimedAction: true,
-      ambushDetected, resolution: committed.resolution,
+      ambushDetected, witnessIds: environment.witnessIds, guardIds: environment.guardIds,
+      lawLevel: environment.lawLevel, resolution: committed.resolution,
     };
   }
 

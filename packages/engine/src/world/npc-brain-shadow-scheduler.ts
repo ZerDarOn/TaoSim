@@ -24,6 +24,8 @@ export interface NpcBrainScoredCandidate {
   nodeId: string;
   capabilityId: NpcBrainCapabilityId;
   label: string;
+  source: NpcBrainNodeDefinition['source'];
+  sourceId?: string;
   score: number;
   considerations: NpcBrainScoreConsiderations;
   deterministicNoise: number;
@@ -32,6 +34,9 @@ export interface NpcBrainScoredCandidate {
 export interface NpcBrainRejectedCandidate {
   nodeId: string;
   capabilityId: NpcBrainCapabilityId;
+  label: string;
+  source: NpcBrainNodeDefinition['source'];
+  sourceId?: string;
   reasonCode: string;
   reason: string;
 }
@@ -412,6 +417,8 @@ function scoreCandidate(
     nodeId: node.nodeId,
     capabilityId: node.capabilityId,
     label: node.label,
+    source: node.source,
+    sourceId: node.sourceId,
     score: Math.round(rawScore * 100) / 100,
     considerations: normalized,
     deterministicNoise: Math.round(deterministicNoise * 100) / 100,
@@ -433,25 +440,29 @@ export function evaluateNpcBrainShadow(
 
   for (const entry of context.registry.list()) {
     const node = entry.definition;
-    if (!entry.enabled) {
+    if (node.isEquipped && !node.isEquipped(npc)) continue;
+    if (!entry.enabled || brain.disabledNodeIds?.includes(node.nodeId)) {
       rejected.push({
         nodeId: node.nodeId,
         capabilityId: node.capabilityId,
+        label: node.label,
+        source: node.source,
+        sourceId: node.sourceId,
         reasonCode: 'node_disabled',
         reason: '节点已关闭',
       });
       continue;
     }
     if (npc.soulState !== 'Active') {
-      rejected.push({ nodeId: node.nodeId, capabilityId: node.capabilityId, reasonCode: 'npc_inactive', reason: 'NPC 不在活动状态' });
+      rejected.push({ nodeId: node.nodeId, capabilityId: node.capabilityId, label: node.label, source: node.source, sourceId: node.sourceId, reasonCode: 'npc_inactive', reason: 'NPC 不在活动状态' });
       continue;
     }
     if (isRecovering(context.condition, context.now)) {
-      rejected.push({ nodeId: node.nodeId, capabilityId: node.capabilityId, reasonCode: 'recovering', reason: 'NPC 正在疗伤恢复' });
+      rejected.push({ nodeId: node.nodeId, capabilityId: node.capabilityId, label: node.label, source: node.source, sourceId: node.sourceId, reasonCode: 'recovering', reason: 'NPC 正在疗伤恢复' });
       continue;
     }
     if (isOnCooldown(node, brain, context.now)) {
-      rejected.push({ nodeId: node.nodeId, capabilityId: node.capabilityId, reasonCode: 'cooldown', reason: '能力仍在冷却' });
+      rejected.push({ nodeId: node.nodeId, capabilityId: node.capabilityId, label: node.label, source: node.source, sourceId: node.sourceId, reasonCode: 'cooldown', reason: '能力仍在冷却' });
       continue;
     }
     const evaluation = node.evaluate({
@@ -465,6 +476,9 @@ export function evaluateNpcBrainShadow(
       rejected.push({
         nodeId: node.nodeId,
         capabilityId: node.capabilityId,
+        label: node.label,
+        source: node.source,
+        sourceId: node.sourceId,
         reasonCode: evaluation.reasonCode ?? 'hard_precondition_failed',
         reason: evaluation.reason ?? '硬前置不满足',
       });

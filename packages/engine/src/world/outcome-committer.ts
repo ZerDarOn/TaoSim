@@ -116,6 +116,11 @@ function validateOutcome(worldState: WorldState, outcome: WorldOutcome): string 
         return `invalid_social_change:${delta.entityId}`;
       }
     }
+    for (const belief of delta.beliefsUpserted ?? []) {
+      if (!belief.beliefId || belief.confidence < 0 || belief.confidence > 1) {
+        return `invalid_belief:${delta.entityId}`;
+      }
+    }
   }
   for (const assetId of consumed) {
     if (gained.has(assetId)) return `asset_consumed_and_gained:${assetId}`;
@@ -243,6 +248,22 @@ function applyNpcDelta(worldState: WorldState, npc: NpcRecord, delta: EntityDelt
         memories: [...npc.brain.memories, ...additions].slice(-32),
       };
     }
+  }
+
+  if (delta.beliefsUpserted && delta.beliefsUpserted.length > 0 && npc.brain) {
+    const upsertedIds = new Set(delta.beliefsUpserted.map((belief) => belief.beliefId));
+    const ranked = Object.entries({
+      ...npc.brain.beliefs,
+      ...Object.fromEntries(delta.beliefsUpserted.map((belief) => [belief.beliefId, belief])),
+    }).sort(([idA, a], [idB, b]) => Number(upsertedIds.has(idB)) - Number(upsertedIds.has(idA))
+      || Number(b.status === 'active') - Number(a.status === 'active')
+      || b.confidence - a.confidence
+      || idA.localeCompare(idB));
+    npc.brain = {
+      ...npc.brain,
+      revision: npc.brain.revision + 1,
+      beliefs: Object.fromEntries(ranked.slice(0, 32)),
+    };
   }
 }
 

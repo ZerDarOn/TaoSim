@@ -208,7 +208,9 @@ describe('evaluateNpcBrainShadow', () => {
     });
 
     expect(result.selected).toBeUndefined();
-    expect(result.rejected).toHaveLength(createDefaultNpcBrainNodeRegistry().list().length);
+    const equippedNodeCount = createDefaultNpcBrainNodeRegistry().list()
+      .filter(({ definition }) => !definition.isEquipped || definition.isEquipped(record)).length;
+    expect(result.rejected).toHaveLength(equippedNodeCount);
     expect(result.rejected.every((entry) => entry.reasonCode === 'recovering')).toBe(true);
   });
 });

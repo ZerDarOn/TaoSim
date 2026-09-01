@@ -133,6 +133,12 @@ export { Watchlist, filterEventRelevance } from './world/watchlist.js';
 export type { EventRelevanceLayer } from './world/watchlist.js';
 export { inspectWorldBrainInvariants } from './world/npc-brain-invariants.js';
 export type { BrainInvariantIssue, BrainInvariantOptions } from './world/npc-brain-invariants.js';
+export { inspectNpcBrain, setNpcBrainNodeEnabled } from './world/npc-brain-inspector.js';
+export type { NpcBrainInspection } from './world/npc-brain-inspector.js';
+export { deriveLegacyNpcIdentity, ensureNpcIdentity, assignEcologicalNpcIdentity, inheritNpcIdentity } from './world/npc-identity.js';
+export type { EcologicalIdentityResult } from './world/npc-identity.js';
+export { assessAmbushEnvironment } from './world/npc-ambush-environment.js';
+export type { AmbushEnvironmentAssessment, LocationLawLevel } from './world/npc-ambush-environment.js';
 
 // Sect Presets (宗门预设 — 社会轨道 §2.2)
 export { SECT_PRESETS, createInitialFactions } from './world/sect-presets.js';

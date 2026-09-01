@@ -241,6 +241,8 @@ function outcomeFact(
 export interface CommitNamedNpcBattleOptions {
   factId?: string;
   protectedEntityIds?: ReadonlySet<string>;
+  additionalFacts?: Fact[];
+  additionalEntityDeltas?: EntityDelta[];
 }
 
 /** 将战斗副本差量化为一个 WorldOutcome，再通过唯一提交器原子回写。 */
@@ -304,8 +306,8 @@ export function commitNamedNpcBattleSimulation(
     outcomeId: request.encounterId,
     baseRevision: world.worldRevision ?? 0,
     source: 'named_battle',
-    entityDeltas: deltas,
-    facts: [outcomeFact(request, simulation, factId, now, attacker.name, defender.name)],
+    entityDeltas: [...deltas, ...(options.additionalEntityDeltas ?? [])],
+    facts: [outcomeFact(request, simulation, factId, now, attacker.name, defender.name), ...(options.additionalFacts ?? [])],
   };
   const commit = commitOutcome(world, outcome);
   if (commit.status === 'version_conflict') {

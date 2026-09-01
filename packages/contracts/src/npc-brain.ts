@@ -124,6 +124,8 @@ export interface BrainState {
   currentPlan?: BrainPlanState;
   currentAction?: BrainActionState;
   emotion: BrainEmotionState;
+  /** 上帝模式下逐 NPC 关闭的行为节点；不删除动机、目标、计划或记忆。 */
+  disabledNodeIds?: string[];
   initializedAt: BrainTime;
   lastEvaluatedAt?: BrainTime;
 }

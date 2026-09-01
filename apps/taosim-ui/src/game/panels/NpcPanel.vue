@@ -3,7 +3,10 @@ import { ref, computed, onMounted } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { useUiStore } from '@/stores/ui';
 import { useAppStore } from '@/stores/app';
-import { NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory, DEFAULT_ITEM_TEMPLATES, ContentRegistry } from '@taosim/engine';
+import {
+  NPCInteractionEngine, NPCTradeEngine, MarketTransaction, ItemFactory,
+  DEFAULT_ITEM_TEMPLATES, ContentRegistry, inspectNpcBrain, setNpcBrainNodeEnabled,
+} from '@taosim/engine';
 import { resolvePersonalityId } from '@taosim/engine';
 import type { NPCTradeOffer, MarketItem, ItemStack } from '@taosim/contracts';
 import type { NpcPersonality, NpcDialogue } from '@taosim/engine';
@@ -12,7 +15,7 @@ import { formatRealm, formatGender, formatItemType, formatQuality } from '@/util
 const playerStore = usePlayerStore();
 const uiStore = useUiStore();
 const appStore = useAppStore();
-const subView = ref<'interact' | 'trade'>('interact');
+const subView = ref<'interact' | 'trade' | 'brain'>('interact');
 const message = ref<string | null>(null);
 const interactionDone = ref(false);
 const showTradeDenied = ref(false);
@@ -21,6 +24,31 @@ const showTradeDenied = ref(false);
 const npcOffer = ref<NPCTradeOffer | null>(null);
 
 const npc = computed(() => playerStore.currentNPC);
+const worldNpc = computed(() => {
+  const id = npc.value?.id;
+  return id ? appStore.currentWorldState?.npcs[id] : undefined;
+});
+const brainInspection = computed(() => {
+  const world = appStore.currentWorldState;
+  const id = npc.value?.id;
+  return world && id ? inspectNpcBrain(world, id) : undefined;
+});
+const brainNodes = computed(() => {
+  const decision = brainInspection.value?.decision;
+  if (!decision) return [];
+  return [
+    ...decision.candidates.map((candidate) => ({
+      ...candidate, enabled: true, selected: decision.selected?.nodeId === candidate.nodeId,
+      reason: undefined as string | undefined,
+    })),
+    ...decision.rejected.map((candidate) => ({
+      ...candidate, score: undefined as number | undefined, considerations: undefined,
+      deterministicNoise: 0, enabled: candidate.reasonCode !== 'node_disabled', selected: false,
+    })),
+  ].sort((a, b) => Number(b.selected) - Number(a.selected)
+    || (b.score ?? -Infinity) - (a.score ?? -Infinity)
+    || a.nodeId.localeCompare(b.nodeId));
+});
 
 // ---- NPC 性格系统（确定性映射：按 NPC id 哈希选性格） ----
 
@@ -125,6 +153,27 @@ function backToInteract() {
   message.value = null;
 }
 
+function openBrain() {
+  subView.value = 'brain';
+  message.value = null;
+}
+
+function sourceLabel(source: string, sourceId?: string): string {
+  const label = { core: '本能', species: '种族', lineage: '血脉', culture: '文化', identity: '身份' }[source] ?? source;
+  return sourceId ? `${label} · ${sourceId}` : label;
+}
+
+function speciesLabel(speciesId?: string): string {
+  return { human: '人族', 'fox-spirit': '狐族', 'wood-spirit': '草木灵族' }[speciesId ?? ''] ?? speciesId ?? '未知';
+}
+
+function toggleBrainNode(nodeId: string, enabled: boolean) {
+  const world = appStore.currentWorldState;
+  const id = npc.value?.id;
+  if (!world || !id) return;
+  setNpcBrainNodeEnabled(world, id, nodeId, enabled);
+}
+
 function handleLeave() {
   playerStore.currentNPC = null;
   message.value = null;
@@ -191,6 +240,10 @@ function handleLeave() {
             :class="canTrade ? 'bg-amber-700 text-white hover:bg-amber-600' : 'bg-slate-700 text-slate-500 cursor-not-allowed'">
             交易
           </button>
+          <button @click="openBrain"
+            class="px-4 py-3 bg-indigo-800 hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-300 rounded text-sm font-semibold transition-colors cursor-pointer">
+            观察大脑
+          </button>
           <button @click="handleLeave"
             class="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded text-sm text-slate-400">离开</button>
         </div>
@@ -198,6 +251,133 @@ function handleLeave() {
           <button @click="handleLeave"
             class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-sm">离开</button>
         </div>
+      </div>
+
+      <!-- 大脑观察器 -->
+      <div v-else-if="subView === 'brain'" class="space-y-4">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-amber-200 text-lg font-semibold">{{ npc.name }} · 大脑观察器</h3>
+            <p class="text-xs text-slate-500 mt-1">上帝模式可限制行为手段，但不会删除其动机、目标、计划与记忆。</p>
+          </div>
+          <button @click="backToInteract"
+            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 rounded text-xs transition-colors cursor-pointer">
+            返回互动
+          </button>
+        </div>
+
+        <div v-if="!worldNpc?.brain || !brainInspection" class="p-4 bg-slate-800 rounded text-sm text-slate-400">
+          此人物尚未建立可观察的大脑档案。
+        </div>
+
+        <template v-else>
+          <section class="grid grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-800 rounded p-3">
+              <div class="text-slate-500">当前目标</div>
+              <div class="text-slate-100 mt-1">{{ worldNpc.brain.currentGoal?.kind ?? '暂无明确目标' }}</div>
+              <div class="text-slate-500 mt-1">优先级 {{ worldNpc.brain.currentGoal?.priority ?? 0 }}</div>
+            </div>
+            <div class="bg-slate-800 rounded p-3">
+              <div class="text-slate-500">当前行动建议</div>
+              <div class="text-emerald-300 mt-1">{{ brainInspection.decision.selected?.label ?? '未找到合适行动' }}</div>
+              <div class="text-slate-500 mt-1">{{ brainInspection.decision.selected ? `得分 ${brainInspection.decision.selected.score}` : brainInspection.decision.commitEligibility.reasonCode }}</div>
+            </div>
+          </section>
+
+          <section class="bg-slate-800 rounded p-3 space-y-2 text-xs">
+            <h4 class="text-slate-200 font-semibold">身份装配</h4>
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2 py-1 rounded bg-cyan-950 text-cyan-300">肉身 {{ speciesLabel(worldNpc.identity?.bodySpeciesId) }}</span>
+              <span v-for="culture in worldNpc.identity?.cultureIds ?? []" :key="culture"
+                class="px-2 py-1 rounded bg-violet-950 text-violet-300">文化 {{ culture }}</span>
+              <span v-for="identity in worldNpc.identity?.socialIdentityIds ?? []" :key="identity"
+                class="px-2 py-1 rounded bg-slate-700 text-slate-300">身份 {{ identity }}</span>
+            </div>
+          </section>
+
+          <section class="space-y-2">
+            <div class="flex items-center justify-between">
+              <h4 class="text-sm text-slate-200 font-semibold">行为节点</h4>
+              <span class="text-xs text-slate-500">候选 {{ brainInspection.decision.candidates.length }} · 抑制 {{ brainInspection.decision.rejected.length }}</span>
+            </div>
+            <div class="space-y-2">
+              <article v-for="node in brainNodes" :key="node.nodeId"
+                class="rounded border p-3 text-xs"
+                :class="node.selected ? 'border-emerald-700 bg-emerald-950/30' : 'border-slate-700 bg-slate-800'">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium" :class="node.enabled ? 'text-slate-100' : 'text-slate-500'">{{ node.label }}</span>
+                      <span v-if="node.selected" class="px-1.5 py-0.5 rounded bg-emerald-800 text-emerald-100">当前选择</span>
+                    </div>
+                    <div class="text-slate-500 mt-1">{{ sourceLabel(node.source, node.sourceId) }}</div>
+                    <div v-if="node.reason" class="text-rose-300 mt-1">受抑制：{{ node.reason }}</div>
+                    <div v-else-if="node.considerations" class="text-slate-400 mt-1">
+                      目标 {{ node.considerations.goalFit }} · 机会 {{ node.considerations.opportunity }} · 紧迫 {{ node.considerations.urgency }} · 性格 {{ node.considerations.profileFit }}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    :aria-label="`${node.enabled ? '关闭' : '启用'}${node.label}节点`"
+                    :aria-pressed="node.enabled"
+                    @click="toggleBrainNode(node.nodeId, !node.enabled)"
+                    class="shrink-0 px-2.5 py-1 rounded border focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 transition-colors cursor-pointer"
+                    :class="node.enabled ? 'border-emerald-700 text-emerald-300 hover:bg-emerald-950' : 'border-slate-600 text-slate-400 hover:bg-slate-700'">
+                    {{ node.enabled ? '已启用' : '已关闭' }}
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="grid grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-800 rounded p-3 space-y-2">
+              <h4 class="text-slate-200 font-semibold">当前计划</h4>
+              <div v-if="worldNpc.brain.currentPlan" class="space-y-1">
+                <div class="text-slate-300">{{ worldNpc.brain.currentPlan.status }} · 步骤 {{ worldNpc.brain.currentPlan.currentStepIndex + 1 }}/{{ worldNpc.brain.currentPlan.steps.length }}</div>
+                <div v-for="step in worldNpc.brain.currentPlan.steps" :key="step.stepId" class="text-slate-500">
+                  {{ step.status }} · {{ step.capabilityId }}
+                </div>
+              </div>
+              <div v-else class="text-slate-500">暂无跨月计划</div>
+            </div>
+            <div class="bg-slate-800 rounded p-3 space-y-2">
+              <h4 class="text-slate-200 font-semibold">认知与记忆</h4>
+              <div class="text-slate-400">信念 {{ brainInspection.beliefCount }} 条 · 记忆 {{ brainInspection.memoryCount }} 条</div>
+              <div v-for="memory in worldNpc.brain.memories.slice(-3).reverse()" :key="memory.memoryId" class="text-slate-500">
+                {{ memory.at.year }}年{{ memory.at.month }}月 · {{ memory.summary }}
+              </div>
+            </div>
+          </section>
+
+          <section class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div class="bg-slate-800 rounded p-3 space-y-2">
+              <h4 class="text-slate-200 font-semibold">情绪状态</h4>
+              <div class="grid grid-cols-2 gap-2 text-slate-400">
+                <span>恐惧 {{ worldNpc.brain.emotion.fear }}</span>
+                <span>愤怒 {{ worldNpc.brain.emotion.anger }}</span>
+                <span>悲伤 {{ worldNpc.brain.emotion.grief }}</span>
+                <span>依恋 {{ worldNpc.brain.emotion.attachment }}</span>
+                <span>压力 {{ worldNpc.brain.emotion.stress }}</span>
+              </div>
+              <div v-if="worldNpc.brain.currentAction" class="pt-2 border-t border-slate-700 text-slate-400">
+                当前行动：{{ worldNpc.brain.currentAction.capabilityId }} · {{ worldNpc.brain.currentAction.status }}
+                <span v-if="worldNpc.brain.currentAction.failureReason" class="block text-rose-300 mt-1">
+                  失败归因：{{ worldNpc.brain.currentAction.failureReason }}
+                </span>
+              </div>
+            </div>
+            <div class="bg-slate-800 rounded p-3 space-y-2">
+              <h4 class="text-slate-200 font-semibold">关键认知</h4>
+              <div v-if="Object.keys(worldNpc.brain.beliefs).length === 0" class="text-slate-500">尚无可展示的个人认知</div>
+              <div v-for="belief in Object.values(worldNpc.brain.beliefs).sort((a, b) => b.confidence - a.confidence).slice(0, 5)"
+                :key="belief.beliefId" class="border-l-2 border-slate-600 pl-2 text-slate-400">
+                <div>{{ belief.topic }} · {{ belief.subject.entityId }} · {{ belief.value }}</div>
+                <div class="text-slate-500">可信度 {{ Math.round(belief.confidence * 100) }}% · {{ belief.status }} · 来源 {{ belief.source.type }}</div>
+              </div>
+            </div>
+          </section>
+        </template>
       </div>
 
       <!-- 交易子视图 -->

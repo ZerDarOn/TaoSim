@@ -5,7 +5,9 @@ import type {
   PersistentCondition,
 } from '@taosim/contracts';
 
-export type NpcBrainCapabilityId = 'cultivate' | 'seclude' | 'breakthrough' | 'wander' | 'revenge_ambush';
+export type NpcBrainCapabilityId =
+  | 'cultivate' | 'seclude' | 'breakthrough' | 'wander' | 'revenge_ambush'
+  | 'protect_kin' | 'uphold_order';
 
 export interface NpcBrainNodeContext {
   npc: Readonly<NpcRecord>;
@@ -34,12 +36,15 @@ export interface NpcBrainNodeEvaluation {
 export interface NpcBrainNodeDefinition {
   nodeId: string;
   capabilityId: NpcBrainCapabilityId;
-  category: 'cultivation' | 'exploration' | 'conflict';
-  source: 'core';
+  category: 'cultivation' | 'exploration' | 'conflict' | 'social';
+  source: 'core' | 'species' | 'lineage' | 'culture' | 'identity';
+  sourceId?: string;
   label: string;
   /** 满意选择的稳定考虑顺序；数值越小越先考虑。 */
   considerationOrder: number;
   cooldownMonths: number;
+  /** 只有已装配该来源的 NPC 才会看到和评分此节点。 */
+  isEquipped?(npc: Readonly<NpcRecord>): boolean;
   evaluate(context: NpcBrainNodeContext): NpcBrainNodeEvaluation;
 }
 
@@ -237,6 +242,143 @@ const revengeAmbushNode: NpcBrainNodeDefinition = {
   },
 };
 
+const protectKinNode: NpcBrainNodeDefinition = {
+  nodeId: 'protect_kin',
+  capabilityId: 'protect_kin',
+  category: 'social',
+  source: 'lineage',
+  sourceId: 'family_lineage',
+  label: '照拂血亲',
+  considerationOrder: 15,
+  cooldownMonths: 1,
+  isEquipped: (npc) => (npc.identity?.lineageIds.length ?? 0) > 0 || Object.values(npc.relations).some((relation) => relation.type === 'clan'),
+  evaluate({ npc, brain }) {
+    const closeKin = Object.values(npc.relations)
+      .filter((relation) => relation.type === 'clan' && relation.bond > 0)
+      .sort((a, b) => b.bond - a.bond)[0];
+    if (!closeKin) {
+      return { allowed: false, reasonCode: 'no_close_kin', reason: '当前没有保持往来的亲族' };
+    }
+    return {
+      allowed: true,
+      considerations: {
+        goalFit: brain.profile.valueWeights.belonging,
+        opportunity: Math.max(20, closeKin.bond),
+        urgency: Math.max(brain.emotion.fear, brain.emotion.attachment),
+        profileFit: brain.profile.behavioralBiases.sociability,
+        riskCost: (100 - brain.profile.behavioralBiases.riskTolerance) * 0.12,
+        timeCost: 8,
+      },
+    };
+  },
+};
+
+const upholdOrderNode: NpcBrainNodeDefinition = {
+  nodeId: 'uphold_order',
+  capabilityId: 'uphold_order',
+  category: 'social',
+  source: 'identity',
+  sourceId: 'law_enforcer',
+  label: '维护辖地秩序',
+  considerationOrder: 12,
+  cooldownMonths: 0,
+  isEquipped: (npc) => npc.socialRank === 'elder' || npc.socialRank === 'sectMaster'
+    || npc.identity?.socialIdentityIds.includes('law_enforcer') === true,
+  evaluate({ npc, brain }) {
+    return {
+      allowed: true,
+      considerations: {
+        goalFit: npc.aspiration === 'seekFame' ? 90 : 55,
+        opportunity: 45,
+        urgency: brain.profile.valueWeights.reputation,
+        profileFit: (brain.profile.behavioralBiases.aggression + brain.profile.behavioralBiases.sociability) / 2,
+        riskCost: (100 - brain.profile.behavioralBiases.riskTolerance) * 0.08,
+        timeCost: 5,
+      },
+    };
+  },
+};
+
+const woodSpiritRootedCultivationNode: NpcBrainNodeDefinition = {
+  nodeId: 'wood_spirit_rooted_cultivation',
+  capabilityId: 'seclude',
+  category: 'cultivation',
+  source: 'species',
+  sourceId: 'wood-spirit',
+  label: '扎根吐纳',
+  considerationOrder: 22,
+  cooldownMonths: 0,
+  isEquipped: (npc) => npc.identity?.bodySpeciesId === 'wood-spirit',
+  evaluate({ npc, brain, activeGoalKind }) {
+    const ratio = cultivationRatio(npc);
+    if (ratio >= 1) return { allowed: false, reasonCode: 'cultivation_full', reason: '修为已经圆满' };
+    return {
+      allowed: true,
+      considerations: {
+        goalFit: activeGoalKind === 'cultivate_to_breakthrough' ? 100 : 40,
+        opportunity: npc.locationId?.includes('WILD') ? 85 : 45,
+        urgency: brain.profile.valueWeights.dao,
+        profileFit: brain.profile.behavioralBiases.patience,
+        riskCost: 0,
+        timeCost: 6,
+      },
+    };
+  },
+};
+
+const foxSpiritRoamingNode: NpcBrainNodeDefinition = {
+  nodeId: 'fox_spirit_roaming',
+  capabilityId: 'wander',
+  category: 'exploration',
+  source: 'species',
+  sourceId: 'fox-spirit',
+  label: '循气游猎',
+  considerationOrder: 35,
+  cooldownMonths: 1,
+  isEquipped: (npc) => npc.identity?.bodySpeciesId === 'fox-spirit',
+  evaluate({ npc, brain, activeGoalKind }) {
+    if (npc.moveState === 'secluded') return { allowed: false, reasonCode: 'currently_secluded', reason: '尚在闭关' };
+    return {
+      allowed: true,
+      considerations: {
+        goalFit: activeGoalKind === 'explore' ? 100 : 35,
+        opportunity: 75,
+        urgency: brain.profile.valueWeights.autonomy,
+        profileFit: (brain.profile.behavioralBiases.curiosity + brain.profile.behavioralBiases.sociability) / 2,
+        riskCost: 4,
+        timeCost: 8,
+      },
+    };
+  },
+};
+
+const sectDisciplineNode: NpcBrainNodeDefinition = {
+  nodeId: 'sect_discipline',
+  capabilityId: 'cultivate',
+  category: 'cultivation',
+  source: 'culture',
+  sourceId: 'sect-cultivator',
+  label: '依宗门功课修炼',
+  considerationOrder: 18,
+  cooldownMonths: 0,
+  isEquipped: (npc) => npc.identity?.cultureIds.some((id) => id === 'sect-cultivator' || id.startsWith('faction:')) === true,
+  evaluate({ npc, brain, activeGoalKind }) {
+    const ratio = cultivationRatio(npc);
+    if (ratio >= 1) return { allowed: false, reasonCode: 'cultivation_full', reason: '修为已经圆满' };
+    return {
+      allowed: true,
+      considerations: {
+        goalFit: activeGoalKind === 'cultivate_to_breakthrough' ? 95 : 35,
+        opportunity: npc.factionId ? 80 : 45,
+        urgency: brain.profile.valueWeights.dao,
+        profileFit: brain.profile.behavioralBiases.patience,
+        riskCost: 0,
+        timeCost: 5,
+      },
+    };
+  },
+};
+
 export function createDefaultNpcBrainNodeRegistry(): NpcBrainNodeRegistry {
   const registry = new NpcBrainNodeRegistry();
   registry.register(cultivateNode);
@@ -244,5 +386,10 @@ export function createDefaultNpcBrainNodeRegistry(): NpcBrainNodeRegistry {
   registry.register(breakthroughNode);
   registry.register(wanderNode);
   registry.register(revengeAmbushNode);
+  registry.register(protectKinNode);
+  registry.register(upholdOrderNode);
+  registry.register(woodSpiritRootedCultivationNode);
+  registry.register(foxSpiritRoamingNode);
+  registry.register(sectDisciplineNode);
   return registry;
 }

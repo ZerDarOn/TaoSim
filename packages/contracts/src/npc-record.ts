@@ -82,11 +82,25 @@ export interface NpcBiography {
   narrative?: string;
 }
 
+/**
+ * 身份维度彼此独立：种族描述肉身，血脉描述祖源，文化描述后天社会化，
+ * 社会身份描述制度角色。不得用单一 race 枚举推导固定好恶。
+ */
+export interface NpcIdentityProfile {
+  bodySpeciesId: string;
+  soulOriginSpeciesId?: string;
+  lineageIds: string[];
+  cultureIds: string[];
+  socialIdentityIds: string[];
+}
+
 export interface NpcRecord {
   id: string;
   name: string;
   gender: Gender;
   personalityId: string;
+  /** NB6：可独立变化的肉身、灵魂祖源、血脉、文化与社会身份。 */
+  identity?: NpcIdentityProfile;
   origin: NpcOrigin;
   destiny: NpcDestiny;
   realm: RealmFullPath;

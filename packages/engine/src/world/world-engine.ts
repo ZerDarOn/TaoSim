@@ -18,6 +18,7 @@ import {
 } from './world-resource-reservation.js';
 import { commitNamedNpcBattleSimulation, simulateNamedNpcBattle } from './named-npc-battle.js';
 import { advanceNpcRevengeAmbush } from './npc-revenge-ambush.js';
+import { assignEcologicalNpcIdentity, ensureNpcIdentity, inheritNpcIdentity } from './npc-identity.js';
 import { applyAscension, initializePopulationGrid, tickPopulation } from './population.js';
 import { createSeededRng } from '../battle/seeded-rng.js';
 import { createInitialFactions } from './sect-presets.js';
@@ -183,6 +184,7 @@ function ensureNpcBrain(
   now: { year: number; month: number },
   condition?: PersistentCondition,
 ): void {
+  ensureNpcIdentity(npc);
   if (npc.brain) return;
   npc.brain = createInitialBrainState({
     npcId: npc.id,
@@ -644,7 +646,8 @@ export class WorldEngine {
       const revengeAmbush = this.npcBrainV2Mode === 'single-write' && npc.brain
           ? advanceNpcRevengeAmbush(this.state, npc.id, mindNow, {
             rng: this.encounterRng,
-            enabled: this.npcBrainNodeRegistry.isEnabled('revenge_ambush'),
+            enabled: this.npcBrainNodeRegistry.isEnabled('revenge_ambush')
+              && !npc.brain.disabledNodeIds?.includes('revenge_ambush'),
             localNpcIds: perception?.observations
               .filter((entry) => entry.topic === 'location' && entry.subject.kind === 'npc')
               .map((entry) => entry.subject.entityId),
@@ -666,6 +669,19 @@ export class WorldEngine {
         committedByBrain = true;
         resolvedActionType = revengeAmbush.stage ?? 'execute_ambush';
         actionDescription = revengeAmbush.stage ?? '执行寻仇计划';
+      }
+      if (revengeAmbush?.reason === 'guard_intervention' && revengeAmbush.targetId) {
+        const defender = this.state.npcs[revengeAmbush.targetId];
+        pushNpcEvent({
+          key: 'combat.ambush.prevented',
+          vars: {
+            attacker: npc.name,
+            defender: defender?.name ?? revengeAmbush.targetId,
+            guards: String(revengeAmbush.guardIds?.length ?? 0),
+          },
+          involvedCharacterIds: [npc.id, revengeAmbush.targetId, ...(revengeAmbush.guardIds ?? [])],
+          locationId: npc.locationId ?? defender?.locationId,
+        }, [npc.id, revengeAmbush.targetId, ...(revengeAmbush.guardIds ?? [])]);
       }
       if (revengeAmbush?.status === 'battle_resolved' && revengeAmbush.resolution && revengeAmbush.targetId) {
         const defender = this.state.npcs[revengeAmbush.targetId];
@@ -1848,6 +1864,9 @@ export class WorldEngine {
     );
     // 真实地点引用：落脚于预设场所（社交配对按地点分组的数据基础）
     record.locationId = this.pickVenueId(rng);
+    const ecologicalIdentity = assignEcologicalNpcIdentity(record, rng);
+    record.identity = ecologicalIdentity.profile;
+    if (ecologicalIdentity.habitatLocationId) record.locationId = ecologicalIdentity.habitatLocationId;
 
     // 先天出身（因）：塑造出生起点（面板/初始条件），之后世界演化完全由面板与经历驱动，
     // 不提供任何机制概率加成。1% 气运之子、0.5% 大能转世、2.5% 逆天传承，其余平凡。
@@ -2207,6 +2226,7 @@ export class WorldEngine {
       name,
       gender,
       personalityId: resolvePersonalityId(id),
+      identity: inheritNpcIdentity(parentA, parentB, this.rng),
       origin: { type: '世家' },
       // 世家子弟出身（因）：家学渊源（悟性/灵石起步高），tier 仍从零认定（果）
       destiny: {
