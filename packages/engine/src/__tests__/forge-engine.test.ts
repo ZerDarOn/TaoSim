@@ -47,6 +47,7 @@ describe('ForgeEngine', () => {
     const player = makePlayer({ inventory: [] });
     const result = ForgeEngine.craft(player, '灵蕴剑');
     expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.reason).toContain('主材');
   });
 

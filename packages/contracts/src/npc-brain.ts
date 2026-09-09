@@ -189,6 +189,10 @@ function createProfile(personalityId: string, aspiration?: NpcAspiration): Brain
     behavioralBiases.riskTolerance = 25;
     behavioralBiases.patience = 70;
   }
+  if (normalized.includes('reckless') || normalized.includes('冒险')) {
+    behavioralBiases.riskTolerance = 95;
+    behavioralBiases.curiosity = 75;
+  }
   if (normalized.includes('vengeful') || normalized.includes('复仇')) {
     behavioralBiases.aggression = 75;
     behavioralBiases.patience = 60;

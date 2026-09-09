@@ -2,6 +2,8 @@
 // Character 数据模型 — 架构规范 §21
 // ============================================================
 
+import type { SpatialAddress, TravelState } from './spatial.js';
+
 // ---- 基础枚举 ----
 export type RealmType = 'Mortal' | 'LianQi' | 'ZhuJi' | 'JinDan' | 'YuanYing' | 'HuaShen';
 
@@ -47,6 +49,45 @@ export interface SpiritRoot {
 export interface GameMode {
   breakthrough: 'Traditional' | 'Simple';  // 传统：渡劫需秘境材料 / 简单：纯修为+丹药
   saveMode: 'Ironman' | 'Free';            // 铁人：月度自动存档 / 自由：手动存读档
+}
+
+// ---- 玩家进入世界 ----
+
+/** 三种正式入口；legacy 仅用于旧存档兼容，不在新游戏中提供。 */
+export type PlayerEntryMode = 'birth' | 'transmigration' | 'god' | 'legacy';
+
+export type PlayerKnowledgeScope = 'character' | 'omniscient';
+
+export type ChildhoodChoiceId = 'follow_family' | 'study_classics' | 'roam_outdoors';
+
+export interface PlayerFamilyLink {
+  npcId: string;
+  role: 'parent' | 'guardian' | 'elder';
+}
+
+/**
+ * 玩家接入世界的可追溯档案。
+ *
+ * 世界时间统一使用 elapsedMinutes；真实家庭引用 WorldState.npcs/archivedNpcs。
+ * 上帝模式仍复用同一世界规则，physicalPresence=false 表示地图地址是观察焦点而非肉身。
+ */
+export interface PlayerEntryProfile {
+  entryId: string;
+  mode: PlayerEntryMode;
+  status: 'childhood' | 'active';
+  knowledgeScope: PlayerKnowledgeScope;
+  physicalPresence: boolean;
+  source: 'simulated_birth' | 'transmigration' | 'god_manifestation' | 'legacy_save';
+  background: 'orphan' | 'small-clan' | 'ancient-clan' | 'legacy';
+  bornAtMinutes?: number;
+  enteredWorldAtMinutes?: number;
+  originNodeId?: string;
+  family: PlayerFamilyLink[];
+  childhoodChoice?: ChildhoodChoiceId;
+  godIntervention?: {
+    lastMonthIndex?: number;
+    totalSpiritStonesGranted: number;
+  };
 }
 
 // ---- 工具函数 ----
@@ -119,6 +160,9 @@ export interface Character {
   // 游戏模式
   gameMode: GameMode;
 
+  /** 玩家真实入场来源；旧存档加载时由兼容适配器补为 legacy。 */
+  entryProfile?: PlayerEntryProfile;
+
   // 战棋状态
   hp: number;
   maxHp: number;
@@ -146,4 +190,10 @@ export interface Character {
   spiritStones: number;
   wantedLevels: Record<string, number>;          // continentId → level (0~5)
   unlockedRecipes: string[];            // Phase 11: 已解锁配方 id 列表（默认 ['RECIPE_QI_PILL']）
+
+  // ── 动态空间世界 Phase 1：玩家权威位置（迁移期可选）──
+  /** 玩家当前权威空间地址；旧存档由 PlayerMapState 迁移得到。 */
+  spatialAddress?: SpatialAddress;
+  /** 玩家连续旅行状态；位置在途中时不得只更新渲染坐标。 */
+  travel?: TravelState;
 }

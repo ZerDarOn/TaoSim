@@ -16,6 +16,13 @@ const world = useWorld();
 const eventLog = useEventLogStore();
 const resultMessage = ref<string | null>(null);
 const factionMessage = ref<string | null>(null);
+const cultivationNumberFormatter = new Intl.NumberFormat('zh-CN', {
+  maximumFractionDigits: 2,
+});
+
+function formatCultivationAmount(value: number): string {
+  return cultivationNumberFormatter.format(value);
+}
 
 // ---- 宗门 ----
 
@@ -110,7 +117,7 @@ async function cultivate(months: number) {
     const eventInfo = world.state.lastCalendarEventName
       ? ` · ${world.state.lastCalendarEventName}`
       : '';
-    resultMessage.value = `闭关 ${months} 月圆满。修为 +${result.expGained}，年寿 +${(months / 12).toFixed(1)} 岁${densityInfo}${eventInfo}`;
+    resultMessage.value = `闭关 ${months} 月圆满。修为 +${formatCultivationAmount(result.expGained)}，年寿 +${(months / 12).toFixed(1)} 岁${densityInfo}${eventInfo}`;
   }
 }
 
@@ -287,7 +294,7 @@ async function attemptBreakthrough() {
       <div>
         <div class="flex justify-between text-xs mb-1">
           <span class="text-slate-400">修为</span>
-          <span class="text-amber-200">{{ playerStore.character.cultivation.currentExp }} / {{ playerStore.character.cultivation.maxExp }}</span>
+          <span class="text-amber-200">{{ formatCultivationAmount(playerStore.character.cultivation.currentExp) }} / {{ formatCultivationAmount(playerStore.character.cultivation.maxExp) }}</span>
         </div>
         <div class="h-2.5 bg-slate-700 rounded-full overflow-hidden">
           <div class="h-full bg-gradient-to-r from-amber-600 to-amber-400 rounded-full transition-all duration-300"

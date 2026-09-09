@@ -38,6 +38,19 @@ export type { ArrivalMode } from './character/character-factory.js';
 export { computeDerivedStats } from './character/derived-stats.js';
 export type { DerivedStats, DerivedStatsInput } from './character/derived-stats.js';
 export { SpiritRootRoller } from './character/spirit-root-roller.js';
+export {
+  applyGodResourceIntervention,
+  beginPlayerEntry,
+  completePlayerChildhood,
+  ensurePlayerEntryProfile,
+} from './character/player-entry-service.js';
+export type {
+  BeginPlayerEntryOptions,
+  GodInterventionResult,
+  NewPlayerEntryMode,
+  PlayerBackground,
+  PlayerEntryTransition,
+} from './character/player-entry-service.js';
 
 // Data Registries（数据表）
 export { TRAIT_REGISTRY, getTraitsByQuality, getTraitById, rollTraits } from './data/trait-registry.js';
@@ -62,22 +75,60 @@ export { ForgeEngine } from './crafting/forge-engine.js';
 export { EquipmentManager } from './equipment/equipment-manager.js';
 
 // Overworld (大世界旅行)
-export { OverworldEngine } from './overworld/overworld-engine.js';
 export { OverworldMapGenerator } from './overworld/overworld-map-generator.js';
 export { PRESET_MAP, getNeighbors, getEdge } from './overworld/preset-map.js';
 
 // Hex Overworld (六边形世界网格)
-export { generateWorldGrid, moveOneStep, autoTravel, findPath, findLandmarkPos, hexDistance, getHexNeighbors, applyExploredCache, collectExplored } from './overworld/hex-overworld-engine.js';
-export type { WorldHexGrid, WorldHex, HexTerrain, HexMoveResult, HexMoveEvent } from './overworld/hex-overworld-engine.js';
+export { generateWorldGrid, moveOneStep, autoTravel, findPath, findLandmarkPos, hexDistance, getHexNeighbors, applyExploredCache, collectExplored, HEX_EVENT_CHANCE, getHexEventChance } from './overworld/hex-overworld-engine.js';
+export type { WorldHexGrid, WorldHex, HexTerrain, HexMoveResult, HexMoveEvent, HexMoveOptions } from './overworld/hex-overworld-engine.js';
 export { TERRAIN_INFO } from './overworld/hex-overworld-engine.js';
 export { npcHexPos, npcSpatialIndex, deriveNpcHexPos } from './overworld/npc-spatial.js';
 export type { NpcHexDeriveResult } from './overworld/npc-spatial.js';
+export {
+  createLegacySpatialState,
+  legacyLocationRefToSpatialAddress,
+  legacyNpcRecordToSpatialAddress,
+  legacyPlayerMapStateToSpatialAddress,
+  migrateLegacySpatialSavePayload,
+  reconcileSpatialCatalog,
+  SPATIAL_CATALOG_VERSION,
+} from './overworld/spatial-catalog.js';
 
 // Multi-layer Map Catalog (多层地图)
 export { COSMOS_CATALOG, CONTINENT_CATALOG, TELEPORT_GRAPH, VENUE_CATALOG, getCosmos, getContinent, getContinentIdsByCosmos, getTeleportNode, getTeleportNodeAt, getVenuesByNode, getVenue, createInitialMapState } from './overworld/map-catalog.js';
-export { TIANJI_SETTLEMENT, SETTLEMENT_REGISTRY, getSettlement, settlementDistance, getNpcsInVenue, getNpcsInSettlement, getNpcsAtSettlementNode } from './overworld/settlement-maps.js';
+export { TIANJI_SETTLEMENT, QINGYUN_SETTLEMENT, SETTLEMENT_REGISTRY, getSettlement, settlementDistance, getNpcsInVenue, getNpcsInSettlement, getNpcsAtSettlementNode } from './overworld/settlement-maps.js';
 export type { SettlementNode, SettlementRoad, SettlementMap } from './overworld/settlement-maps.js';
 export { TravelService } from './overworld/travel-service.js';
+export {
+  findEarliestRoadEncounter,
+  createRoadEncounterOutcome,
+  chooseRoadEncounter,
+  prepareRoadEncounterBattleCompletion,
+} from './overworld/road-encounter.js';
+export type {
+  RoadEncounterCandidate,
+  RoadEncounterChoiceResult,
+  RoadEncounterBattleCompletion,
+} from './overworld/road-encounter.js';
+export {
+  advanceSpatialTravel,
+  evaluateSpatialTravelPosition,
+  effectiveTravelSpeed,
+  findSpatialRoute,
+  hexCoordinateDistance,
+  isTravelRouteValid,
+  planSpatialTravel,
+  pauseSpatialTravel,
+  resumeSpatialTravel,
+  reverseSpatialTravel,
+} from './overworld/spatial-travel.js';
+export type { PlanSpatialTravelRequest, TravelPlanResult, TravelPosition, TravelSpeedProfile } from './overworld/spatial-travel.js';
+export { applySpatialDelta, activeSpatialFeature } from './overworld/spatial-delta.js';
+export type { SpatialDeltaApplyResult } from './overworld/spatial-delta.js';
+export { applyFeatureDelta, createFeatureTransitionDelta, createScopedFeatureDelta, createSecretRealmDelta } from './overworld/spatial-features.js';
+export type { ScopedFeatureDeltaInput, SecretRealmDeltaInput } from './overworld/spatial-features.js';
+export { triggerSecretRealmFromPressure, planSecretRealmEntry, SECRET_REALM_PRESSURE_THRESHOLD } from './world/secret-realm-scenario.js';
+export type { SecretRealmPressureInput, SecretRealmTriggerResult, SecretRealmEntryPlan } from './world/secret-realm-scenario.js';
 export { VenueService, VENUE_TYPE_LABEL, VENUE_TYPE_ICON } from './overworld/venue-service.js';
 
 // Time System (季节 + 灵气浓度 + 统一时间推进 + 节气事件)
@@ -113,6 +164,8 @@ export { commitNpcBrainAction } from './world/npc-brain-action-commit.js';
 export type { NpcBrainActionCommitResult } from './world/npc-brain-action-commit.js';
 export { buildNpcPerceptionSnapshot, createNpcPerceptionIndex, updateNpcKnowledge } from './world/npc-perception.js';
 export type { NpcKnowledgeUpdateResult, NpcPerceptionIndex } from './world/npc-perception.js';
+export { chooseNpcSpatialResponse } from './world/npc-spatial-decision.js';
+export type { NpcSpatialDecision, NpcSpatialResponse } from './world/npc-spatial-decision.js';
 export { prepareNpcExplorePlan } from './world/npc-explore-planner.js';
 export type { PrepareNpcExplorePlanResult } from './world/npc-explore-planner.js';
 export { tradeNpcInformation } from './world/npc-information-trade.js';
@@ -158,6 +211,8 @@ export { DEFAULT_ITEM_TEMPLATES } from './market/default-templates.js';
 export { MarketEngine } from './market/market-engine.js';
 export { NPCTradeEngine } from './market/npc-trade-engine.js';
 export { MarketTransaction } from './market/market-transaction.js';
+export { settleHexMoveEvents } from './overworld/hex-player-resolution.js';
+export type { HexMoveEventSettlement } from './overworld/hex-player-resolution.js';
 
 // Quality & Upgrade (品质锻造与升品)
 export { QualityCalculator } from './crafting/quality-calculator.js';

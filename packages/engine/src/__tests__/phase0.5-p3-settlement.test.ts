@@ -9,7 +9,14 @@
 // ============================================================
 
 import { describe, it, expect } from 'vitest';
-import { TIANJI_SETTLEMENT, getNpcsInVenue, getNpcsInSettlement } from '../overworld/settlement-maps.js';
+import {
+  QINGYUN_SETTLEMENT,
+  TIANJI_SETTLEMENT,
+  getNpcsInVenue,
+  getNpcsInSettlement,
+  settlementDistance,
+} from '../overworld/settlement-maps.js';
+import type { SettlementMap } from '../overworld/settlement-maps.js';
 import type { NpcRecord } from '@taosim/contracts';
 
 // —— 测试夹具 ——
@@ -65,7 +72,7 @@ describe('P3 天机城聚落图结构', () => {
         || (r.from === 'TIANJI_MAIN_STREET' && r.to === 'TIANJI_GATE_SOUTH'),
     );
     expect(road).toBeDefined();
-    expect(road!.distance).toBeGreaterThan(0);
+    expect(road!.distanceMeters).toBeGreaterThan(0);
   });
 
   it('从城门到百宝阁存在可通行路径', () => {
@@ -86,6 +93,38 @@ describe('P3 天机城聚落图结构', () => {
     }
 
     expect(reachable.has('TIANJI_BAIBAO_GE')).toBe(true);
+  });
+});
+
+describe('P3 聚落目录与物理距离', () => {
+  it('青云宗是独立局部地图并保留宗门场所入口', () => {
+    expect(QINGYUN_SETTLEMENT.nodeId).toBe('NODE_SECT_QINGYUN');
+    expect(QINGYUN_SETTLEMENT.nodes.map((node) => node.id)).toContain('QINGYUN_MOUNTAIN_GATE');
+    expect(QINGYUN_SETTLEMENT.nodes.map((node) => node.venueId)).toContain('VENUE_QINGYUN_HALL');
+    expect(QINGYUN_SETTLEMENT.nodes.map((node) => node.venueId)).toContain('VENUE_QINGYUN_TRAINING');
+    expect(QINGYUN_SETTLEMENT.nodes.some((node) => node.id.startsWith('TIANJI_'))).toBe(false);
+  });
+
+  it('加权最短路径不把最少边数误当成最短物理距离', () => {
+    const map: SettlementMap = {
+      definitionVersion: 1,
+      nodeId: 'weighted_test',
+      name: '加权测试图',
+      entryNodeId: 'a',
+      layout: { x: 0, y: 0, width: 100, height: 100 },
+      nodes: ['a', 'b', 'c', 'd'].map((id, index) => ({
+        id, name: id, type: 'street' as const, position: { x: index * 10, y: 0 },
+      })),
+      roads: [
+        { from: 'a', to: 'b', distanceMeters: 100 },
+        { from: 'b', to: 'd', distanceMeters: 100 },
+        { from: 'a', to: 'c', distanceMeters: 10 },
+        { from: 'c', to: 'b', distanceMeters: 10 },
+      ],
+    };
+
+    expect(settlementDistance(map, 'a', 'd')).toBe(120);
+    expect(settlementDistance(map, 'a', 'missing')).toBeNull();
   });
 });
 

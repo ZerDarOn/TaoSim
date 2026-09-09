@@ -128,7 +128,7 @@ export function useBattleUI(combat: BattleUiCombatPort, playerId: string) {
     // 其他状态点击不处理
   }
 
-  /** 结算后：目标格生成类型化飘字（暴击/闪避/格挡/伤害）并回 idle */
+  /** 结算后：目标格生成类型化飘字（暴击/闪避/格挡/伤害）并按回合归属恢复命令栏 */
   function finishAction(res: { defenderId: string; damage: number; crit?: boolean; missed?: boolean; guarded?: boolean } | null) {
     const defenderPos = res ? findOccupant(combat.state.map, res.defenderId) : null;
     if (res && defenderPos) {
@@ -143,7 +143,8 @@ export function useBattleUI(combat: BattleUiCombatPort, playerId: string) {
       }
     }
     selectedSkill.value = null;
-    phase.value = 'idle';
+    // 新引擎可在一次激活中连续行动；仍持有回合时立即恢复命令栏。
+    phase.value = combat.state.currentTurn === playerId ? 'command' : 'idle';
   }
 
   function defendCmd() {

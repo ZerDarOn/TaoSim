@@ -4,7 +4,8 @@
 // ============================================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { effectScope } from 'vue';
+import { effectScope, nextTick, reactive } from 'vue';
+import { useBattleUI } from '../useBattleUI';
 import type { Character, HexBattleMap, HexTile, Skill } from '@taosim/contracts';
 import { hexKey } from '@taosim/contracts';
 import { useBattleEngine } from '../useBattleEngine';
@@ -51,6 +52,54 @@ describe('useBattleEngine (S7)', () => {
   });
 
   afterEach(() => { scope.stop(); });
+
+  it('starts from reactive UI inputs without mutating the original party or map', () => {
+    const player = reactive(makeCharacter('reactive-player'));
+    const enemy = reactive(makeCharacter('reactive-enemy'));
+    const map = reactive(makeMap());
+    const before = JSON.stringify({ player, enemy, map });
+    scope.run(() => {
+      // BattleOverlay shallow-copies a reactive character, retaining nested proxies.
+      const battle = useBattleEngine(map, player.id, { ...player }, [enemy]);
+      expect(battle.state.characters[player.id]).toBeDefined();
+      expect(battle.state.characters[enemy.id]).toBeDefined();
+    });
+    expect(JSON.stringify({ player, enemy, map })).toBe(before);
+  });
+
+  it('keeps commands available after an attack while the player still owns the turn', async () => {
+    let battle!: ReturnType<typeof useBattleEngine>;
+    let ui!: ReturnType<typeof useBattleUI>;
+    scope.run(() => {
+      battle = useBattleEngine(makeMap(2, 2), 'p', makeCharacter('p'), [makeCharacter('e')]);
+      ui = useBattleUI(battle, 'p');
+    });
+    battle._forcePlayerActivationForTest();
+    await nextTick();
+    ui.openAttack();
+    ui.onTileClick(1, 0);
+    await nextTick();
+    expect(battle.state.currentTurn).toBe('p');
+    expect(battle.state.characters.p!.ap).toBe(2);
+    expect(ui.phase.value).toBe('command');
+    ui.endTurnCmd();
+    expect(battle.state.currentTurn).toBeNull();
+  });
+
+  it('publishes an autonomous enemy ending even when currentTurn remains null', () => {
+    scope.run(() => {
+      const enemy = makeCharacter('e', { hp: 1 });
+      enemy.attributes.agility = 100;
+      const battle = useBattleEngine(makeMap(2, 2), 'p', makeCharacter('p'), [enemy],
+        { fleeEnabled: false, surrenderEnabled: true }, { seed: 42 });
+      for (let tick = 0; tick < 30 && battle.state.engine!.getState().phase !== 'BattleEnd'; tick++) {
+        battle.tick();
+      }
+      expect(battle.state.engine!.getState().phase).toBe('BattleEnd');
+      expect(battle.state.currentTurn).toBeNull();
+      expect(battle.state.battlePhase).toBe('BattleEnd');
+    });
+  });
 
   it('start 后 state 已初始化（含 units/characters/map）', () => {
     expect(combat.state.characters.p).toBeDefined();

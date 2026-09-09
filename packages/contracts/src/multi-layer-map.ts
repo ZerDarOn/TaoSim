@@ -97,6 +97,29 @@ export interface VenueDef {
 
 // ---- 玩家地图状态（用于存档/缓存） ----
 
+/** NPC 行程在观察地图上的显示范围。 */
+export type NpcRouteDisplayMode = 'off' | 'focused' | 'all_known';
+
+/** NPC 名称在观察地图上的展开范围。 */
+export type NpcNameDisplayMode = 'aggregate' | 'selected' | 'all_known';
+
+/** 观察图层只控制投影，不得改变世界模拟。 */
+export interface MapObservationPreferences {
+  npcRoutes: NpcRouteDisplayMode;
+  npcNames: NpcNameDisplayMode;
+  people: boolean;
+  roads: boolean;
+  spiritQi: boolean;
+  factions: boolean;
+  dangers: boolean;
+}
+
+/** 每个大陆独立保存的相机状态；它不是角色位置。 */
+export interface MapViewportState {
+  zoom: number;
+  pan: { x: number; y: number };
+}
+
 export interface PlayerMapState {
   /** 当前所在层级 */
   activeLayer: MapLayer;
@@ -106,8 +129,14 @@ export interface PlayerMapState {
   activeContinentId: string;
   /** 当前所在场所 id（L0），null 表示不在任何场所 */
   activeVenueId: string | null;
+  /** 当前观察钻取焦点；只控制视图，不代表玩家已经进入该空间。 */
+  focusedSpatialNodeId?: string | null;
   /** 按大陆 id 分片的已探索六边形坐标 */
   exploredHexes: Record<string, Array<{ q: number; r: number }>>;
   /** 玩家在当前大陆网格上的位置 */
   hexPos: { q: number; r: number };
+  /** 地图观察偏好；可选以兼容 v9 以前及尚未写入此字段的存档。 */
+  observationPreferences?: MapObservationPreferences;
+  /** 大陆或具体空间节点 id → 视角；仅为 UI 缓存，不携带探索知识。 */
+  viewports?: Record<string, MapViewportState>;
 }

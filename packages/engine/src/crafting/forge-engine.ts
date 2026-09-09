@@ -4,6 +4,8 @@ import { QualityCalculator } from './quality-calculator.js';
 
 export interface ForgeResult {
   success: boolean;
+  /** 是否已经通过输入校验并消耗材料，供上层决定是否扣除行动成本。 */
+  attempted: boolean;
   reason?: string;
   equipment?: Item;
   message?: string;
@@ -12,11 +14,11 @@ export interface ForgeResult {
 export class ForgeEngine {
   static craft(character: Character, recipeName: string, auxMaterials: string[] = []): ForgeResult {
     const recipe = RecipeRegistry.getForgeRecipe(recipeName);
-    if (!recipe) return { success: false, reason: '未知配方' };
+    if (!recipe) return { success: false, attempted: false, reason: '未知配方' };
 
     const mainStack = character.inventory.find(s => s.item.id === recipe.mainMaterialId || s.item.templateId === recipe.mainMaterialId);
     if (!mainStack || mainStack.count < 1) {
-      return { success: false, reason: `主材不足：${recipe.mainMaterialId}` };
+      return { success: false, attempted: false, reason: `主材不足：${recipe.mainMaterialId}` };
     }
     mainStack.count--;
 
@@ -35,7 +37,7 @@ export class ForgeEngine {
     const successRate = Math.min(0.95, 0.7 + physiqueBonus + auxBonus);
 
     if (Math.random() > successRate) {
-      return { success: false, reason: '炼制失败，材料已消耗' };
+      return { success: false, attempted: true, reason: '炼制失败，材料已消耗' };
     }
 
     const quality = QualityCalculator.rollQuality();
@@ -66,21 +68,21 @@ export class ForgeEngine {
       equipment.specialEffect = QualityCalculator.rollSpecialEffect();
     }
 
-    return { success: true, equipment };
+    return { success: true, attempted: true, equipment };
   }
 
   static craftMaster(character: Character, recipeName: string): ForgeResult {
     const recipe = RecipeRegistry.getForgeRecipe(recipeName);
-    if (!recipe) return { success: false, reason: '未知配方' };
+    if (!recipe) return { success: false, attempted: false, reason: '未知配方' };
 
     const masterSpiritCost = (recipe.tier ?? 2) * 1000;
     if (character.spiritStones < masterSpiritCost) {
-      return { success: false, reason: `灵石不足，需要 ${masterSpiritCost}` };
+      return { success: false, attempted: false, reason: `灵石不足，需要 ${masterSpiritCost}` };
     }
 
     const mainStack = character.inventory.find(s => s.item.id === recipe.mainMaterialId || s.item.templateId === recipe.mainMaterialId);
     if (!mainStack || mainStack.count < 2) {
-      return { success: false, reason: `主材不足（大师锻造需 2 份）：${recipe.mainMaterialId}` };
+      return { success: false, attempted: false, reason: `主材不足（大师锻造需 2 份）：${recipe.mainMaterialId}` };
     }
     mainStack.count -= 2;
     character.spiritStones -= masterSpiritCost;
@@ -89,7 +91,7 @@ export class ForgeEngine {
     const masteryBonus = character.attributes.physique / 300;
     const baseSuccessRate = Math.min(0.95, 0.75 + masteryBonus);
     if (Math.random() > baseSuccessRate) {
-      return { success: false, reason: '大师锻造失败！材料与灵石化为灰烬', message: '大师锻造失败！材料与灵石化为灰烬' };
+      return { success: false, attempted: true, reason: '大师锻造失败！材料与灵石化为灰烬', message: '大师锻造失败！材料与灵石化为灰烬' };
     }
 
     const quality = QualityCalculator.rollQualityMaster();
@@ -116,6 +118,6 @@ export class ForgeEngine {
       equipment.specialEffect = QualityCalculator.rollSpecialEffect();
     }
 
-    return { success: true, equipment, message: '大师手笔，宝物出世！' };
+    return { success: true, attempted: true, equipment, message: '大师手笔，宝物出世！' };
   }
 }

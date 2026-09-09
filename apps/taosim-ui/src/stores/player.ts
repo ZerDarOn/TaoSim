@@ -1,8 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { PlayerLifecycleService, EconomyEngine } from '@taosim/engine';
 import type { Character, Skill, Item, BattleDelta } from '@taosim/contracts';
-import { useGameFlowStore } from '@/stores/game-flow';
 
 export const usePlayerStore = defineStore('player', () => {
   const character = ref<Character | null>(null);
@@ -84,25 +82,6 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
-  function advanceTime(days: number): { died: boolean; causeOfDeath?: string } {
-    if (!character.value) return { died: false };
-    // 统一时间推进：天数 → 月数（30 天 = 1 月），使用 PlayerLifecycleService 统一逻辑
-    const months = days / 30;
-    const result = PlayerLifecycleService.advanceTime(
-      character.value,
-      months,
-      EconomyEngine.realmMonthlyIncome(character.value.realm),
-    );
-    character.value = result.updatedPlayer;
-
-    // 寿元耗尽时立即触发游戏结束，避免"玩一个死人"
-    if (result.died) {
-      const gameFlow = useGameFlowStore();
-      gameFlow.enterGameOver(result.causeOfDeath);
-    }
-    return { died: result.died, causeOfDeath: result.causeOfDeath };
-  }
-
   /**
    * 原子提交战斗差量。一次成功：HP/灵力/AP/冷却/经验/灵石/道具/关系全部生效。
    * 重复 battleId 返回 AlreadyCommitted；baseRevision 不匹配返回 VersionConflict；
@@ -172,7 +151,6 @@ export const usePlayerStore = defineStore('player', () => {
     addExp,
     addSpiritStones,
     unlockRecipe,
-    advanceTime,
     battleRevision,
     commitBattleDelta,
   };

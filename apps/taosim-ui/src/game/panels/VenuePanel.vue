@@ -66,9 +66,8 @@ function leaveVenue() {
 }
 
 function exitCity() {
-  // 离开城镇，回到区域网格
-  mapStore.leaveVenue();
-  mapStore.setActiveLayer('Region');
+  // 离开城镇，统一退出局部空间焦点，避免存档残留已关闭的下钻节点。
+  mapStore.leaveSpatialDetail();
 }
 </script>
 

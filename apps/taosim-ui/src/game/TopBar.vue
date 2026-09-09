@@ -3,17 +3,19 @@ import { computed } from 'vue';
 import { useAppStore } from '@/stores/app';
 import { usePlayerStore } from '@/stores/player';
 import { useWorld } from '@/composables/useWorld';
-import { getSeason, getSeasonPhase, getSeasonDescription, getExpectedCalendarEvent, getSpiritDensityMultiplier } from '@taosim/engine';
+import { getSeason, getSeasonPhase, getSeasonDescription, getExpectedCalendarEvent, getSpiritDensityMultiplier, projectTime } from '@taosim/engine';
 import { SEASON_NAMES, SEASON_COLORS } from '@taosim/contracts';
+
+const emit = defineEmits<{ openSave: [] }>();
 
 const appStore = useAppStore();
 const playerStore = usePlayerStore();
 const { advanceMonth, fastForward, state, setRealtimeSpeed } = useWorld();
 
 const realtimeOptions = [
-  { speed: 1, label: '1x', title: '1 世界日/秒' },
-  { speed: 4, label: '4x', title: '4 世界日/秒' },
-  { speed: 16, label: '16x', title: '16 世界日/秒' },
+  { speed: 1, label: '1x', title: '1 世界小时/秒' },
+  { speed: 4, label: '4x', title: '4 世界小时/秒' },
+  { speed: 16, label: '16x', title: '16 世界小时/秒' },
 ] as const;
 
 /** 点击当前速度 = 暂停；点击其他速度 = 切速 */
@@ -24,6 +26,7 @@ function toggleRealtime(speed: 0 | 1 | 4 | 16) {
 const currentSeason = computed(() => getSeason(appStore.gameMonth));
 const seasonPhase = computed(() => getSeasonPhase(appStore.gameMonth));
 const seasonDesc = computed(() => getSeasonDescription(currentSeason.value, seasonPhase.value));
+const worldDay = computed(() => projectTime(appStore.currentWorldState?.elapsedMinutes ?? 0).day);
 
 // 当前灵气浓度
 const spiritDensity = computed(() => {
@@ -50,7 +53,7 @@ function modeLabel() {
     <!-- 左：时间 + 季节 -->
     <div class="flex items-center gap-3">
       <div class="text-amber-300 font-semibold text-sm">
-        道历 {{ appStore.gameYear }} 年 {{ appStore.gameMonth }} 月 第 {{ state.worldDay }} 日
+        道历 {{ appStore.gameYear }} 年 {{ appStore.gameMonth }} 月 第 {{ worldDay }} 日
       </div>
       <!-- 季节标签 -->
       <div class="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium"
@@ -116,7 +119,13 @@ function modeLabel() {
       </button>
     </div>
 
-    <!-- 右：模式 -->
-    <div class="text-xs text-slate-400">{{ modeLabel() }}</div>
+    <!-- 右：模式 + 游戏内存读档 -->
+    <div class="flex items-center gap-2">
+      <div class="text-xs text-slate-400">{{ modeLabel() }}</div>
+      <button
+        class="px-2.5 py-1 rounded border border-slate-600 bg-slate-700 hover:bg-slate-600 text-xs text-slate-200"
+        @click="emit('openSave')"
+      >存读档</button>
+    </div>
   </header>
 </template>

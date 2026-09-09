@@ -1,4 +1,4 @@
-import type { Character, Gender, FactionRank, RealmFullPath, Item, Skill, SpiritRoot, GameMode, TraitCombatBonuses } from '@taosim/contracts';
+import type { Character, Gender, RealmFullPath, SpiritRoot, GameMode, TraitCombatBonuses } from '@taosim/contracts';
 import type { AttributeKey } from '@taosim/contracts';
 import { getTraitById } from '../data/trait-registry.js';
 import { computeDerivedStats } from './derived-stats.js';
@@ -7,7 +7,7 @@ function generateId(): string {
   return `CHAR_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export type ArrivalMode = 'birth' | 'transmigration';
+export type ArrivalMode = 'birth' | 'transmigration' | 'god';
 
 type BackgroundType = 'orphan' | 'small-clan' | 'ancient-clan';
 
@@ -23,32 +23,11 @@ interface CreateCharacterParams {
   startAge?: number;            // 穿越模式的起始年龄
 }
 
-// 背景 → 初始灵石映射（Phase 10 §5.1）
+// 家世只提供凡人尺度的随身资财；功法、宗门身份与法宝必须在世界中真实取得。
 const INITIAL_STONES: Record<BackgroundType, number> = {
-  'orphan': 100,
-  'small-clan': 500,
-  'ancient-clan': 2000,
-};
-
-const STARTER_WEAPON: Item = {
-  id: 'ITEM_WOODEN_SWORD', name: '青木剑', tier: 1,
-  type: 'Equipment', attributes: { attack: 5 },
-};
-
-const ANCIENT_WEAPON: Item = {
-  id: 'ITEM_SPIRIT_SWORD', name: '灵蕴剑', tier: 2,
-  type: 'Equipment', attributes: { attack: 15, critRate: 5 },
-};
-
-const STARTER_SKILL: Skill = {
-  id: 'SKILL_BASIC_SLASH', name: '基础斩击',
-  quality: 'Huang', type: 'Active',
-  primitives: [
-    { id: 'ATOM_001', category: 'Geometry', params: { type: 'Single', range: 1 }, costBudget: 10 },
-    { id: 'ATOM_002', category: 'Numeric', params: { multiplier: 1.2 }, costBudget: 10 },
-  ],
-  cost: { ap: 1, spiritEnergy: 5 },
-  cooldownTurns: 0,
+  'orphan': 0,
+  'small-clan': 20,
+  'ancient-clan': 100,
 };
 
 /** 六维属性键（词条 effects 中直接写入 attributes 的键） */
@@ -75,7 +54,9 @@ function applyTraitEffects(c: Character): void {
         c.attributes[key] = Math.max(1, (c.attributes[key] ?? 0) + v);
       } else {
         switch (key) {
-          case 'spiritEnergyMax': c.spiritEnergy.max = Math.max(1, c.spiritEnergy.max + v); break;
+          case 'spiritEnergyMax':
+            if (c.realm !== 'Mortal') c.spiritEnergy.max = Math.max(1, c.spiritEnergy.max + v);
+            break;
           case 'initialStones': c.spiritStones = Math.max(0, c.spiritStones + v); break;
           case 'lifespanBonus': c.lifespan.maxLifespan = Math.max(1, c.lifespan.maxLifespan + v); break;
           case 'attack': bonuses.attack += v; break;
@@ -95,7 +76,8 @@ function applyTraitEffects(c: Character): void {
 export class CharacterFactory {
   static create(params: CreateCharacterParams): Character {
     const id = generateId();
-    const realm: RealmFullPath = 'QiRefinement_1';
+    // 三种入口都先是凡人/观察者；引气入体必须由后续世界行为达成。
+    const realm: RealmFullPath = 'Mortal';
     const arrivalMode = params.arrivalMode ?? 'birth';
 
     // 从 TRAIT_REGISTRY 查词条（Phase 10：统一到 registry 体系）
@@ -109,8 +91,8 @@ export class CharacterFactory {
       attributes.comprehension = (attributes.comprehension ?? 3) + 5;
     }
 
-    // 降临方式决定年龄：诞生 → 6 岁开蒙；穿越 → startAge
-    const age = arrivalMode === 'birth' ? 6 : (params.startAge ?? 20);
+    // 降生从 0 岁进入前史并由 PlayerEntryService 同期演化至开蒙；穿越保留选定年龄。
+    const age = arrivalMode === 'transmigration' ? (params.startAge ?? 20) : 0;
 
     const spiritRoot = params.spiritRoot ?? { grade: 'Yellow', elements: ['Earth'], isVariant: false };
     const gameMode = params.gameMode ?? { breakthrough: 'Simple', saveMode: 'Free' } as GameMode;
@@ -124,65 +106,28 @@ export class CharacterFactory {
       maxLifespan: 100,
     });
 
-    // 穿越模式：白板开局（无灵石/装备/宗门/技能）
-    if (arrivalMode === 'transmigration') {
-      const character: Character = {
-        id, name: params.name, gender: params.gender, realm, soulState: 'Active',
-        cultivation: { currentExp: 0, maxExp: 100 },
-        lifespan: { age, maxLifespan: 100 },
-        spiritEnergy: { current: derived.maxSpiritEnergy, max: derived.maxSpiritEnergy },
-        monthlyActionPoints: { current: 10, max: 10 },
-        attributes,
-        spiritRoot,
-        gameMode,
-        hp: derived.maxHp, maxHp: derived.maxHp, ap: 3, canFly: false,
-        spiritStones: 0,
-        inventory: [],
-        equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
-        skills: [], skillCooldowns: {}, traits,
-        factionId: undefined, factionRank: undefined,
-        relations: {}, wantedLevels: {},
-        unlockedRecipes: ['RECIPE_QI_PILL'],
-      };
-      applyTraitEffects(character);
-      return character;
-    }
-
-    // 诞生模式：按家世给资源
-    let weapon: Item | undefined;
-    let starterSkills: Skill[] = [];
-    let factionId: string | undefined;
-    let factionRank: FactionRank | undefined;
-
-    if (params.background === 'ancient-clan') {
-      weapon = ANCIENT_WEAPON;
-      starterSkills = [{ ...STARTER_SKILL, name: '世家剑法', id: 'SKILL_CLAN_SWORD' }];
-      factionId = 'FACTION_ANCIENT_CLAN';
-      factionRank = 'Disciple';
-    } else if (params.background === 'small-clan') {
-      weapon = STARTER_WEAPON;
-      factionId = 'FACTION_SMALL_CLAN';
-      factionRank = 'Disciple';
-    }
-
     const character: Character = {
       id, name: params.name, gender: params.gender, realm, soulState: 'Active',
       cultivation: { currentExp: 0, maxExp: 100 },
       lifespan: { age, maxLifespan: 100 },
-      spiritEnergy: { current: derived.maxSpiritEnergy, max: derived.maxSpiritEnergy },
+      spiritEnergy: { current: 0, max: 0 },
       monthlyActionPoints: { current: 10, max: 10 },
       attributes,
       spiritRoot,
       gameMode,
       hp: derived.maxHp, maxHp: derived.maxHp, ap: 3, canFly: false,
-      spiritStones: INITIAL_STONES[params.background],
+      spiritStones: arrivalMode === 'birth' ? INITIAL_STONES[params.background] : 0,
       inventory: [],
-      equipmentSlots: { weapon, armor: undefined, treasures: [] },
-      skills: starterSkills, skillCooldowns: {}, traits,
-      factionId, factionRank, relations: {}, wantedLevels: {},
+      equipmentSlots: { weapon: undefined, armor: undefined, treasures: [] },
+      skills: [], skillCooldowns: {}, traits,
+      factionId: undefined, factionRank: undefined, relations: {}, wantedLevels: {},
       unlockedRecipes: ['RECIPE_QI_PILL'],
     };
     applyTraitEffects(character);
+    // 凡人即便有潜在灵性词条，也没有可调用灵力；觉醒应由后续境界变化统一重算。
+    character.spiritEnergy = { current: 0, max: 0 };
+    // 穿越与上帝观察不因词条获得凭空物资；降生资财由家世来源解释。
+    if (arrivalMode !== 'birth') character.spiritStones = 0;
     return character;
   }
 }

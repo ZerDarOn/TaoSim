@@ -4,7 +4,7 @@ import { CharacterFactory, SpiritRootRoller, rollTraits } from '@taosim/engine';
 import { usePlayerStore } from '@/stores/player';
 import { useAppStore } from '@/stores/app';
 import { useGameFlowStore } from '@/stores/game-flow';
-import type { SpiritRoot, GameMode, Gender, Trait } from '@taosim/contracts';
+import type { ChildhoodChoiceId, SpiritRoot, GameMode, Gender, Trait } from '@taosim/contracts';
 
 const playerStore = usePlayerStore();
 const appStore = useAppStore();
@@ -15,6 +15,20 @@ const playerName = ref('');           // 姓名（必填）
 const aliasName = ref('');            // 道号（选填，不填则默认用姓名）
 const playerGender = ref<Gender>('Male');
 const playerBackground = ref('');     // 背景故事（选填）
+const childhoodChoice = ref<ChildhoodChoiceId>(gameFlow.worldConfig.childhoodChoice);
+const startAge = ref(gameFlow.worldConfig.startAge);
+
+const entryModeName = computed(() => ({
+  birth: '降生',
+  transmigration: '穿越',
+  god: '上帝观察',
+}[gameFlow.worldConfig.entryMode]));
+
+const childhoodChoices = [
+  { id: 'follow_family' as const, name: '亲随家人', desc: '体魄 +1，与家人关系更亲近' },
+  { id: 'study_classics' as const, name: '熟读经义', desc: '悟性 +1' },
+  { id: 'roam_outdoors' as const, name: '山野历练', desc: '身法、神识各 +1' },
+];
 
 // ── 游戏模式（折叠在侧边，不单独占一页）──
 const gameMode = ref<GameMode>({ breakthrough: 'Simple', saveMode: 'Free' });
@@ -190,8 +204,15 @@ function confirmCreate() {
     innateTraits: selectedTraitIds,
     spiritRoot: spiritRoot.value!,
     gameMode: gameMode.value,
+    arrivalMode: gameFlow.worldConfig.entryMode,
+    startAge: startAge.value,
   });
 
+  gameFlow.setWorldConfig({
+    childhoodChoice: childhoodChoice.value,
+    startAge: Math.max(16, Math.min(80, Math.floor(startAge.value))),
+    background: selectedBackground.value.id,
+  });
   playerStore.setPlayer(character);
   gameFlow.enterGenerating();
 }
@@ -207,6 +228,32 @@ function confirmCreate() {
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- ── 左侧：角色基本信息 + 属性 ── -->
       <div class="lg:col-span-2 space-y-6">
+        <div class="bg-surface rounded-lg border border-amber-800/70 p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-amber-300">{{ entryModeName }}入世</h3>
+            <span class="text-xs text-muted">世界种子 {{ gameFlow.worldConfig.worldSeed }}</span>
+          </div>
+          <div v-if="gameFlow.worldConfig.entryMode === 'birth'" class="grid grid-cols-3 gap-2">
+            <button
+              v-for="choice in childhoodChoices"
+              :key="choice.id"
+              @click="childhoodChoice = choice.id"
+              :class="['p-3 rounded border text-left', childhoodChoice === choice.id ? 'border-amber-500 bg-amber-950/30' : 'border-line']"
+            >
+              <div class="text-xs font-semibold">{{ choice.name }}</div>
+              <div class="text-[10px] text-muted mt-1">{{ choice.desc }}</div>
+            </button>
+          </div>
+          <div v-else-if="gameFlow.worldConfig.entryMode === 'transmigration'" class="flex items-center gap-3">
+            <label for="start-age" class="text-xs text-ink-soft">入世年龄</label>
+            <input id="start-age" v-model.number="startAge" type="number" min="16" max="80" class="w-24 px-3 py-1.5 border border-line rounded bg-surface-muted text-sm">
+            <span class="text-xs text-muted">异世记忆带来悟性 +5，但没有凭空资源或宗门身份</span>
+          </div>
+          <p v-else class="text-xs text-ink-soft">
+            你没有肉身资产；地图位置代表观察焦点。可查看完整编年史，并对选中人物执行每月一次、最多 10 灵石的具名干预。
+          </p>
+        </div>
+
         <!-- 基本信息 -->
         <div class="bg-surface rounded-lg border border-line p-5 space-y-4">
           <h3 class="text-sm font-semibold text-muted uppercase tracking-wide">基本信息</h3>

@@ -27,6 +27,12 @@ const difficultyOptions = [
   { id: 'hard' as const, name: '困难', desc: '修炼减速，天劫凶猛' },
 ];
 
+const entryOptions = [
+  { id: 'birth' as const, name: '降生', desc: '出生于真实家庭或照料关系，世界与童年同期演化六年' },
+  { id: 'transmigration' as const, name: '穿越', desc: '在选定世界时点醒来，从凡人白板开始自由探索' },
+  { id: 'god' as const, name: '上帝观察', desc: '全知观察同一世界，并拥有会留下来源的有限干预' },
+];
+
 function confirm() {
   gameFlow.setWorldConfig(config.value);
   gameFlow.enterCharacter();
@@ -37,6 +43,41 @@ function confirm() {
   <div class="max-w-content mx-auto px-6 py-8">
     <h1 class="text-2xl font-display text-jade mb-2">世界初始化</h1>
     <p class="text-sm text-ink-soft mb-8">在降临之前，先塑造你想要的大千世界</p>
+
+    <!-- 入场方式 -->
+    <div class="mb-8">
+      <h3 class="text-lg font-semibold mb-3">进入世界</h3>
+      <div class="grid grid-cols-3 gap-4">
+        <button
+          v-for="opt in entryOptions"
+          :key="opt.id"
+          @click="config.entryMode = opt.id"
+          :class="[
+            'p-4 rounded-lg border-2 text-left transition',
+            config.entryMode === opt.id ? 'border-amber-500 bg-amber-950/30' : 'border-line hover:border-amber-700'
+          ]"
+        >
+          <div class="font-semibold">{{ opt.name }}</div>
+          <div class="text-sm mt-2 text-ink-soft">{{ opt.desc }}</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- 可复现种子 -->
+    <div class="mb-8">
+      <h3 class="text-lg font-semibold mb-3">世界种子</h3>
+      <div class="flex items-center gap-3">
+        <input
+          v-model.number="config.worldSeed"
+          type="number"
+          min="1"
+          step="1"
+          class="w-48 px-3 py-2 border border-line rounded-md bg-surface text-sm"
+          aria-label="世界种子"
+        >
+        <span class="text-xs text-muted">相同种子与配置会重建相同的世界前史</span>
+      </div>
+    </div>
 
     <!-- 世界规模 -->
     <div class="mb-8">

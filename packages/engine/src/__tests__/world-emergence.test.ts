@@ -265,6 +265,7 @@ describe('轨道咬合', () => {
     const npc = makeNpc({
       id: 'NPC_VISITOR',
       name: '云游者',
+      locationId: 'VENUE_QINGYUN_HALL',
       relations: {
         FRIEND: { type: 'friend', bond: 60, trust: 70, events: [], changedAt: { year: 1, month: 1 } },
       },
@@ -275,7 +276,8 @@ describe('轨道咬合', () => {
     );
     const result = engine.step();
     expect(result.events.some(e => e.title === '云游者 云游归来，拜访 故人')).toBe(true);
-    expect(result.updatedState.npcs['NPC_VISITOR']!.locationId).toBe('VENUE_TIANJI_TAVERN');
+    expect(result.updatedState.npcs['NPC_VISITOR']!.travel?.status).toBe('in_transit');
+    expect(result.updatedState.npcs['NPC_VISITOR']!.travel?.destination.nodeId).toBe('VENUE_TIANJI_TAVERN');
   });
 });
 

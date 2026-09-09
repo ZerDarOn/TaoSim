@@ -25,11 +25,26 @@ export class PlayerLifecycleService {
    * 不可变：返回新对象，不修改入参。
    */
   static advanceTime(player: Character, months: number, monthlySpiritStoneIncome?: number): AdvanceTimeResult {
+    return this.advanceElapsedTime(player, months, Math.max(0, Math.floor(months)), monthlySpiritStoneIncome);
+  }
+
+  /**
+   * 按连续时间与真实跨月次数推进玩家。
+   * 年龄/修为是连续量；俸禄、灵力和月度行动点只在跨过月界时结算。
+   */
+  static advanceElapsedTime(
+    player: Character,
+    elapsedMonths: number,
+    completedMonthBoundaries: number,
+    monthlySpiritStoneIncome?: number,
+  ): AdvanceTimeResult {
     // 使用 JSON 深拷贝代替 structuredClone，避免 Vue reactive proxy 克隆失败
     const updated: Character = JSON.parse(JSON.stringify(player));
+    const safeElapsedMonths = Math.max(0, elapsedMonths);
+    const safeMonthBoundaries = Math.max(0, Math.floor(completedMonthBoundaries));
 
     // 1. 老化 (age 按月累加)
-    updated.lifespan.age += months / 12;
+    updated.lifespan.age += safeElapsedMonths / 12;
 
     // 2. 修为自然增长 (悟性 × 灵根倍率)
     const rootMult = getSpiritRootMultiplier(
@@ -37,19 +52,19 @@ export class PlayerLifecycleService {
       updated.spiritRoot.elements.length,
       updated.spiritRoot.isVariant
     );
-    const expGain = Math.floor(updated.attributes.comprehension * months * COMPREHENSION_EXP_RATIO * rootMult);
+    const expGain = updated.attributes.comprehension * safeElapsedMonths * COMPREHENSION_EXP_RATIO * rootMult;
     updated.cultivation.currentExp += expGain;
 
     // 3. 灵石月度产出（境界俸禄水龙头；不传则不发放）
-    if (monthlySpiritStoneIncome && monthlySpiritStoneIncome > 0) {
-      updated.spiritStones += Math.floor(monthlySpiritStoneIncome * months);
+    if (safeMonthBoundaries > 0 && monthlySpiritStoneIncome && monthlySpiritStoneIncome > 0) {
+      updated.spiritStones += Math.floor(monthlySpiritStoneIncome * safeMonthBoundaries);
     }
 
-    // 4. 灵力恢复至满
-    updated.spiritEnergy.current = updated.spiritEnergy.max;
-
-    // 5. 行动点恢复 (每月恢复 max)
-    updated.monthlyActionPoints.current = updated.monthlyActionPoints.max;
+    // 4/5. 离散月度恢复只在真实跨月时发生，实时小步推进不能反复白嫖。
+    if (safeMonthBoundaries > 0) {
+      updated.spiritEnergy.current = updated.spiritEnergy.max;
+      updated.monthlyActionPoints.current = updated.monthlyActionPoints.max;
+    }
 
     // 6. 寿命检查
     if (updated.lifespan.age >= updated.lifespan.maxLifespan) {

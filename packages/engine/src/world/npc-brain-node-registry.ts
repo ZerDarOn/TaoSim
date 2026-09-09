@@ -55,12 +55,14 @@ interface RegisteredNode {
 
 export class NpcBrainNodeRegistry {
   private readonly nodes = new Map<string, RegisteredNode>();
+  private orderedNodes?: ReadonlyArray<Readonly<RegisteredNode>>;
 
   register(definition: NpcBrainNodeDefinition, enabled = true): void {
     if (this.nodes.has(definition.nodeId)) {
       throw new Error(`NpcBrainNodeRegistry: 重复节点 ${definition.nodeId}`);
     }
     this.nodes.set(definition.nodeId, { definition, enabled });
+    this.orderedNodes = undefined;
   }
 
   get(nodeId: string): NpcBrainNodeDefinition | undefined {
@@ -78,9 +80,12 @@ export class NpcBrainNodeRegistry {
   }
 
   list(): ReadonlyArray<Readonly<RegisteredNode>> {
-    return [...this.nodes.values()].sort((a, b) =>
-      a.definition.considerationOrder - b.definition.considerationOrder
-      || a.definition.nodeId.localeCompare(b.definition.nodeId));
+    if (!this.orderedNodes) {
+      this.orderedNodes = [...this.nodes.values()].sort((a, b) =>
+        a.definition.considerationOrder - b.definition.considerationOrder
+        || a.definition.nodeId.localeCompare(b.definition.nodeId));
+    }
+    return this.orderedNodes;
   }
 }
 

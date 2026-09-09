@@ -14,6 +14,7 @@ import type {
   SkillQuality,
   FactionRank,
   OverworldNode,
+  SpecialEffectType,
 } from '@taosim/contracts';
 
 // RealmType → 中文大境界
@@ -202,6 +203,9 @@ const RECIPE_NAME_MAP: Record<string, string> = {
   RECIPE_CLEAR_SOUL_PILL: '清心丹',
   RECIPE_TONIFY_PILL: '培元丹',
   RECIPE_FOUNDATION_PILL: '筑基丹',
+  RECIPE_GOLDEN_CORE_PILL: '金丹丹',
+  RECIPE_NASCENT_SOUL_PILL: '凝婴丹',
+  RECIPE_SOUL_FORMATION_PILL: '化神丹',
   RECIPE_ANTIDOTE_PILL: '解毒丹',
   RECIPE_QI_CONDENSE_PILL: '凝气丹',
   RECIPE_REVIVE_PILL: '回春丹',
@@ -256,6 +260,8 @@ const ITEM_ID_NAME_MAP: Record<string, string> = {
   MED_FOUNDATION_PILL: '筑基丹',
   MED_LONGEVITY_PILL: '延寿丹',
   MED_NASCENT_SOUL_PILL: '凝婴丹',
+  MED_GOLDEN_CORE_PILL: '金丹丹',
+  MED_SOUL_FORMATION_PILL: '化神丹',
   // 突破材料
   FoundationPill: '筑基丹',
   GoldenCorePill: '金元丹',
@@ -265,6 +271,22 @@ const ITEM_ID_NAME_MAP: Record<string, string> = {
   EQ_SPIRIT_SWORD: '灵蕴剑',
   EQ_SPIRIT_ARMOR: '灵甲',
   EQ_STAR_SWORD: '星辰剑',
+  // 锻造产物
+  ITEM_IRON_SWORD: '青锋剑',
+  ITEM_SPIRIT_CLOTH: '灵草布衣',
+  ITEM_SPIRIT_SWORD: '灵蕴剑',
+  ITEM_SPIRIT_ARMOR: '灵甲',
+  ITEM_COLD_MOON_BLADE: '冷月玄刀',
+  ITEM_WIND_SPEAR: '破风枪',
+  ITEM_YIN_YANG_ROBE: '阴阳道袍',
+  ITEM_STAR_SWORD: '星辰剑',
+  ITEM_HEAVEN_GANG_SWORD: '天罡剑',
+  ITEM_XUAN_GUI_ARMOR: '玄龟宝甲',
+  ITEM_GOLD_SCALE_BOOTS: '金鳞灵靴',
+  ITEM_METEOR_BLADE: '陨星刀',
+  ITEM_MOUNTAIN_SEAL: '山河印',
+  ITEM_DRAGON_SCALE_ARMOR: '龙鳞战甲',
+  ITEM_STAR_PHOENIX_BLADE: '凤鸣星辰剑',
 };
 
 // 宗门 ID → 中文名
@@ -275,14 +297,74 @@ const FACTION_NAME_MAP: Record<string, string> = {
   FACTION_SMALL_CLAN: '小族',
 };
 
-/** 配方 ID → 中文名；未收录时原样返回 */
-export function formatRecipeName(id: string): string {
-  return RECIPE_NAME_MAP[id] ?? id;
+/** 配方 ID → 中文名；动态内容可传入自身显示名作为回退 */
+export function formatRecipeName(id: string, fallbackName?: string): string {
+  return RECIPE_NAME_MAP[id] ?? fallbackName ?? id;
 }
 
-/** 物品/材料 ID → 中文名；未收录时原样返回 */
+/** 物品/材料 ID → 中文名；未知 ID 保留原值，便于识别数据问题 */
 export function formatItemId(id: string): string {
-  return ITEM_ID_NAME_MAP[id] ?? id;
+  const exact = ITEM_ID_NAME_MAP[id];
+  if (exact) return exact;
+
+  // 炼器产物带有运行时后缀（如 ITEM_STAR_SWORD_1730000000000）。
+  const templateId = id.replace(/_MASTER_\d+$/, '').replace(/_\d+$/, '');
+  return ITEM_ID_NAME_MAP[templateId] ?? id;
+}
+
+/** Item 显示名：保留真实/自定义名称，仅将明显的内部 ID 映射为中文。 */
+export function formatItemName(item: { id: string; name?: string; templateId?: string }): string {
+  const name = item.name?.trim();
+  const looksLikeInternalId = (value: string): boolean =>
+    /^(?:MAT|ITEM|MED|EQ|RECIPE|PILL)_[A-Z0-9_]+$/.test(value);
+
+  // 保留毒丹前缀、AI 自定义名等真实显示名；只把明显的内部 ID 视为待翻译数据。
+  if (name && !looksLikeInternalId(name)) return name;
+
+  if (item.templateId) {
+    const templateName = formatItemId(item.templateId);
+    if (templateName !== item.templateId) return templateName;
+
+    if (item.templateId.startsWith('RECIPE_')) {
+      const recipeName = formatRecipeName(item.templateId);
+      if (recipeName !== item.templateId) return recipeName;
+    }
+  }
+
+  const idName = formatItemId(item.id);
+  if (idName !== item.id) return idName;
+
+  return name || item.id;
+}
+
+const SPECIAL_EFFECT_MAP: Record<SpecialEffectType, string> = {
+  SOUL_GUARD: '剑灵护体',
+  BLOOD_THIRST: '嗜血',
+  MANA_SHIELD: '灵盾',
+  QUICK_STRIKE: '疾风',
+  PHOENIX_REBIRTH: '涅槃',
+  VITALITY_SIPHON: '夺灵',
+};
+
+/** 传奇特效 ID → 中文名 */
+export function formatSpecialEffect(effect?: SpecialEffectType | string): string {
+  if (!effect) return '无';
+  return SPECIAL_EFFECT_MAP[effect as SpecialEffectType] ?? effect;
+}
+
+/** 品阶数字 → 中文显示（统一百艺中的阶位格式） */
+export function formatTier(tier: number): string {
+  return `${tier}阶`;
+}
+
+/** 将引擎返回的百艺结果消息中的内部枚举/ID转为中文。 */
+export function formatCraftingMessage(message: string): string {
+  return message
+    .replace(/\b(Common|Rare|Epic|Legendary)\b/g, token => formatQuality(token as ItemQuality))
+    .replace(/\b(?:MAT|ITEM|MED|EQ|RECIPE)_[A-Z0-9_]+\b/g, token => {
+      if (token.startsWith('RECIPE_')) return formatRecipeName(token);
+      return formatItemId(token);
+    });
 }
 
 /** 宗门 ID → 中文名；空值显示"无" */
@@ -328,8 +410,8 @@ const NODE_TYPE_MAP: Record<OverworldNode['type'], string> = {
 };
 
 /** OverworldNode.type → 中文；未收录时原样返回 */
-export function formatNodeType(t: OverworldNode['type']): string {
-  return NODE_TYPE_MAP[t] ?? t;
+export function formatNodeType(t: OverworldNode['type'] | string): string {
+  return NODE_TYPE_MAP[t as OverworldNode['type']] ?? t;
 }
 
 /** FactionRank → 中文职位 */

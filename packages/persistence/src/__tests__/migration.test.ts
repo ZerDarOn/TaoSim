@@ -25,7 +25,7 @@ function makeMinimalPlayer(): any {
 function baseHeader(overrides: Partial<any> = {}) {
   return {
     saveId: 'save_test',
-    schemaVersion: 8,
+    schemaVersion: 9,
     gameVersion: '0.3.0',
     timestamp: Date.now(),
     playTimeMonths: 10,
@@ -122,7 +122,7 @@ describe('MigrationService', () => {
     it('v1 存档迁移到 v8：补 npcs + eventLog + elapsedMinutes + watchedNpcIds', () => {
       const result = MigrationService.loadWithMigration(makeV1Payload());
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
@@ -140,7 +140,7 @@ describe('MigrationService', () => {
     it('v2 迁移到 v8', () => {
       const result = MigrationService.loadWithMigration(makeV2Payload());
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
       expect(result.watchedNpcIds).toEqual([]);
@@ -151,7 +151,7 @@ describe('MigrationService', () => {
     it('v3 迁移到 v8', () => {
       const result = MigrationService.loadWithMigration(makeV3Payload());
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.watchedNpcIds).toEqual([]);
@@ -162,7 +162,7 @@ describe('MigrationService', () => {
     it('v4 迁移到 v8：elapsedMinutes 正确计算 + watchedNpcIds 补 []', () => {
       const result = MigrationService.loadWithMigration(JSON.parse(JSON.stringify(makeV4Payload())));
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       // currentYear=1, currentMonth=1 → (1-1)*12 + (1-1)=0 → 0 minutes
       expect(result.worldState.elapsedMinutes).toBe(0);
       expect(result.watchedNpcIds).toEqual([]);
@@ -173,7 +173,7 @@ describe('MigrationService', () => {
     it('v5 迁移到 v8', () => {
       const result = MigrationService.loadWithMigration(JSON.parse(JSON.stringify(makeV5Payload())));
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.watchedNpcIds).toEqual([]);
     });
   });
@@ -183,7 +183,7 @@ describe('MigrationService', () => {
       const original = makeV8Payload();
       const result = MigrationService.loadWithMigration(JSON.parse(JSON.stringify(original)));
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.header.saveId).toBe('save_test');
       expect(result.player.id).toBe('player_1');
       expect(result.watchedNpcIds).toEqual(['npc_1', 'npc_2']);

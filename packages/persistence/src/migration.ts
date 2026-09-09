@@ -8,8 +8,12 @@ export class MigrationService {
   /**
    * 加载并自动迁移存档到当前 schema 版本。
    */
-  public static loadWithMigration(rawPayload: unknown): SavePayload {
-    return SaveMigrationRunner.migrate(rawPayload);
+  public static loadWithMigration(
+    rawPayload: unknown,
+    postMigration?: (payload: SavePayload) => SavePayload,
+  ): SavePayload {
+    const migrated = SaveMigrationRunner.migrate(rawPayload);
+    return postMigration ? postMigration(migrated) : migrated;
   }
 
   /**

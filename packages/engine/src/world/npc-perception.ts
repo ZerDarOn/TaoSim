@@ -8,7 +8,9 @@ import type {
   NpcRecord,
   WorldState,
 } from '@taosim/contracts';
+import { resolveSpatialAncestors } from '@taosim/contracts';
 import { getVenue, getVenuesByNode } from '../overworld/map-catalog.js';
+import { elapsedFromYearMonth } from '../time/world-clock.js';
 
 const MAX_DIRECT_NPC_OBSERVATIONS = 24;
 const MAX_FACT_OBSERVATIONS = 16;
@@ -28,6 +30,10 @@ function addMonths(time: BrainTime, months: number): BrainTime {
 
 export interface NpcPerceptionIndex {
   npcsByLocation: ReadonlyMap<string, readonly NpcRecord[]>;
+  npcsBySpatialNode: ReadonlyMap<string, readonly NpcRecord[]>;
+  spatialAncestorsByNode: ReadonlyMap<string, readonly string[]>;
+  knownSpatialNodeIdsByNode: ReadonlyMap<string, readonly string[]>;
+  visibleFeatureIdsByNode: ReadonlyMap<string, readonly string[]>;
   publicFacts: readonly Fact[];
   factsByLocation: ReadonlyMap<string, readonly Fact[]>;
   factsByParticipant: ReadonlyMap<string, readonly Fact[]>;
@@ -44,8 +50,39 @@ function addIndexed<T>(map: Map<string, T[]>, key: string | undefined, value: T)
 /** 月初构建一次，避免每个 NPC 扫描全世界，并冻结本月观察顺序。 */
 export function createNpcPerceptionIndex(world: Readonly<WorldState>): NpcPerceptionIndex {
   const npcsByLocation = new Map<string, NpcRecord[]>();
+  const npcsBySpatialNode = new Map<string, NpcRecord[]>();
   for (const npc of Object.values(world.npcs)) {
-    if (npc.soulState === 'Active') addIndexed(npcsByLocation, npc.locationId, npc);
+    if (npc.soulState === 'Active') {
+      addIndexed(npcsByLocation, npc.locationId, npc);
+      addIndexed(npcsBySpatialNode, npc.spatialAddress?.nodeId, npc);
+    }
+  }
+  // 月初只排序一次；观察者不应为同一地点的每个 NPC 重复排序同一列表。
+  for (const list of npcsByLocation.values()) list.sort((a, b) => a.id.localeCompare(b.id));
+  for (const list of npcsBySpatialNode.values()) list.sort((a, b) => a.id.localeCompare(b.id));
+  const spatialAncestorsByNode = new Map<string, readonly string[]>();
+  const knownSpatialNodeIdsByNode = new Map<string, readonly string[]>();
+  const visibleFeatureIdsByNode = new Map<string, readonly string[]>();
+  const nowMinutes = world.elapsedMinutes
+    ?? elapsedFromYearMonth(world.currentYear, world.currentMonth);
+  if (world.spatialState) {
+    for (const nodeId of npcsBySpatialNode.keys()) {
+      const ancestors = resolveSpatialAncestors(world.spatialState, nodeId);
+      spatialAncestorsByNode.set(nodeId, ancestors);
+      const known = new Set(ancestors);
+      for (const link of Object.values(world.spatialState.links)) {
+        if (link.status !== 'active') continue;
+        if (ancestors.includes(link.fromNodeId)) known.add(link.toNodeId);
+        if (link.bidirectional && ancestors.includes(link.toNodeId)) known.add(link.fromNodeId);
+      }
+      knownSpatialNodeIdsByNode.set(nodeId, [...known].sort());
+      visibleFeatureIdsByNode.set(nodeId, Object.values(world.spatialState.features)
+        .filter((feature) => feature.startsAtMinutes <= nowMinutes
+          && (feature.endsAtMinutes === undefined || nowMinutes < feature.endsAtMinutes)
+          && feature.scope.nodeIds.some((scopeNodeId) => ancestors.includes(scopeNodeId)))
+        .map((feature) => feature.id)
+        .sort());
+    }
   }
   const publicFacts: Fact[] = [];
   const factsByLocation = new Map<string, Fact[]>();
@@ -70,6 +107,10 @@ export function createNpcPerceptionIndex(world: Readonly<WorldState>): NpcPercep
   );
   return {
     npcsByLocation,
+    npcsBySpatialNode,
+    spatialAncestorsByNode,
+    knownSpatialNodeIdsByNode,
+    visibleFeatureIdsByNode,
     publicFacts: recent(publicFacts),
     factsByLocation: boundMap(factsByLocation),
     factsByParticipant: boundMap(factsByParticipant),
@@ -89,13 +130,44 @@ export function buildNpcPerceptionSnapshot(
     ? getVenuesByNode(currentVenue.nodeId).map((venue) => venue.id).sort()
     : observer.locationId ? [observer.locationId] : [];
   const observations: NpcKnowledgeMessage[] = [];
+  const currentSpatialNodeId = observer.spatialAddress?.nodeId;
+  const spatialAncestors = currentSpatialNodeId
+    ? index.spatialAncestorsByNode.get(currentSpatialNodeId) ?? []
+    : [];
+  const knownSpatialNodeIds = new Set(
+    currentSpatialNodeId
+      ? index.knownSpatialNodeIdsByNode.get(currentSpatialNodeId) ?? spatialAncestors
+      : [],
+  );
 
-  const visibleNpcs = [...(observer.locationId ? index.npcsByLocation.get(observer.locationId) ?? [] : [])]
+  const nowMinutes = elapsedFromYearMonth(now.year, now.month);
+  const visibleFeatureIds = currentSpatialNodeId
+    ? index.visibleFeatureIdsByNode.get(currentSpatialNodeId) ?? []
+    : [];
+  const visibleFeatures = visibleFeatureIds
+    .map((featureId) => world.spatialState?.features[featureId])
+    .filter((feature): feature is NonNullable<typeof feature> => feature !== undefined
+      && feature.startsAtMinutes <= nowMinutes
+      && (feature.endsAtMinutes === undefined || nowMinutes < feature.endsAtMinutes));
+  for (const feature of visibleFeatures) {
+    observations.push({
+      messageId: `${observer.id}:feature:${feature.id}:${now.year}:${now.month}`,
+      topic: feature.type === 'barrier' || feature.type === 'disaster_zone' ? 'threat' : 'fact',
+      subject: { kind: 'location', entityId: feature.id },
+      value: feature.lifecycle,
+      source: { type: 'observation' },
+      observedAt: { ...now },
+      confidence: 1,
+    });
+  }
+
+  const visibleNpcs = [...(currentSpatialNodeId
+    ? index.npcsBySpatialNode.get(currentSpatialNodeId) ?? []
+    : observer.locationId ? index.npcsByLocation.get(observer.locationId) ?? [] : [])]
     .filter((npc) => npc.id !== observer.id
       && npc.soulState === 'Active'
       && npc.locationId !== undefined
       && npc.locationId === observer.locationId)
-    .sort((a, b) => a.id.localeCompare(b.id))
     .slice(0, MAX_DIRECT_NPC_OBSERVATIONS);
   for (const npc of visibleNpcs) {
     observations.push({
@@ -143,6 +215,9 @@ export function buildNpcPerceptionSnapshot(
     at: { ...now },
     locationId: observer.locationId,
     knownLocationIds,
+    currentSpatialNodeId,
+    knownSpatialNodeIds: [...knownSpatialNodeIds].sort(),
+    visibleFeatureIds: visibleFeatures.map((feature) => feature.id),
     observations,
   };
 }
@@ -170,16 +245,16 @@ export function updateNpcKnowledge(
   now: BrainTime,
   options: NpcKnowledgeUpdateOptions = {},
 ): NpcKnowledgeUpdateResult {
-  const beliefs: Record<string, BrainBelief> = Object.fromEntries(
-    Object.entries(brain.beliefs).map(([id, belief]) => [id, { ...belief }]),
-  );
+  // 写时复制：大多数月份只有少量观察变化，避免为每个 NPC 深拷贝并重排
+  // 整个 32 条信念集合；原 Brain 与未触碰的信念对象保持不可变共享。
+  const beliefs: Record<string, BrainBelief> = { ...brain.beliefs };
   let learnedCount = 0;
   let questionedCount = 0;
   for (const belief of Object.values(beliefs)) {
     if (belief.status === 'active'
       && belief.expiresAt
       && monthOrdinal(belief.expiresAt) <= monthOrdinal(now)) {
-      belief.status = 'questioned';
+      beliefs[belief.beliefId] = { ...belief, status: 'questioned' };
       questionedCount++;
     }
   }
@@ -205,34 +280,38 @@ export function updateNpcKnowledge(
     learnedCount++;
   }
 
-  const retainedBeliefIds = new Set(messages
-    .filter((message) => options.retainMessageIds?.includes(message.messageId))
-    .map(beliefIdOf));
-  const activePlanTargetIds = new Set(
-    brain.currentPlan?.status === 'active'
-      ? brain.currentPlan.steps.flatMap((step) => step.targets.map((target) => target.entityId))
-      : [],
-  );
-  for (const [beliefId, belief] of Object.entries(beliefs)) {
-    if (activePlanTargetIds.has(belief.subject.entityId)
-      || (typeof belief.value === 'string' && activePlanTargetIds.has(belief.value))) {
-      retainedBeliefIds.add(beliefId);
+  let prunedCount = 0;
+  let nextBeliefs: Record<string, BrainBelief> = beliefs;
+  if (Object.keys(beliefs).length > MAX_PERSISTED_BELIEFS) {
+    const retainedBeliefIds = new Set(messages
+      .filter((message) => options.retainMessageIds?.includes(message.messageId))
+      .map(beliefIdOf));
+    const activePlanTargetIds = new Set(
+      brain.currentPlan?.status === 'active'
+        ? brain.currentPlan.steps.flatMap((step) => step.targets.map((target) => target.entityId))
+        : [],
+    );
+    for (const [beliefId, belief] of Object.entries(beliefs)) {
+      if (activePlanTargetIds.has(belief.subject.entityId)
+        || (typeof belief.value === 'string' && activePlanTargetIds.has(belief.value))) {
+        retainedBeliefIds.add(beliefId);
+      }
     }
+    const ranked = Object.entries(beliefs).sort(([idA, a], [idB, b]) => {
+      const retentionDelta = Number(retainedBeliefIds.has(idB)) - Number(retainedBeliefIds.has(idA));
+      if (retentionDelta !== 0) return retentionDelta;
+      const statusRank = (belief: BrainBelief) => belief.status === 'active' ? 1 : 0;
+      return statusRank(b) - statusRank(a)
+        || b.confidence - a.confidence
+        || monthOrdinal(b.observedAt) - monthOrdinal(a.observedAt)
+        || a.beliefId.localeCompare(b.beliefId);
+    });
+    nextBeliefs = Object.fromEntries(ranked.slice(0, MAX_PERSISTED_BELIEFS));
+    prunedCount = Math.max(0, ranked.length - MAX_PERSISTED_BELIEFS);
   }
-  const ranked = Object.entries(beliefs).sort(([idA, a], [idB, b]) => {
-    const retentionDelta = Number(retainedBeliefIds.has(idB)) - Number(retainedBeliefIds.has(idA));
-    if (retentionDelta !== 0) return retentionDelta;
-    const statusRank = (belief: BrainBelief) => belief.status === 'active' ? 1 : 0;
-    return statusRank(b) - statusRank(a)
-      || b.confidence - a.confidence
-      || monthOrdinal(b.observedAt) - monthOrdinal(a.observedAt)
-      || a.beliefId.localeCompare(b.beliefId);
-  });
-  const bounded = Object.fromEntries(ranked.slice(0, MAX_PERSISTED_BELIEFS));
-  const prunedCount = Math.max(0, ranked.length - MAX_PERSISTED_BELIEFS);
   const changed = learnedCount > 0 || questionedCount > 0 || prunedCount > 0;
   return {
-    brain: changed ? { ...brain, revision: brain.revision + 1, beliefs: bounded } : brain as BrainState,
+    brain: changed ? { ...brain, revision: brain.revision + 1, beliefs: nextBeliefs } : brain as BrainState,
     learnedCount,
     questionedCount,
     prunedCount,

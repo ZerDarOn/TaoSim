@@ -20,7 +20,7 @@ async function getAdapterClass() {
   return _adapterMod.IndexedDBStorageAdapter;
 }
 
-function makePayload(saveId: string, schemaVersion = 8): SavePayload {
+function makePayload(saveId: string, schemaVersion = 9): SavePayload {
   return {
     header: {
       saveId,

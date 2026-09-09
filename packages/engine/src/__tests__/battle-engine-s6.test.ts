@@ -96,7 +96,8 @@ function makeContext(opts: {
       },
     },
     characters: opts.characters ?? { [opts.actor.id]: opts.actor, [opts.target.id]: opts.target },
-    rng: Math.random,
+    // 原子数值测试只验证伤害结构；固定命中随机源，避免基础闪避率让断言偶发为 0。
+    rng: () => 0.5,
     turnNumber: 1,
     element: 'Physical',
     tier: 1,

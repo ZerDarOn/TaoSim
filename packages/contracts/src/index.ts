@@ -41,3 +41,6 @@ export * from './location.js';
 
 // ── S3：WorldOutcome 原子事务 ──
 export * from './world-outcome.js';
+export * from './world-encounter.js';
+export * from './spatial.js';
+export * from './simulation-scheduler.js';

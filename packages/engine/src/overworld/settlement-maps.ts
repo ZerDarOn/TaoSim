@@ -31,16 +31,22 @@ export interface SettlementNode {
 export interface SettlementRoad {
   from: string;
   to: string;
-  /** 物理距离（米/相对单位） */
-  distance: number;
+  /** 权威物理距离（米）；不得由 UI 坐标反推。 */
+  distanceMeters: number;
 }
 
 /** 聚落地图 */
 export interface SettlementMap {
+  /** 稳定定义版本；用于目录增量升级，不随存档时间变化。 */
+  definitionVersion: number;
   /** 关联的大地图节点 ID（如 NODE_CITY_TIANJI） */
   nodeId: string;
   /** 聚落名称 */
   name: string;
+  /** 从上级空间进入时落脚的稳定节点。 */
+  entryNodeId: string;
+  /** 纯显示布局；不表示物理米制坐标。 */
+  layout: { x: number; y: number; width: number; height: number };
   /** 聚落内节点 */
   nodes: SettlementNode[];
   /** 聚落内道路 */
@@ -50,8 +56,11 @@ export interface SettlementMap {
 // —— 天机城聚落图 ——
 
 export const TIANJI_SETTLEMENT: SettlementMap = {
+  definitionVersion: 1,
   nodeId: 'NODE_CITY_TIANJI',
   name: '天机城',
+  entryNodeId: 'TIANJI_GATE_SOUTH',
+  layout: { x: 80, y: 120, width: 640, height: 500 },
   nodes: [
     // 城门
     {
@@ -125,21 +134,89 @@ export const TIANJI_SETTLEMENT: SettlementMap = {
   ],
   roads: [
     // 南门 ↔ 主街
-    { from: 'TIANJI_GATE_SOUTH', to: 'TIANJI_MAIN_STREET', distance: 200 },
+    { from: 'TIANJI_GATE_SOUTH', to: 'TIANJI_MAIN_STREET', distanceMeters: 200 },
     // 主街 ↔ 百宝阁
-    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_BAIBAO_GE', distance: 160 },
+    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_BAIBAO_GE', distanceMeters: 160 },
     // 主街 ↔ 醉仙楼
-    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_ZUIXIAN_LOU', distance: 160 },
+    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_ZUIXIAN_LOU', distanceMeters: 160 },
     // 主街 ↔ 天机榜
-    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_QUEST_BOARD', distance: 150 },
+    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_QUEST_BOARD', distanceMeters: 150 },
     // 主街 ↔ 传送院
-    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_TELEPORT', distance: 250 },
+    { from: 'TIANJI_MAIN_STREET', to: 'TIANJI_TELEPORT', distanceMeters: 250 },
     // 南门 ↔ 民居区
-    { from: 'TIANJI_GATE_SOUTH', to: 'TIANJI_RESIDENTIAL', distance: 250 },
+    { from: 'TIANJI_GATE_SOUTH', to: 'TIANJI_RESIDENTIAL', distanceMeters: 250 },
     // 百宝阁 ↔ 暗巷
-    { from: 'TIANJI_BAIBAO_GE', to: 'TIANJI_DARK_ALLEY', distance: 100 },
+    { from: 'TIANJI_BAIBAO_GE', to: 'TIANJI_DARK_ALLEY', distanceMeters: 100 },
     // 民居区 ↔ 暗巷（隐蔽小路）
-    { from: 'TIANJI_RESIDENTIAL', to: 'TIANJI_DARK_ALLEY', distance: 120 },
+    { from: 'TIANJI_RESIDENTIAL', to: 'TIANJI_DARK_ALLEY', distanceMeters: 120 },
+  ],
+};
+
+// —— 青云宗聚落图 ——
+
+/**
+ * 青云宗拥有独立于天机城的空间拓扑。这里表达的是首个可玩的宗门外院，
+ * 不是把同一张城市底图换名复用；后续室内地图可挂在对应 Venue 下。
+ */
+export const QINGYUN_SETTLEMENT: SettlementMap = {
+  definitionVersion: 1,
+  nodeId: 'NODE_SECT_QINGYUN',
+  name: '青云宗',
+  entryNodeId: 'QINGYUN_MOUNTAIN_GATE',
+  layout: { x: 100, y: 100, width: 620, height: 520 },
+  nodes: [
+    {
+      id: 'QINGYUN_MOUNTAIN_GATE',
+      name: '青云山门',
+      type: 'gate',
+      position: { x: 400, y: 570 },
+      description: '云阶尽头的青石山门，入宗者须在此验明身份',
+    },
+    {
+      id: 'QINGYUN_CLOUD_STEPS',
+      name: '登云阶',
+      type: 'street',
+      position: { x: 400, y: 450 },
+      description: '沿山势而上的石阶，晨昏常有弟子往来',
+    },
+    {
+      id: 'QINGYUN_OUTER_COURT',
+      name: '外院',
+      type: 'residential',
+      position: { x: 240, y: 350 },
+      description: '外门弟子居住、领受杂务之处',
+    },
+    {
+      id: 'QINGYUN_HALL',
+      name: '青云殿',
+      type: 'hall',
+      position: { x: 400, y: 210 },
+      venueId: 'VENUE_QINGYUN_HALL',
+      description: '宗门议事与接引宾客之地',
+    },
+    {
+      id: 'QINGYUN_TRAINING',
+      name: '演武坪',
+      type: 'training',
+      position: { x: 580, y: 340 },
+      venueId: 'VENUE_QINGYUN_TRAINING',
+      description: '弟子切磋、长老授业的开阔石坪',
+    },
+    {
+      id: 'QINGYUN_BACK_CLIFF',
+      name: '后山断崖',
+      type: 'alley',
+      position: { x: 610, y: 170 },
+      description: '罡风常年不息，偶有弟子来此悟剑',
+    },
+  ],
+  roads: [
+    { from: 'QINGYUN_MOUNTAIN_GATE', to: 'QINGYUN_CLOUD_STEPS', distanceMeters: 500 },
+    { from: 'QINGYUN_CLOUD_STEPS', to: 'QINGYUN_OUTER_COURT', distanceMeters: 300 },
+    { from: 'QINGYUN_CLOUD_STEPS', to: 'QINGYUN_TRAINING', distanceMeters: 360 },
+    { from: 'QINGYUN_OUTER_COURT', to: 'QINGYUN_HALL', distanceMeters: 420 },
+    { from: 'QINGYUN_TRAINING', to: 'QINGYUN_HALL', distanceMeters: 330 },
+    { from: 'QINGYUN_TRAINING', to: 'QINGYUN_BACK_CLIFF', distanceMeters: 280 },
   ],
 };
 
@@ -147,6 +224,7 @@ export const TIANJI_SETTLEMENT: SettlementMap = {
 
 export const SETTLEMENT_REGISTRY: Record<string, SettlementMap> = {
   NODE_CITY_TIANJI: TIANJI_SETTLEMENT,
+  NODE_SECT_QINGYUN: QINGYUN_SETTLEMENT,
 };
 
 /** 按 nodeId 获取聚落图 */
@@ -154,7 +232,7 @@ export function getSettlement(nodeId: string): SettlementMap | undefined {
   return SETTLEMENT_REGISTRY[nodeId];
 }
 
-/** 获取聚落内两个节点之间的最短路径距离（BFS） */
+/** 获取聚落内两个节点之间的加权最短路径距离（Dijkstra）。 */
 export function settlementDistance(
   map: SettlementMap,
   fromNodeId: string,
@@ -162,26 +240,39 @@ export function settlementDistance(
 ): number | null {
   if (fromNodeId === toNodeId) return 0;
 
-  const visited = new Set<string>([fromNodeId]);
-  const queue: { id: string; dist: number }[] = [{ id: fromNodeId, dist: 0 }];
+  const knownNodeIds = new Set(map.nodes.map((node) => node.id));
+  if (!knownNodeIds.has(fromNodeId) || !knownNodeIds.has(toNodeId)) return null;
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
+  const settled = new Set<string>();
+  const distances = new Map<string, number>([[fromNodeId, 0]]);
+
+  while (settled.size < knownNodeIds.size) {
+    let currentId: string | null = null;
+    let currentDistance = Number.POSITIVE_INFINITY;
+    for (const [nodeId, distance] of distances) {
+      if (!settled.has(nodeId) && distance < currentDistance) {
+        currentId = nodeId;
+        currentDistance = distance;
+      }
+    }
+    if (!currentId) return null;
+    if (currentId === toNodeId) return currentDistance;
+    settled.add(currentId);
+
     for (const road of map.roads) {
-      const next = road.from === current.id
+      const next = road.from === currentId
         ? road.to
-        : road.to === current.id
+        : road.to === currentId
           ? road.from
           : null;
-      if (next && !visited.has(next)) {
-        const newDist = current.dist + road.distance;
-        if (next === toNodeId) return newDist;
-        visited.add(next);
-        queue.push({ id: next, dist: newDist });
+      if (!next || settled.has(next)) continue;
+      const candidateDistance = currentDistance + road.distanceMeters;
+      if (candidateDistance < (distances.get(next) ?? Number.POSITIVE_INFINITY)) {
+        distances.set(next, candidateDistance);
       }
     }
   }
-  return null; // 不连通
+  return null;
 }
 
 // —— 在场 NPC 查询 ——

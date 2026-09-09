@@ -79,7 +79,12 @@ export function simulateNamedNpcBattle(
   if (attacker.soulState !== 'Active' || defender.soulState !== 'Active') {
     return { status: 'failed', reason: 'participant_inactive' };
   }
-  if (attacker.locationId !== request.locationId || defender.locationId !== request.locationId) {
+  const legacyCoLocated = attacker.locationId === request.locationId && defender.locationId === request.locationId;
+  const spatialCoLocated = attacker.travel?.status !== 'in_transit'
+    && defender.travel?.status !== 'in_transit'
+    && attacker.spatialAddress?.nodeId === request.locationId
+    && defender.spatialAddress?.nodeId === request.locationId;
+  if (!legacyCoLocated && !spatialCoLocated) {
     return { status: 'failed', reason: 'not_co_located' };
   }
   const now = { year: world.currentYear, month: world.currentMonth };

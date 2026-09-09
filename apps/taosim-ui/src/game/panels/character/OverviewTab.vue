@@ -5,6 +5,8 @@
  */
 import { computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
+import { useAppStore } from '@/stores/app';
+import { projectTime } from '@taosim/engine';
 import {
   formatGender,
   formatRealm,
@@ -16,6 +18,7 @@ import {
 } from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
+const appStore = useAppStore();
 
 const c = computed(() => playerStore.character);
 
@@ -50,6 +53,37 @@ const gameModeText = computed(() => {
   const save = m.saveMode === 'Ironman' ? '铁人模式' : '自由模式';
   return `${breakthrough} · ${save}`;
 });
+
+const entryModeText = computed(() => {
+  const mode = c.value?.entryProfile?.mode;
+  return ({ birth: '降生', transmigration: '穿越', god: '上帝观察', legacy: '旧档入世' } as const)[mode ?? 'legacy'];
+});
+
+function formatEntryTime(minutes: number | undefined): string {
+  if (minutes === undefined) return '尚未完成';
+  const value = projectTime(minutes);
+  return `道历 ${value.year} 年 ${value.month} 月 ${value.day} 日`;
+}
+
+const familyNames = computed(() => {
+  const world = appStore.currentWorldState;
+  const family = c.value?.entryProfile?.family ?? [];
+  if (!world) return [];
+  return family.map((link) => {
+    const npc = world.npcs[link.npcId] ?? world.archivedNpcs?.[link.npcId];
+    const role = ({ parent: '双亲', guardian: '照料者', elder: '族中长辈' } as const)[link.role];
+    return `${npc?.name ?? '姓名失考'}（${role}${world.archivedNpcs?.[link.npcId] ? '，已载入史册' : ''}）`;
+  });
+});
+
+const childhoodChoiceText = computed(() => {
+  const choice = c.value?.entryProfile?.childhoodChoice;
+  return choice ? ({
+    follow_family: '亲随家人',
+    study_classics: '熟读经义',
+    roam_outdoors: '山野历练',
+  } as const)[choice] : undefined;
+});
 </script>
 
 <template>
@@ -64,6 +98,24 @@ const gameModeText = computed(() => {
         <div><span class="text-slate-400">魂态：</span>{{ formatSoulState(c.soulState) }}</div>
         <div class="col-span-2"><span class="text-slate-400">灵根：</span>{{ spiritRootText }}</div>
         <div class="col-span-2"><span class="text-slate-400">游戏模式：</span>{{ gameModeText }}</div>
+      </div>
+    </section>
+
+    <section v-if="c.entryProfile" class="bg-slate-800 rounded p-3 space-y-1.5">
+      <h3 class="text-sm font-semibold text-slate-300">入世前史</h3>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-400">
+        <div><span class="text-slate-500">方式：</span>{{ entryModeText }}</div>
+        <div><span class="text-slate-500">视野：</span>{{ c.entryProfile.knowledgeScope === 'omniscient' ? '全知观察' : '角色所知' }}</div>
+        <div v-if="c.entryProfile.bornAtMinutes !== undefined" class="col-span-2"><span class="text-slate-500">出生：</span>{{ formatEntryTime(c.entryProfile.bornAtMinutes) }}</div>
+        <div class="col-span-2"><span class="text-slate-500">自主入世：</span>{{ formatEntryTime(c.entryProfile.enteredWorldAtMinutes) }}</div>
+        <div v-if="childhoodChoiceText" class="col-span-2"><span class="text-slate-500">童年选择：</span>{{ childhoodChoiceText }}</div>
+        <div v-if="familyNames.length" class="col-span-2"><span class="text-slate-500">真实亲缘/照料：</span>{{ familyNames.join('、') }}</div>
+        <div v-if="c.entryProfile.mode === 'god'" class="col-span-2 text-amber-300">
+          地图地址是观察焦点，不是肉身位置；累计赐予 {{ c.entryProfile.godIntervention?.totalSpiritStonesGranted ?? 0 }} 灵石。
+        </div>
+        <div v-if="c.entryProfile.mode === 'legacy'" class="col-span-2 text-slate-500">
+          旧档未记录原始入场来源；系统不会反向编造家庭或出生事件。
+        </div>
       </div>
     </section>
 

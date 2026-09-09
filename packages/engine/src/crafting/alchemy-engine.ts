@@ -5,6 +5,8 @@ import { RESTORE_MULTIPLIER, BREAKTHROUGH_BONUS, LIFESPAN_MULTIPLIER } from './p
 
 export interface CraftResult {
   success: boolean;
+  /** 是否已经通过输入校验并消耗材料，供上层决定是否扣除行动成本。 */
+  attempted: boolean;
   reason?: string;
   pill?: Item;
 }
@@ -12,12 +14,12 @@ export interface CraftResult {
 export class AlchemyEngine {
   static craftPill(character: Character, recipeName: string): CraftResult {
     const recipe = RecipeRegistry.getPillRecipe(recipeName);
-    if (!recipe) return { success: false, reason: '未知配方' };
+    if (!recipe) return { success: false, attempted: false, reason: '未知配方' };
 
     // 1. 材料检查
     for (const matId of recipe.requiredMaterials) {
       const stack = character.inventory.find(s => s.item.id === matId);
-      if (!stack || stack.count < 1) return { success: false, reason: `材料不足：${matId}` };
+      if (!stack || stack.count < 1) return { success: false, attempted: false, reason: `材料不足：${matId}` };
     }
 
     // 2. 消耗材料 + 收集毒性
@@ -37,7 +39,7 @@ export class AlchemyEngine {
     const successRate = Math.min(0.95, recipe.baseSuccessRate + comprehensionBonus);
 
     if (Math.random() > successRate) {
-      return { success: false, reason: '炼制失败，材料已消耗' };
+      return { success: false, attempted: true, reason: '炼制失败，材料已消耗' };
     }
 
     // 5. 品质 roll（丹药专用分布：C50/R30/E15/L5）
@@ -69,7 +71,7 @@ export class AlchemyEngine {
       quality,
     };
 
-    return { success: true, pill: pillItem };
+    return { success: true, attempted: true, pill: pillItem };
   }
 
   static getPillEffect(pill: Item): number {

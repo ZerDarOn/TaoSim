@@ -189,7 +189,8 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
       legendaryEventsMin: 15,         // 传奇活跃度（基线 0-6 条的多数）
       couplesMin: 5,                  // 代际：涌现道侣 ≥5 对（基线 0）
       childrenMin: 10,                // 代际：血脉子嗣 ≥10 人（基线 0）
-      heritagePassesMin: 1,           // 代际：道统传承至少激活一次（基线 0）
+      heritagePassesTotalMin: 5,      // 低频道统事件按多世界样本窗判断，避免钦定每个世界必然发生
+      heritagePassSeedCountMin: 4,    // 5 个固定世界中至少 4 个自然激活传承链
       // 宗门权力（§2.2 夺位）：验证真实斗法轨道被激活，不钦定挑战者必须获胜。
       // 若用“成功次数”作门槛，会反向迫使系统偏袒夺位者，破坏人物实力决定胜负的因果。
       sectUsurpBattlesTotalMin: 2,
@@ -210,7 +211,6 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
         ['传奇活跃≥', r.legendaryAvgEvents >= targets.legendaryEventsMin, `${r.legendaryAvgEvents}≥${targets.legendaryEventsMin}`],
         ['道侣≥', r.couples >= targets.couplesMin, `${r.couples}≥${targets.couplesMin}`],
         ['子嗣≥', r.children >= targets.childrenMin, `${r.children}≥${targets.childrenMin}`],
-        ['道统传承>0', r.heritagePasses >= targets.heritagePassesMin, `${r.heritagePasses}≥${targets.heritagePassesMin}`],
       ];
       if (checkNames.length === 0) checkNames.push(...checks.map((c) => c[0]));
       for (const [name, ok, actual] of checks) {
@@ -218,8 +218,17 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
       }
     }
 
-    // 宗门权力（§2.2）：低频涌现事件按全窗合计判定（逐种子波动属天然涌现差异，非机制失效）
-    checkNames.push('宗门夺位斗法合计≥');
+    // 低频涌现事件按多世界样本窗判定：既要求覆盖多数世界，也要求总量不退化，
+    // 但不为单个种子注入保底剧情。
+    checkNames.push('道统传承覆盖与合计', '宗门夺位斗法合计≥');
+    const heritagePassSeedCount = rows.filter((r) => r.heritagePasses > 0).length;
+    const heritagePassTotal = rows.reduce((sum, r) => sum + r.heritagePasses, 0);
+    if (heritagePassSeedCount < targets.heritagePassSeedCountMin
+      || heritagePassTotal < targets.heritagePassesTotalMin) {
+      failures.push(
+        `道统传承覆盖 ${heritagePassSeedCount}<${targets.heritagePassSeedCountMin} 或合计 ${heritagePassTotal}<${targets.heritagePassesTotalMin}`,
+      );
+    }
     const totalUsurps = rows.reduce((s, r) => s + r.sectUsurps, 0);
     const totalAbdications = rows.reduce((s, r) => s + r.sectAbdications, 0);
     const totalUsurpFails = rows.reduce((s, r) => s + r.sectUsurpFails, 0);
@@ -229,7 +238,10 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
       failures.push(`宗门 夺位斗法合计 ${totalUsurpBattles}<${targets.sectUsurpBattlesTotalMin}`);
     }
     console.log(
-      `\n宗门权力合计：让贤 ${totalAbdications} | 夺位成功 ${totalUsurps} | 夺位失败 ${totalUsurpFails} | 僵持 ${totalUsurpStalemates}（5 种子 × 50 年）`,
+      `\n道统传承：${heritagePassSeedCount}/5 个世界，合计 ${heritagePassTotal} 次`,
+    );
+    console.log(
+      `宗门权力合计：让贤 ${totalAbdications} | 夺位成功 ${totalUsurps} | 夺位失败 ${totalUsurpFails} | 僵持 ${totalUsurpStalemates}（5 种子 × 50 年）`,
     );
 
     if (failures.length > 0) {
@@ -238,5 +250,8 @@ describe('世界涌现质量评估（50 年 × 多种子）', () => {
       console.log(`\n✅ 全部 ${SEEDS.length} 种子 × ${checkNames.length} 项指标达标`);
     }
     expect(failures).toEqual([]);
-  }, 60_000);
+  // Phase 7 增加了 800/1500 NPC 的并发性能夹具；workspace 全量运行时多个
+  // 长时 worker 会争用 CPU。保持断言不变，仅给这条已有的 5×50 年质量
+  // 回归留下真实的资源争用余量，单独运行仍应在原 60 秒预算内完成。
+  }, 90_000);
 });

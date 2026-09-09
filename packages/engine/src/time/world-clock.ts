@@ -83,29 +83,28 @@ export class WorldClockService {
   /**
    * 推进指定的分钟数。
    *
-   * 流程：读权威时间 → 计算跨月边界 → 逐月 step() → 写回最终绝对时间。
-   * 跨月边界内 engine.step() 的 advanceCalendar() 自增 elapsedMinutes，
-   * 末尾 setElapsedMinutes 写回包含子月余数的精确值，不重复加月。
+   * 流程：读权威时间 → 依次落到每个真实月界并结算 → 落到最终绝对时刻。
+   * 唤醒始终只处理到当前已经抵达的边界，不能为了执行月度 Tick 临时跳到
+   * 目标之后再回写，否则未来旅行/事件会被提前消费。
    */
-  advanceMinutes(minutes: number): void {
-    if (minutes <= 0) return;
+  advanceMinutes(minutes: number): BigEventLog[] {
+    if (minutes <= 0) return [];
 
     // C0：只通过公开 API 读写权威时间
     const oldElapsed = this.engine.getElapsedMinutes();
     const newElapsed = oldElapsed + minutes;
 
-    // 计算穿过的月边界数
-    const oldMonths = Math.floor(oldElapsed / MINUTES_PER_MONTH);
-    const newMonths = Math.floor(newElapsed / MINUTES_PER_MONTH);
-    const monthsToStep = newMonths - oldMonths;
-
-    // 逐月推进（engine.step() → advanceCalendar() 内部自增 elapsedMinutes）
-    for (let i = 0; i < monthsToStep; i++) {
-      this.engine.step();
+    const events: BigEventLog[] = [];
+    let boundary = (Math.floor(oldElapsed / MINUTES_PER_MONTH) + 1) * MINUTES_PER_MONTH;
+    while (boundary <= newElapsed) {
+      events.push(...this.engine.stepAtMonthBoundary(boundary).events);
+      boundary += MINUTES_PER_MONTH;
     }
 
-    // 写回最终权威时间（覆盖 step 内的增量，精确到分钟）
+    // 最终子月区间只推进绝对分钟与到期唤醒，不重复执行月度结算。
     this.engine.setElapsedMinutes(newElapsed);
+    this.engine.processScheduledWakesAt(newElapsed);
+    return events;
   }
 
   /** 推进天数 */

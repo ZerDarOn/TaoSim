@@ -12,7 +12,7 @@ import type { PlayerMapState } from './multi-layer-map.js';
 import { createInitialBrainState } from './npc-brain.js';
 
 /** 新存档必须写入的唯一版本号；避免 UI 与迁移链再次分叉。 */
-export const CURRENT_SAVE_SCHEMA_VERSION = 8;
+export const CURRENT_SAVE_SCHEMA_VERSION = 10;
 
 export interface SaveHeader {
   saveId: string;
@@ -70,7 +70,7 @@ export interface SavePayload {
 }
 
 // ---- 存档版本迁移 ----
-// 当前 schemaVersion = 8
+// 当前 schemaVersion = 10
 // v1 → v2：WorldState 新增 npcs 字段（NPC 持久化档案），旧存档补空对象
 // v2 → v3：WorldState 新增 eventLog 字段（全量事件流），旧存档补空数组
 // v3 → v4：废弃 activeNPCs/overworldMap/factions/marketInventories 四个伪权威占位字段；
@@ -79,6 +79,8 @@ export interface SavePayload {
 // v5 → v6：C2 引入 watchedNpcIds（关注列表）；旧存档补空数组
 // v6 → v7：NB1 引入版本化 NPC Brain；从 NpcRecord + 旧 MindState 确定性初始化
 // v7 → v8：NB3 引入事实账本与世界级资源预留账本
+// v8 → v9：动态空间世界 Phase 1；由 engine 目录适配器补齐基础空间与实体地址
+// v9 → v10：途中相遇成为持久化世界状态；旧存档补空字典
 export class SaveMigrationRunner {
   private static migrations: Map<number, (oldData: any) => any> = new Map([
     [
@@ -177,6 +179,29 @@ export class SaveMigrationRunner {
         return data;
       },
     ],
+    [
+      8,
+      (data) => {
+        // 动态空间的真实节点目录属于 engine（不能让 contracts/persistence 复制地图目录）。
+        // 这里仅保留旧字段并升版；加载边界必须调用 engine 的空间适配器完成地址解析。
+        const worldState = data.worldState ?? {};
+        worldState.spatialState = worldState.spatialState ?? undefined;
+        data.worldState = worldState;
+        return data;
+      },
+    ],
+    [
+      9,
+      (data) => {
+        const worldState = data.worldState ?? {};
+        worldState.activeEncounters = worldState.activeEncounters
+          && typeof worldState.activeEncounters === 'object'
+          ? worldState.activeEncounters
+          : {};
+        data.worldState = worldState;
+        return data;
+      },
+    ],
   ]);
 
   public static migrate(payload: any): SavePayload {
@@ -189,6 +214,11 @@ export class SaveMigrationRunner {
     }
     if (typeof payload.header.schemaVersion !== 'number') {
       throw new Error(`SaveMigrationRunner.migrate: header.schemaVersion 不是数字（实际: ${typeof payload.header.schemaVersion}）`);
+    }
+
+    if (payload.header.schemaVersion > CURRENT_SAVE_SCHEMA_VERSION
+      && !this.migrations.has(payload.header.schemaVersion)) {
+      throw new Error(`SaveMigrationRunner.migrate: 存档版本高于当前版本（实际: ${payload.header.schemaVersion}）`);
     }
 
     let currentVersion = payload.header.schemaVersion;

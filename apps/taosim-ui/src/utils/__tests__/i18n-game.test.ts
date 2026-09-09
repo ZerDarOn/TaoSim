@@ -10,6 +10,12 @@ import {
   formatSpiritElement,
   formatNodeType,
   formatFactionRank,
+  formatRecipeName,
+  formatItemId,
+  formatItemName,
+  formatSpecialEffect,
+  formatTier,
+  formatCraftingMessage,
 } from '../i18n-game';
 
 describe('formatRealm', () => {
@@ -128,5 +134,29 @@ describe('formatFactionRank', () => {
 
   it('treats undefined as no faction', () => {
     expect(formatFactionRank(undefined)).toBe('无');
+  });
+});
+
+describe('百艺显示映射', () => {
+  it('maps expanded recipes and forge products', () => {
+    expect(formatRecipeName('RECIPE_GOLDEN_CORE_PILL')).toBe('金丹丹');
+    expect(formatRecipeName('RECIPE_STAR_PHOENIX_BLADE')).toBe('凤鸣星辰剑');
+    expect(formatItemId('ITEM_XUAN_GUI_ARMOR')).toBe('玄龟宝甲');
+  });
+
+  it('prefers template mapping and handles runtime item ids', () => {
+    expect(formatItemName({ id: 'ITEM_STAR_SWORD_1730000000000', name: 'ITEM_STAR_SWORD_1730000000000' })).toBe('星辰剑');
+    expect(formatItemName({ id: 'runtime-id', templateId: 'ITEM_SPIRIT_ARMOR', name: 'ITEM_SPIRIT_ARMOR' })).toBe('灵甲');
+    expect(formatItemName({ id: 'runtime-pill', templateId: 'RECIPE_QI_PILL', name: 'RECIPE_QI_PILL' })).toBe('聚气丹');
+    expect(formatItemName({ id: 'runtime-pill', templateId: 'RECIPE_QI_PILL', name: '毒聚气丹' })).toBe('毒聚气丹');
+    expect(formatItemName({ id: 'runtime-id', name: '自定义宝物' })).toBe('自定义宝物');
+  });
+
+  it('maps legendary effects and engine result messages', () => {
+    expect(formatSpecialEffect('SOUL_GUARD')).toBe('剑灵护体');
+    expect(formatSpecialEffect(undefined)).toBe('无');
+    expect(formatTier(3)).toBe('3阶');
+    expect(formatCraftingMessage('升品成功！ITEM_STAR_SWORD 已升至 Legendary')).toBe('升品成功！星辰剑 已升至 仙品');
+    expect(formatCraftingMessage('材料不足：MAT_SKY_GOLD_SAND')).toBe('材料不足：天金砂');
   });
 });

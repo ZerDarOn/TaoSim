@@ -17,6 +17,8 @@ export interface BattleConfig {
   enemyNpcId?: string;
   /** S5：战斗场景 ID（幂等键基础） */
   sceneId?: string;
+  /** 若战斗源于持久化世界相遇，战后必须在同一 outcome 中结束该相遇。 */
+  worldEncounterId?: string;
 }
 
 export const useUiStore = defineStore('ui', () => {

@@ -42,6 +42,11 @@ export interface HexMoveResult {
   path?: Array<{ q: number; r: number }>;
 }
 
+/** 单步移动的随机源，供确定性沙盒/测试注入；正式运行默认使用 Math.random。 */
+export interface HexMoveOptions {
+  rng?: () => number;
+}
+
 export interface HexMoveEvent {
   type: 'encounter' | 'battle' | 'npc_meet' | 'material_found' | 'landmark_reached' | 'discovery';
   title: string;
@@ -62,6 +67,27 @@ export const TERRAIN_INFO: Record<HexTerrain, { name: string; color: string; ico
   wilderness:   { name: '荒野',   color: '#3a3a3a', icon: '荒', moveCost: 1 },
   void:         { name: '虚空',   color: '#0a0a1a', icon: '×',  moveCost: 99 },
 };
+
+/**
+ * 各地形每次移动最多触发一个沿途事件的概率。
+ *
+ * 旧实现将四类事件概率直接相加到 42%，导致自动寻路几乎必然被打断。
+ * 现在按地形风险控制在 0-17%，城镇/虚空不触发沿途随机事件；重要事件仍由世界月度演化产生。
+ */
+export const HEX_EVENT_CHANCE: Record<HexTerrain, number> = {
+  plain: 0.08,
+  forest: 0.12,
+  mountain: 0.14,
+  water: 0.11,
+  spirit_vein: 0.09,
+  town: 0,
+  wilderness: 0.17,
+  void: 0,
+};
+
+export function getHexEventChance(terrain: HexTerrain): number {
+  return HEX_EVENT_CHANCE[terrain];
+}
 
 // 六边形邻居方向（axial coordinates）
 const HEX_DIRECTIONS = [
@@ -247,6 +273,7 @@ export function moveOneStep(
   targetQ: number,
   targetR: number,
   player: Character,
+  options: HexMoveOptions = {},
 ): HexMoveResult | null {
   const targetKey = `${targetQ},${targetR}`;
   const targetHex = grid.hexes.get(targetKey);
@@ -264,6 +291,7 @@ export function moveOneStep(
 
   const moveCost = TERRAIN_INFO[targetHex.terrain].moveCost;
   const events: HexMoveEvent[] = [];
+  const rng = options.rng ?? Math.random;
 
   // 标记为已探索
   targetHex.explored = true;
@@ -282,11 +310,10 @@ export function moveOneStep(
     });
   }
 
-  // 随机事件（非城镇格子）
-  if (targetHex.terrain !== 'town') {
-    const roll = Math.random();
-
-    if (roll < 0.12) {
+  // 随机事件：每格最多一个，概率由地形控制，避免自动寻路连续弹窗。
+  if (rng() < getHexEventChance(targetHex.terrain)) {
+    const eventRoll = rng();
+    if (eventRoll < 0.35) {
       // C4：移除临时 NPC 生成。正式遭遇通过 MapPanel.acceptBattle
       // 的 pickNearbyNpc 从世界档案选取，此处降级为环境描述。
       events.push({
@@ -294,23 +321,23 @@ export function moveOneStep(
         title: '沿途所见',
         description: '前方隐约有灵力波动，却未见人影',
       });
-    } else if (roll < 0.22) {
+    } else if (eventRoll < 0.65) {
       // 妖兽
       events.push({
         type: 'battle',
         title: '遭遇妖兽',
         description: `一只妖兽挡住了去路！`,
       });
-    } else if (roll < 0.35) {
+    } else if (eventRoll < 0.9) {
       // 材料
-      const mat = MATERIALS[Math.floor(Math.random() * MATERIALS.length)]!;
+      const mat = MATERIALS[Math.floor(rng() * MATERIALS.length)]!;
       events.push({
         type: 'material_found',
         title: '发现材料',
         description: `在地上发现了一些材料。`,
         materialId: mat,
       });
-    } else if (roll < 0.42) {
+    } else {
       // 奇遇
       events.push({
         type: 'discovery',

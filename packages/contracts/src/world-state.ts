@@ -72,4 +72,10 @@ export interface WorldState {
    * 可选以兼容旧存档（v4 及以下），迁移时从 currentYear/currentMonth 计算。
    */
   elapsedMinutes?: number;
+  /** 动态空间世界 Phase 1：基础地图叠加当前差量后的权威空间快照。 */
+  spatialState?: import('./spatial.js').SpatialState;
+  /** 动态空间世界 Phase 2：事件驱动的下一次唤醒队列。 */
+  scheduledWakes?: import('./simulation-scheduler.js').ScheduledWake[];
+  /** 进行中的世界相遇；玩家选择前必须随存档保留。 */
+  activeEncounters?: Record<string, import('./world-encounter.js').ActiveWorldEncounter>;
 }

@@ -1,15 +1,22 @@
-import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker, PersistentCondition, Fact, FactType, FactVisibility } from '@taosim/contracts';
-import { createInitialBrainState, parseRealm } from '@taosim/contracts';
+import type { WorldState, BigEventLog, NpcRecord, Faction, WorldEra, HeritageSite, DestinyTier, BornOrigin, SpiritRoot, SpiritRootGrade, GraveMarker, PersistentCondition, Fact, FactType, FactVisibility, ScheduledWake, TravelState, EntityDelta } from '@taosim/contracts';
+import { createInitialBrainState, parseRealm, resolveSpatialAncestors, sortScheduledWakes, takeNextDueScheduledWake, upsertScheduledWake } from '@taosim/contracts';
 import { EconomyEngine } from '../economy/economy-engine.js';
 import { NPCGenerator } from '../interaction/npc-generator.js';
 import { VENUE_CATALOG, getVenue, getVenuesByNode } from '../overworld/map-catalog.js';
 import { PRESET_MAP, getNeighbors } from '../overworld/preset-map.js';
 import { generateWorldGrid } from '../overworld/hex-overworld-engine.js';
-import { deriveNpcHexPos, npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
+import { npcHexPos, npcSpatialIndex } from '../overworld/npc-spatial.js';
+import { createLegacySpatialState, legacyNpcRecordToSpatialAddress } from '../overworld/spatial-catalog.js';
+import { advanceSpatialTravel, evaluateSpatialTravelPosition, isTravelRouteValid } from '../overworld/spatial-travel.js';
+import { planSpatialTravel } from '../overworld/spatial-travel.js';
+import { createFeatureTransitionDelta } from '../overworld/spatial-features.js';
+import { commitOutcome } from './outcome-committer.js';
+import { validateSpatialState } from '@taosim/contracts';
 import { generateInitialMind, tickNpcMind, resolveNpcMindAction, commitMindAction } from './npc-mind.js';
 import type { NpcActionResolution, NpcActionResolutionOptions } from './npc-mind.js';
 import { commitNpcBrainAction } from './npc-brain-action-commit.js';
 import { buildNpcPerceptionSnapshot, createNpcPerceptionIndex, updateNpcKnowledge } from './npc-perception.js';
+import { chooseNpcSpatialResponse } from './npc-spatial-decision.js';
 import { prepareNpcExplorePlan } from './npc-explore-planner.js';
 import {
   completeWorldResourceReservations,
@@ -226,6 +233,9 @@ const EPITHET_POOL = ['云中仙', '焚天剑客', '孤月真人', '雷霆上人
 /** 世界局势跃迁阈值（§2.2 世界轨道：乱世指数 → 和平/乱世/大争/量劫） */
 export const ERA_TURMOIL_THRESHOLDS = { turbulent: 30, warring: 60, cataclysm: 85 } as const;
 
+/** 具名 NPC 活动档案上限；匿名人口继续留在 populationGrid，不进入个人档案。 */
+export const MAX_NAMED_NPCS = 1_500;
+
 /** 世界局势阶段名称/描述（模板 world.era 变量） */
 const ERA_NAMES: Record<WorldEra, string> = {
   peace: '太平盛世',
@@ -356,6 +366,11 @@ export class WorldEngine {
   private usedNames = new Set<string>();
   private readonly npcBrainV2Mode: 'legacy' | 'shadow' | 'single-write';
   private readonly npcBrainNodeRegistry: NpcBrainNodeRegistry;
+  /** 月度关系/传承查询的只读候选快照，避免每个求偶/传承者重复枚举全体 NPC。 */
+  private monthlyNpcSnapshot: NpcRecord[] = [];
+  private monthlyNpcByGender = new Map<NpcRecord['gender'], NpcRecord[]>();
+  private monthlyHeritageCandidates: NpcRecord[] = [];
+  private readonly npcKnowledgeRefreshAt = new Map<string, number>();
   private lastBrainShadowReport?: NpcBrainShadowMonthlyReport;
   private brainShadowAggregateReport?: NpcBrainShadowAggregateReport;
 
@@ -363,6 +378,11 @@ export class WorldEngine {
     initialState: WorldState,
     options: WorldEngineOptions = {},
   ) {
+    const spatialState = initialState.spatialState ?? createLegacySpatialState();
+    const spatialViolations = validateSpatialState(spatialState);
+    if (spatialViolations.length > 0) {
+      throw new Error(`WorldEngine 无法加载无效空间状态: ${spatialViolations.map((v) => v.message).join('; ')}`);
+    }
     this.state = {
       ...initialState,
       globalFlags: { ...(initialState.globalFlags ?? {}) },
@@ -381,6 +401,8 @@ export class WorldEngine {
       resourceReservations: structuredClone(initialState.resourceReservations ?? {}),
       assetListings: structuredClone(initialState.assetListings ?? {}),
       appliedOutcomeIds: [...(initialState.appliedOutcomeIds ?? [])],
+      spatialState: structuredClone(spatialState),
+      scheduledWakes: sortScheduledWakes([...(initialState.scheduledWakes ?? [])]),
     };
     this.rng = options.rng ?? Math.random;
     this.encounterRng = options.encounterRng ?? this.rng;
@@ -394,6 +416,21 @@ export class WorldEngine {
     }
     for (const npc of Object.values(this.state.archivedNpcs ?? {})) {
       ensureNpcBrain(npc, loadedAt, this.state.conditions?.[npc.id]);
+    }
+    this.synchronizeSpatialAddresses();
+    for (const npc of Object.values(this.state.npcs)) {
+      if (npc.travel && npc.travel.status === 'in_transit') this.scheduleTravelCheckpoint(npc.travel);
+    }
+    for (const feature of Object.values(this.state.spatialState?.features ?? {})) {
+      if (feature.nextTransitionAtMinutes !== undefined) {
+        this.scheduleWake({
+          wakeId: `feature:${feature.id}`,
+          entityId: feature.id,
+          kind: 'feature_transition',
+          atMinutes: feature.nextTransitionAtMinutes,
+          payload: { featureId: feature.id },
+        });
+      }
     }
     // 从现存 NPC id（NPC_<year>_<month>_<n>）恢复自增计数器，避免跨会话 id 冲突
     let maxCounter = 0;
@@ -427,9 +464,179 @@ export class WorldEngine {
     return this.stepInternal(false);
   }
 
+  /**
+   * 在下一个真实月界执行一次月度结算。
+   *
+   * WorldClockService 用此入口处理“月中开始、只跨过一个月界”的推进，
+   * 避免 step() 先盲加整月而提前消费目标时刻之后的唤醒。
+   */
+  public stepAtMonthBoundary(atMinutes: number): MonthlyTickResult {
+    const currentElapsed = this.getElapsedMinutes();
+    const currentMonthIndex = Math.floor(currentElapsed / MINUTES_PER_MONTH);
+    const targetMonthIndex = Math.floor(atMinutes / MINUTES_PER_MONTH);
+    if (atMinutes <= currentElapsed
+      || atMinutes % MINUTES_PER_MONTH !== 0
+      || targetMonthIndex !== currentMonthIndex + 1) {
+      throw new Error(`无效月界推进: current=${currentElapsed}, target=${atMinutes}`);
+    }
+
+    this.setElapsedMinutes(atMinutes);
+    if (this.state.catastropheCountdownMonths > 0) {
+      this.state.catastropheCountdownMonths--;
+    }
+    return this.stepInternal(false, false);
+  }
+
+  /** 注册下一次事件驱动唤醒；同一 travelId 只保留一个检查点。 */
+  public scheduleWake(wake: ScheduledWake): void {
+    this.state.scheduledWakes = upsertScheduledWake(this.state.scheduledWakes ?? [], wake);
+  }
+
+  public scheduleTravelCheckpoint(travel: TravelState): void {
+    if (travel.status !== 'in_transit') return;
+    this.scheduleWake({
+      wakeId: `travel:${travel.entityId}:${travel.travelId}`,
+      entityId: travel.entityId,
+      kind: 'travel_checkpoint',
+      atMinutes: travel.nextCheckpointAtMinutes,
+      payload: {
+        travelId: travel.travelId,
+        planGeneration: travel.planGeneration ?? 1,
+      },
+    });
+  }
+
+  /** 在统一绝对时刻处理所有到期唤醒，并为未抵达旅行安排下一检查点。 */
+  public processScheduledWakesAt(atMinutes: number): ScheduledWake[] {
+    const processed: ScheduledWake[] = [];
+    // 快进可能一次越过多个检查点。按唤醒自身的绝对时刻逐个处理，
+    // 并在处理后重新取队列，以便旅行检查点能继续安排到同一快进窗口内。
+    while (true) {
+      const next = takeNextDueScheduledWake(this.state.scheduledWakes ?? [], atMinutes);
+      if (!next.next) break;
+      this.state.scheduledWakes = next.remaining;
+      const wake = next.next;
+      processed.push(wake);
+      const eventAtMinutes = wake.atMinutes;
+      if (wake.kind === 'feature_transition') {
+        this.processFeatureTransitionWake(wake, eventAtMinutes);
+        continue;
+      }
+      if (wake.kind !== 'travel_checkpoint') continue;
+      const npc = this.state.npcs[wake.entityId];
+      if (!npc?.travel || npc.travel.travelId !== wake.payload?.travelId) continue;
+      if ((npc.travel.planGeneration ?? 1) !== (wake.payload?.planGeneration ?? 1)) continue;
+      if (!this.state.spatialState || !isTravelRouteValid(this.state.spatialState, npc.travel, eventAtMinutes)) {
+        npc.travel = {
+          ...advanceSpatialTravel(npc.travel, eventAtMinutes),
+          status: 'interrupted',
+          interruptionReasons: [...npc.travel.interruptionReasons, 'route_changed_or_blocked'],
+          planGeneration: (npc.travel.planGeneration ?? 1) + 1,
+        };
+        npc.spatialAddress = evaluateSpatialTravelPosition(npc.travel).address;
+        continue;
+      }
+      npc.travel = advanceSpatialTravel(npc.travel, eventAtMinutes);
+      if (npc.travel.status === 'arrived') {
+        npc.spatialAddress = { ...npc.travel.destination, occupancy: 'stationary' };
+        this.projectNpcLegacyAddress(npc);
+        npc.travel = undefined;
+      } else {
+        npc.spatialAddress = evaluateSpatialTravelPosition(npc.travel).address;
+        this.projectNpcLegacyAddress(npc);
+        this.scheduleTravelCheckpoint(npc.travel);
+      }
+    }
+    return processed;
+  }
+
+  private processFeatureTransitionWake(wake: ScheduledWake, atMinutes: number): void {
+    const featureId = typeof wake.payload?.featureId === 'string' ? wake.payload.featureId : wake.entityId;
+    const spatial = this.state.spatialState;
+    const feature = spatial?.features[featureId];
+    if (!spatial || !feature || feature.nextTransitionAtMinutes !== wake.atMinutes) return;
+    const factId = `FACT_FEATURE_${featureId}_${atMinutes}`;
+    const delta = createFeatureTransitionDelta(spatial, featureId, atMinutes, factId);
+    if (!delta) return;
+    const time = projectTime(atMinutes);
+    const fact: Fact = {
+      factId,
+      type: 'discovery',
+      at: { year: time.year, month: time.month },
+      locationId: feature.scope.nodeIds[0],
+      participants: [],
+      title: `${feature.id} 生命周期转变`,
+      description: `${feature.type} 在统一时间 ${time.year}年${time.month}月${time.day}日进入 ${delta.operations[0]?.type === 'patch_feature' ? '关闭' : '新阶段'}`,
+      visibility: feature.visibility === 'secret' ? 'secret' : feature.visibility === 'local' ? 'local' : 'public',
+      metadata: { featureId, lifecycle: 'closed' },
+    };
+    const entityDeltas: EntityDelta[] = [];
+    if (feature.type === 'secret_realm_entrance') {
+      const innerNodeId = typeof feature.effects.innerNodeId === 'string'
+        ? feature.effects.innerNodeId
+        : undefined;
+      const anchorNodeId = feature.scope.nodeIds[0];
+      if (innerNodeId && anchorNodeId && spatial.nodes[anchorNodeId]) {
+        const innerScope = new Set(resolveSpatialAncestors(spatial, innerNodeId));
+        const continentId = resolveSpatialAncestors(spatial, anchorNodeId)
+          .find((id) => spatial.nodes[id]?.kind === 'Continent')
+          ?? this.state.activeContinentIds[0]
+          ?? 'CONT_EAST';
+        for (const npc of Object.values(this.state.npcs)) {
+          const currentNodeId = npc.spatialAddress?.nodeId;
+          const travelTouchesPocket = npc.travel
+            && (innerScope.has(npc.travel.origin.nodeId) || innerScope.has(npc.travel.destination.nodeId));
+          if (!currentNodeId || (!innerScope.has(currentNodeId) && !travelTouchesPocket)) continue;
+          entityDeltas.push({
+            entityId: npc.id,
+            locationChanged: { continentId, nodeId: anchorNodeId },
+            spatialAddressChanged: { nodeId: anchorNodeId, occupancy: 'stationary' },
+            travelChanged: null,
+          });
+        }
+      }
+    }
+    const result = commitOutcome(this.state, {
+      outcomeId: `OUTCOME_FEATURE_TRANSITION_${featureId}_${atMinutes}`,
+      baseRevision: this.state.worldRevision ?? 0,
+      source: 'spatial_feature_transition',
+      entityDeltas,
+      spatialDelta: delta,
+      facts: [fact],
+    });
+    if (result.status !== 'success') {
+      const key = 'diagnostics.spatialFeatureTransitionFailure';
+      this.state.globalFlags[key] = Number(this.state.globalFlags[key] ?? 0) + 1;
+    }
+  }
+
+  private applySpatialFeatureReactions(npc: NpcRecord, featureIds: readonly string[]): void {
+    const spatial = this.state.spatialState;
+    if (!spatial || npc.travel?.status === 'in_transit') return;
+    for (const featureId of featureIds) {
+      const feature = spatial.features[featureId];
+      if (!feature) continue;
+      const decision = chooseNpcSpatialResponse(npc, feature);
+      const countKey = `diagnostics.spatialReaction.${decision.response}`;
+      this.state.globalFlags[countKey] = Number(this.state.globalFlags[countKey] ?? 0) + 1;
+      // 进入是意图，真正移动仍由统一空间路线/PortalLink 验证。
+      if (decision.response === 'enter' && feature.type === 'secret_realm_entrance') {
+        const target = feature.effects.innerNodeId;
+        if (typeof target === 'string') this.startNpcTravel(npc, target);
+      }
+    }
+  }
+
+  public getNextScheduledWakeAt(): number | undefined {
+    return this.state.scheduledWakes?.[0]?.atMinutes;
+  }
+
   /** 内部推进逻辑；skipStateCopy=true 时跳过末尾深拷贝（快进优化） */
-  private stepInternal(skipStateCopy: boolean): MonthlyTickResult {
-    this.advanceCalendar();
+  private stepInternal(skipStateCopy: boolean, advanceCalendar = true): MonthlyTickResult {
+    if (advanceCalendar) this.advanceCalendar();
+    // 月度批处理开始前先结算到期旅行检查点，避免快进把已抵达人物
+    // 继续按“在途”或旧位置参与本月社会/经济逻辑。
+    this.processScheduledWakesAt(this.getElapsedMinutes());
     const shadowNow = { year: this.state.currentYear, month: this.state.currentMonth };
     const shadowReport = this.npcBrainV2Mode !== 'legacy'
       ? new NpcBrainShadowReportBuilder(shadowNow)
@@ -442,16 +649,10 @@ export class WorldEngine {
     // 区域灵气潮汐（生态与地形因果 §4.9：春生夏长、秋收冬藏 — 确定性，零 rng 消耗）
     this.applySeasonQiShift();
 
-    // 云游回归：上月云游（locationId 清空）的 NPC 本月重新落脚，
-    // 避免 '__wander__' 分组随云游积累而无限膨胀（真实节点系统接入前的临时策略）
-    for (const npc of Object.values(this.state.npcs)) {
-      if (npc.soulState !== 'Active' || npc.locationId !== undefined) continue;
-      npc.locationId = this.pickVenueId();
-    }
-
     // 空间与氛围层（NPC 地图呈现 §spec 3.2）：
     // hexPos 维护（独立 rng，与主事件序列解耦）
     this.maintainNpcPositions();
+    this.prepareMonthlyNpcIndexes();
 
     const collector = new EventCollector(this.state.currentYear, this.state.currentMonth);
     const events: BigEventLog[] = [];
@@ -629,19 +830,35 @@ export class WorldEngine {
       let committedByBrain = false;
       let resolvedActionType: string = legacyActionType;
       let actionDescription = mindResult.actionDescription;
-      let perception = this.npcBrainV2Mode === 'single-write' && npc.brain
+      const monthOrdinal = (mindNow.year - 1) * 12 + mindNow.month;
+      const refreshKnowledge = monthOrdinal >= (this.npcKnowledgeRefreshAt.get(npc.id) ?? Number.NEGATIVE_INFINITY);
+      const visibleFeatureCount = npc.spatialAddress?.nodeId
+        ? perceptionIndex?.visibleFeatureIdsByNode.get(npc.spatialAddress.nodeId)?.length ?? 0
+        : 0;
+      const needsPerception = npc.aspiration === 'seekRevenge'
+        || npc.aspiration === 'wander'
+        || visibleFeatureCount > 0
+        || refreshKnowledge;
+      let perception = this.npcBrainV2Mode === 'single-write' && npc.brain && needsPerception
         ? buildNpcPerceptionSnapshot(npc, this.state, mindNow, perceptionIndex!)
         : undefined;
 
       if (perception && npc.brain && shadowReport && (npc.brain as any).beliefs) {
-        const knowledge = updateNpcKnowledge(npc.brain, perception.observations, mindNow);
-        npc.brain = knowledge.brain;
-        shadowReport.recordKnowledge(
-          knowledge.learnedCount,
-          knowledge.questionedCount,
-          knowledge.prunedCount,
-        );
+        const shouldUpdateKnowledge = refreshKnowledge
+          || npc.aspiration === 'seekRevenge'
+          || (perception.visibleFeatureIds?.length ?? 0) > 0;
+        if (shouldUpdateKnowledge) {
+          const knowledge = updateNpcKnowledge(npc.brain, perception.observations, mindNow);
+          npc.brain = knowledge.brain;
+          this.npcKnowledgeRefreshAt.set(npc.id, monthOrdinal + 3);
+          shadowReport.recordKnowledge(
+            knowledge.learnedCount,
+            knowledge.questionedCount,
+            knowledge.prunedCount,
+          );
+        }
       }
+      if (perception) this.applySpatialFeatureReactions(npc, perception.visibleFeatureIds ?? []);
 
       const revengeAmbush = this.npcBrainV2Mode === 'single-write' && npc.brain
           ? advanceNpcRevengeAmbush(this.state, npc.id, mindNow, {
@@ -808,6 +1025,11 @@ export class WorldEngine {
       const mindHandledBreakthrough = mindHandled && resolvedActionType === 'breakthrough';
       const mindHandledWander = mindHandled && resolvedActionType === 'wander';
 
+      // 行动解析只允许产生目标意图；此处才在权威空间上建立连续旅行。
+      if (resolution?.completed && resolution.travelTargetLocationId) {
+        this.startNpcTravel(npc, resolution.travelTargetLocationId);
+      }
+
       // 修炼增长（仅当 Mind 未处理时）
       if (!mindHandledCultivation) {
         cultivateNpc(npc, {
@@ -901,22 +1123,35 @@ export class WorldEngine {
             (rel.type === 'friend' || rel.type === 'benefactor' || rel.type === 'master-disciple'),
         );
         const friend = friendEntry ? this.state.npcs[friendEntry[0]] : undefined;
-        if (friend && friend.soulState === 'Active' && this.rng() < 0.5) {
-          npc.locationId = friend.locationId;
+        const resolvedTravelStarted = !!npc.travel;
+        if (!resolvedTravelStarted && friend && friend.soulState === 'Active' && !friend.travel && this.rng() < 0.5) {
+          const target = friend.spatialAddress?.nodeId ?? friend.locationId;
+          if (target) this.startNpcTravel(npc, target);
           pushNpcEvent(
             {
               key: 'travel.visit',
               vars: { npc: npc.name, npc2: friend.name },
               involvedCharacterIds: [id, friend.id],
-              locationId: npc.locationId,
+              locationId: npc.locationId ?? friend.locationId,
             },
             [id, friend.id],
           );
-        } else if (!mindHandledWander) {
+        } else if (!npc.travel && !mindHandledWander) {
+          const target = this.selectNpcWanderTarget(npc);
+          if (target) this.startNpcTravel(npc, target);
           pushNpcEvent(
             { key: 'travel.wander', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
             [id],
           );
+        } else if (!resolvedTravelStarted && mindHandledWander) {
+          const target = this.selectNpcWanderTarget(npc);
+          if (target) this.startNpcTravel(npc, target);
+          if (npc.travel) {
+            pushNpcEvent(
+              { key: 'travel.wander', vars: { npc: npc.name }, involvedCharacterIds: [id], locationId: npc.locationId },
+              [id],
+            );
+          }
         }
       }
 
@@ -1046,7 +1281,8 @@ export class WorldEngine {
     const groups = new Map<string, NpcRecord[]>();
     for (const npc of Object.values(this.state.npcs)) {
       if (npc.soulState !== 'Active') continue;
-      const key = npc.locationId ?? '__wander__';
+      if (npc.travel?.status === 'in_transit') continue;
+      const key = npc.spatialAddress?.nodeId ?? npc.locationId ?? '__unlocated__';
       const list = groups.get(key) ?? [];
       list.push(npc);
       groups.set(key, list);
@@ -1089,7 +1325,6 @@ export class WorldEngine {
         handleFeud(npc, enemy, REVENGE_DUEL_CHANCE);
       }
     }
-
     // 2a. 代际与传承（§4.13 自主性 + 代际链：求缘→道侣→双修→子嗣；寿元将尽→传道统）
     // 求偶（孤独驱动）：seekPartner 且无在世道侣/非守丧 → 寻觅道侣；结为道侣后转求道
     const takenThisMonth = new Set<string>();
@@ -1111,6 +1346,7 @@ export class WorldEngine {
       const lastChild = npc.childbearing?.lastChildYear;
       if (lastChild !== undefined && this.state.currentYear - lastChild < CHILD_COOLDOWN_YEARS) continue;
       if (this.rng() >= CHILD_CHANCE_PER_MONTH) continue;
+      if (Object.keys(this.state.npcs).length >= MAX_NAMED_NPCS) continue;
       const child = this.spawnChild(npc, spouse);
       this.state.npcs[child.id] = child;
       npcPopulationChanged = true;
@@ -1705,6 +1941,7 @@ export class WorldEngine {
     // 氛围层（§spec 3.1）：人口增长 + 凡人升格（独立 rng；放末尾——
     // 升格 NPC 下月才参与 NPC 循环，避免干扰本月主 rng 序列）
     this.tickAtmosphere();
+    this.synchronizeSpatialAddresses();
 
     // 嫉妒追捧（§spec 3.3.2）：同格高资质者招致嫉妒/敬仰（独立 rng，空间局部化 §spec 3.5）
     this.tickJealousy();
@@ -1808,7 +2045,44 @@ export class WorldEngine {
       factions: this.state.factions ? { ...this.state.factions } : undefined,
       heritageSites: this.state.heritageSites ? { ...this.state.heritageSites } : undefined,
       nodeSpiritQi: this.state.nodeSpiritQi ? { ...this.state.nodeSpiritQi } : undefined,
+      spatialState: this.state.spatialState ? structuredClone(this.state.spatialState) : undefined,
+      scheduledWakes: this.state.scheduledWakes ? [...this.state.scheduledWakes] : undefined,
     };
+  }
+
+  /**
+   * Phase 1 兼容投影：在旧月度行为尚未切换前，让新地址跟随旧字段变化。
+   * Phase 2 会移除旧字段写入，届时该方法只负责校验而不再承担位置决策。
+   */
+  private synchronizeSpatialAddresses(): void {
+    const spatialState = this.state.spatialState;
+    if (!spatialState) return;
+    for (const npc of Object.values(this.state.npcs)) {
+      if (npc.travel) continue;
+      const address = legacyNpcRecordToSpatialAddress(npc, spatialState);
+      if (address) npc.spatialAddress = address;
+    }
+    for (const npc of Object.values(this.state.archivedNpcs ?? {})) {
+      if (npc.travel) continue;
+      const address = legacyNpcRecordToSpatialAddress(npc, spatialState);
+      if (address) npc.spatialAddress = address;
+    }
+  }
+
+  /** Phase 1 旧字段的兼容投影；空间地址才是正式位置事实。 */
+  private projectNpcLegacyAddress(npc: NpcRecord): void {
+    const address = npc.spatialAddress;
+    if (!address) return;
+    const node = this.state.spatialState?.nodes[address.nodeId];
+    if (node && ['Venue', 'Settlement', 'Sect', 'Ruin', 'Site', 'Wilderness', 'Interior', 'Scene'].includes(node.kind)) {
+      npc.locationId = address.nodeId;
+    }
+    const coordinate = address.coordinate;
+    if (coordinate && 'q' in coordinate && 'r' in coordinate) {
+      npc.hexPos = { q: coordinate.q, r: coordinate.r };
+    }
+    npc.moveState = 'resident';
+    npc.moveTarget = undefined;
   }
 
   private advanceCalendar(): void {
@@ -1910,13 +2184,65 @@ export class WorldEngine {
     return g;
   }
 
-  /** 月度 hexPos 维护：所有 Active NPC 锚定场所格 / 向游历目标漂移（§spec 3.2.2） */
+  /**
+   * 把 NPC 的旅行意图提交为真实连续旅行。失败时保持原位置，
+   * 不用随机落脚或未注册节点填洞。
+   */
+  private startNpcTravel(npc: NpcRecord, targetLocationId: string): boolean {
+    const spatial = this.state.spatialState;
+    if (!spatial || npc.travel?.status === 'in_transit' || !spatial.nodes[targetLocationId]) return false;
+    const origin = npc.spatialAddress ?? legacyNpcRecordToSpatialAddress(npc, spatial);
+    if (!origin) return false;
+    const nowMinutes = this.getElapsedMinutes();
+    const plan = planSpatialTravel(spatial, {
+      travelId: `npc:${npc.id}:${nowMinutes}:${targetLocationId}`,
+      entityId: npc.id,
+      origin,
+      destination: { nodeId: targetLocationId, occupancy: 'stationary' },
+      movementMode: 'walk',
+      speed: { baseDistancePerDay: 1 },
+      nowMinutes,
+    });
+    if (!plan.ok) return false;
+    if (plan.travel.status === 'arrived') {
+      npc.spatialAddress = { ...plan.travel.destination, occupancy: 'stationary' };
+      this.projectNpcLegacyAddress(npc);
+      return true;
+    }
+    npc.spatialAddress = plan.travel.origin;
+    npc.travel = plan.travel;
+    npc.moveState = 'wandering';
+    this.scheduleTravelCheckpoint(plan.travel);
+    return true;
+  }
+
+  /** 从当前位置的连通图选择确定性相邻节点，作为无目标云游的真实目标。 */
+  private selectNpcWanderTarget(npc: NpcRecord): string | undefined {
+    const spatial = this.state.spatialState;
+    if (!spatial) return undefined;
+    let current = npc.spatialAddress?.nodeId;
+    const visited = new Set<string>();
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const links = Object.values(spatial.links)
+        .filter((link) => link.status === 'active'
+          && (link.fromNodeId === current || (link.bidirectional && link.toNodeId === current)))
+        .sort((a, b) => a.id.localeCompare(b.id));
+      if (links.length > 0) {
+        const link = links[0]!;
+        return link.fromNodeId === current ? link.toNodeId : link.fromNodeId;
+      }
+      current = spatial.nodes[current]?.parentId;
+    }
+    return undefined;
+  }
+
+  /** 月度 hexPos 兼容投影：不再改变权威位置或制造随机目标。 */
   private maintainNpcPositions(): void {
     const grid = this.gridOf();
-    // 独立 rng：移动目标生成与主事件序列解耦（防既有测试的 rng 注入偏移）
-    const moveRng = createSeededRng(this.state.currentYear * 977 + this.state.currentMonth * 31 + 13);
     for (const npc of Object.values(this.state.npcs)) {
       if (npc.soulState !== 'Active') continue;
+      if (npc.travel?.status === 'in_transit') continue;
       if (npc.moveState === 'secluded') {
         // 闭关：不动，剩余月数递减，出关转 resident
         npc.secludeMonths = (npc.secludeMonths ?? 12) - 1;
@@ -1924,22 +2250,17 @@ export class WorldEngine {
           npc.moveState = 'resident';
           npc.secludeMonths = undefined;
         }
-        if (!npc.hexPos) {
-          npc.hexPos = npcHexPos(npc.locationId, grid) ?? { q: 10, r: 10 };
-        }
+        if (!npc.hexPos) npc.hexPos = npcHexPos(npc.locationId, grid) ?? undefined;
         continue;
       }
-      const result = deriveNpcHexPos(npc.hexPos, npc.locationId, npc.moveTarget, grid);
-      npc.hexPos = result.hexPos;
-      npc.moveState = result.moveState;
-      if (result.reached) npc.moveTarget = undefined;
-      // 无场所云游中且无目标：给一个方向感目标（2-4 格外）
-      if (npc.locationId === undefined && npc.moveState === 'wandering' && !npc.moveTarget) {
-        npc.moveTarget = {
-          q: npc.hexPos.q + Math.floor(moveRng() * 5) - 2,
-          r: npc.hexPos.r + Math.floor(moveRng() * 5) - 2,
-        };
+      const coordinate = npc.spatialAddress?.coordinate;
+      if (coordinate && 'q' in coordinate && 'r' in coordinate) {
+        npc.hexPos = { q: coordinate.q, r: coordinate.r };
+      } else if (npc.locationId) {
+        // 仅为旧地图索引提供渲染坐标；不把它写回空间地址。
+        npc.hexPos = npcHexPos(npc.locationId, grid) ?? npc.hexPos;
       }
+      if (npc.spatialAddress?.occupancy === 'stationary') npc.moveState = 'resident';
     }
   }
 
@@ -1954,7 +2275,8 @@ export class WorldEngine {
     // 升格率 0.0002：全大陆每月约 0.9 名凡人入册（修士稀少；且不超名字库容量压力）
     const result = tickPopulation(pop, ascRng, { ascensionChance: 0.0002 });
     // 升格上限防爆：单月最多 8 名凡人入册
-    const candidates = Math.min(result.ascensionCandidates, 8);
+    const availableSlots = Math.max(0, MAX_NAMED_NPCS - Object.keys(this.state.npcs).length);
+    const candidates = Math.min(result.ascensionCandidates, 8, availableSlots);
     for (let i = 0; i < candidates; i++) {
       const keys = Object.keys(pop);
       if (keys.length === 0) break;
@@ -2158,14 +2480,16 @@ export class WorldEngine {
 
   /** 寻觅道侣候选（异性、无在世道侣、年岁相差 ≤40、本月未被牵走；同地优先，先近后远） */
   private findMateCandidate(seeker: NpcRecord, taken: Set<string>): NpcRecord | undefined {
-    const candidates = Object.values(this.state.npcs).filter(
+    const candidates = [...this.monthlyNpcByGender.entries()]
+      .filter(([gender]) => gender !== seeker.gender)
+      .flatMap(([, records]) => records)
+      .filter(
       (c) =>
         c.soulState === 'Active' &&
-        c.gender !== seeker.gender &&
         !taken.has(c.id) &&
         !this.isCommitted(c) &&
         Math.abs(c.lifespan.age - seeker.lifespan.age) <= 40,
-    );
+      );
     if (candidates.length === 0) return undefined;
     const sameLoc = candidates.filter((c) => c.locationId === seeker.locationId && c.locationId !== undefined);
     const pool = sameLoc.length > 0 ? sameLoc : candidates;
@@ -2303,7 +2627,7 @@ export class WorldEngine {
 
   /** 寻觅道统传人（悟性尚可、境界低于己、无师门者；同地优先，次选悟性最高——慧眼识珠） */
   private findHeritageDisciple(master: NpcRecord): NpcRecord | undefined {
-    const candidates = Object.values(this.state.npcs).filter(
+    const candidates = this.monthlyHeritageCandidates.filter(
       (c) =>
         c.soulState === 'Active' &&
         c.id !== master.id &&
@@ -2315,6 +2639,19 @@ export class WorldEngine {
     const sameLoc = candidates.filter((c) => c.locationId === master.locationId);
     const pool = sameLoc.length > 0 ? sameLoc : candidates;
     return pool.sort((x, y) => y.attributes.comprehension - x.attributes.comprehension)[0];
+  }
+
+  private prepareMonthlyNpcIndexes(): void {
+    this.monthlyNpcSnapshot = Object.values(this.state.npcs);
+    this.monthlyNpcByGender = new Map();
+    this.monthlyHeritageCandidates = [];
+    for (const npc of this.monthlyNpcSnapshot) {
+      if (npc.soulState !== 'Active') continue;
+      const genderList = this.monthlyNpcByGender.get(npc.gender) ?? [];
+      genderList.push(npc);
+      this.monthlyNpcByGender.set(npc.gender, genderList);
+      if (npc.attributes.comprehension >= 12) this.monthlyHeritageCandidates.push(npc);
+    }
   }
 
   /** 传道统：师祖→师→徒 跨世代继承同一道统；师父了却心愿转求道 */

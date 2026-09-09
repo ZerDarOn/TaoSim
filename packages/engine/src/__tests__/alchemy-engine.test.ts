@@ -50,6 +50,7 @@ describe('AlchemyEngine', () => {
     const player = makePlayer({ inventory: [] });
     const result = AlchemyEngine.craftPill(player, '筑基丹');
     expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.reason).toContain('材料不足');
   });
 

@@ -6,6 +6,10 @@ export interface NpcPerceptionSnapshot {
   at: BrainTime;
   locationId?: string;
   knownLocationIds: string[];
+  /** Phase 4：可用于空间行动规划的已知节点与当前可见动态特征。 */
+  currentSpatialNodeId?: string;
+  knownSpatialNodeIds?: string[];
+  visibleFeatureIds?: string[];
   observations: NpcKnowledgeMessage[];
 }
 

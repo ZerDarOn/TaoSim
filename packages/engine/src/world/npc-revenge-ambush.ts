@@ -10,6 +10,7 @@ import type {
   NpcRecord,
   WorldState,
 } from '@taosim/contracts';
+import { upsertScheduledWake } from '@taosim/contracts';
 import { resolveNpcCapabilityAction } from './npc-mind.js';
 import { purchaseNpcAsset } from './npc-asset-purchase.js';
 import { tradeNpcInformation } from './npc-information-trade.js';
@@ -22,6 +23,9 @@ import {
   createAmbushWitnessOutcomeAdditions,
   type LocationLawLevel,
 } from './npc-ambush-environment.js';
+import { advanceSpatialTravel, isTravelRouteValid, planSpatialTravel } from '../overworld/spatial-travel.js';
+import { legacyNpcRecordToSpatialAddress } from '../overworld/spatial-catalog.js';
+import { elapsedFromYearMonth } from '../time/world-clock.js';
 
 const MAX_MEMORIES = 32;
 const AMBUSH_INITIATIVE_GAUGE = 70;
@@ -303,6 +307,53 @@ function resolveDetection(attacker: Readonly<NpcRecord>, defender: Readonly<NpcR
   return rng() < detectionChance;
 }
 
+function settleAttackerTravel(world: WorldState, attacker: NpcRecord, now: BrainTime): boolean {
+  if (!attacker.travel) return true;
+  const nowMinutes = elapsedFromYearMonth(now.year, now.month);
+  if (world.spatialState && !isTravelRouteValid(world.spatialState, attacker.travel, nowMinutes)) {
+    attacker.travel = { ...attacker.travel, status: 'interrupted', interruptionReasons: [...attacker.travel.interruptionReasons, 'route_changed_or_blocked'] };
+    return false;
+  }
+  const travel = advanceSpatialTravel(attacker.travel, nowMinutes);
+  attacker.travel = travel.status === 'arrived' ? undefined : travel;
+  if (travel.status === 'arrived') {
+    attacker.spatialAddress = { ...travel.destination, occupancy: 'stationary' };
+    attacker.locationId = travel.destination.nodeId;
+    attacker.moveState = 'resident';
+  }
+  return travel.status === 'arrived';
+}
+
+function startFormalAmbushTravel(world: WorldState, attacker: NpcRecord, targetLocationId: string, now: BrainTime): boolean | undefined {
+  const spatial = world.spatialState;
+  if (!spatial?.nodes[targetLocationId]) return undefined;
+  const origin = attacker.spatialAddress ?? legacyNpcRecordToSpatialAddress(attacker, spatial);
+  if (!origin) return false;
+  const nowMinutes = elapsedFromYearMonth(now.year, now.month);
+  const planned = planSpatialTravel(spatial, {
+    travelId: `npc:${attacker.id}:revenge:${now.year}:${now.month}:${targetLocationId}`,
+    entityId: attacker.id, origin,
+    destination: { nodeId: targetLocationId, occupancy: 'stationary' },
+    movementMode: 'walk', speed: { baseDistancePerDay: 1 }, nowMinutes,
+  });
+  if (!planned.ok) return false;
+  if (planned.travel.status === 'arrived') {
+    attacker.spatialAddress = { ...planned.travel.destination, occupancy: 'stationary' };
+    attacker.locationId = targetLocationId;
+    attacker.moveState = 'resident';
+    return true;
+  }
+  attacker.spatialAddress = planned.travel.origin;
+  attacker.travel = planned.travel;
+  attacker.moveState = 'wandering';
+  world.scheduledWakes = upsertScheduledWake(world.scheduledWakes ?? [], {
+    wakeId: `travel:${attacker.id}:${planned.travel.travelId}`,
+    entityId: attacker.id, kind: 'travel_checkpoint', atMinutes: planned.travel.nextCheckpointAtMinutes,
+    payload: { travelId: planned.travel.travelId },
+  });
+  return true;
+}
+
 /**
  * NB5 第一条完整目标链：所有步骤都只提交自己的差量，删掉编排器也不会使交易、追踪或战斗能力失效。
  */
@@ -367,6 +418,11 @@ export function advanceNpcRevengeAmbush(
   }
   const plan = activeRevengePlan(attacker, target.id, now);
   if (!plan) return { status: 'blocked', attackerId, targetId: target.id, claimedAction: false, reason: 'active_plan_conflict' };
+
+  // 月度调度器通常已处理检查点；直接调用本能力时也按同一绝对时刻补结算。
+  if (attacker.travel && !settleAttackerTravel(world, attacker, now)) {
+    return { status: 'progressed', stage: 'travel_to_target', attackerId, targetId: target.id, claimedAction: true };
+  }
 
   for (let transition = 0; transition < 5; transition++) {
     const livePlan = attacker.brain!.currentPlan!;
@@ -459,6 +515,15 @@ export function advanceNpcRevengeAmbush(
         recordAction(attacker, stage, now, 'failed', [targetRef(target.id)], [reservationId], 'travel_failed');
         return { status: 'failed', stage, attackerId, targetId: target.id, claimedAction: true, reason: 'travel_failed' };
       }
+      const formalTravel = startFormalAmbushTravel(world, attacker, believedLocationId, now);
+      if (formalTravel === false) {
+        completeWorldResourceReservations(world, [reservationId], 'released', now, 'travel_failed');
+        recordAction(attacker, stage, now, 'failed', [targetRef(target.id)], [reservationId], 'travel_failed');
+        return { status: 'failed', stage, attackerId, targetId: target.id, claimedAction: true, reason: 'travel_failed' };
+      }
+      // 自定义旧测试/旧存档地点没有空间节点，只在兼容边界保留旧投影；
+      // 正式世界位置均已在上面的 TravelState 中登记。
+      if (formalTravel === undefined) attacker.locationId = believedLocationId;
       completeWorldResourceReservations(world, [reservationId], 'consumed', now);
       updateCurrentStep(attacker, now, 'succeeded', {
         targets: [targetRef(target.id), { kind: 'location', entityId: believedLocationId }], reservationIds: [reservationId],

@@ -125,12 +125,12 @@ function makeV4Payload(): SavePayload {
 // ============================================================
 
 describe('SaveMigrationRunner', () => {
-  describe('v1→v4 全链迁移', () => {
-    it('v1 存档迁移到 v8：补 npcs + eventLog + elapsedMinutes + watchedNpcIds + NB3 账本', () => {
+  describe('v1→v9 全链迁移', () => {
+    it('v1 存档迁移到 v9：补 npcs + eventLog + elapsedMinutes + watchedNpcIds + NB3 账本', () => {
       const v1 = makeV1Payload();
       const result = SaveMigrationRunner.migrate(v1);
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.npcs).toEqual({});
       expect(result.worldState.eventLog).toEqual([]);
       expect(result.worldState.elapsedMinutes).toBeDefined();
@@ -150,11 +150,11 @@ describe('SaveMigrationRunner', () => {
   });
 
   describe('v3→v5 迁移', () => {
-    it('v3 存档迁移到 v8：schemaVersion 正确升版', () => {
+    it('v3 存档迁移到 v9：schemaVersion 正确升版', () => {
       const v3 = makeV3Payload();
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
     });
 
     it('v3 存档的废弃字段保留但不影响权威数据', () => {
@@ -182,7 +182,7 @@ describe('SaveMigrationRunner', () => {
       v3.overworldMap = { continents: [{ id: 'c1', name: '假大陆', nodes: [] }] };
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       // 废弃字段保留原值（不破坏）
       expect(result.activeNPCs).toBeDefined();
       expect(result.overworldMap).toBeDefined();
@@ -195,7 +195,7 @@ describe('SaveMigrationRunner', () => {
       // currentYear=5, currentMonth=3 → (5-1)*12 + (3-1) = 50 月 → 50 * 43200 = 2160000 分
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v4)));
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
       expect(result.watchedNpcIds).toEqual([]);
     });
@@ -208,7 +208,7 @@ describe('SaveMigrationRunner', () => {
       v5.worldState.elapsedMinutes = 50 * 43200;
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v5)));
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.header.saveId).toBe('save_v4');
       expect(result.worldState.currentYear).toBe(5);
       expect(result.worldState.elapsedMinutes).toBe(50 * 43200);
@@ -252,7 +252,7 @@ describe('SaveMigrationRunner', () => {
 
       const result = SaveMigrationRunner.migrate(JSON.parse(JSON.stringify(v6)));
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.npcs.npc_legacy?.brain?.currentGoal?.kind).toBe('seek_revenge');
       expect(result.worldState.npcs.npc_legacy?.brain?.currentGoal?.targets[0]).toEqual({
         kind: 'npc', entityId: 'npc_enemy',
@@ -283,7 +283,7 @@ describe('SaveMigrationRunner', () => {
       delete v3.playerMapState;
       const result = SaveMigrationRunner.migrate(v3);
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
     });
 
     it('v3 存档完全无 graveyard 时迁移成功（补默认）', () => {
@@ -303,9 +303,26 @@ describe('SaveMigrationRunner', () => {
 
       const result = SaveMigrationRunner.migrate(v7);
 
-      expect(result.header.schemaVersion).toBe(8);
+      expect(result.header.schemaVersion).toBe(10);
       expect(result.worldState.facts).toEqual([]);
       expect(result.worldState.resourceReservations).toEqual({});
+      expect(result.worldState.activeEncounters).toEqual({});
+    });
+  });
+
+  describe('v9 → v10（持久化世界相遇）', () => {
+    it('旧存档补空相遇字典，已有未决相遇不被迁移覆盖', () => {
+      const empty = makeV4Payload();
+      empty.header.schemaVersion = 9;
+      expect(SaveMigrationRunner.migrate(empty).worldState.activeEncounters).toEqual({});
+
+      const pending = makeV4Payload();
+      pending.header.schemaVersion = 9;
+      (pending.worldState as any).activeEncounters = {
+        encounter_1: { encounterId: 'encounter_1', status: 'awaiting_decision' },
+      };
+      const migrated = SaveMigrationRunner.migrate(pending);
+      expect(migrated.worldState.activeEncounters?.encounter_1?.status).toBe('awaiting_decision');
     });
   });
 

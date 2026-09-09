@@ -13,6 +13,9 @@ import type { Fact } from './fact.js';
 import type { TimeElapsed } from './world-time.js';
 import type { LocationRef } from './location.js';
 import type { BrainBelief, BrainMemory } from './npc-brain.js';
+import type { SpatialAddress } from './spatial.js';
+import type { SpatialDelta, TravelState } from './spatial.js';
+import type { WorldEncounterChange } from './world-encounter.js';
 
 /** 实体差量：对单个实体的状态变更 */
 export interface EntityDelta {
@@ -42,6 +45,10 @@ export interface EntityDelta {
 
   /** 位置变更 */
   locationChanged?: LocationRef;
+  /** Phase 1 新空间地址变更；迁移期 locationChanged 仍可被旧调用方读取。 */
+  spatialAddressChanged?: SpatialAddress;
+  /** 旅行状态变更；null 表示被规则（如秘境关闭）中断并清除。 */
+  travelChanged?: TravelState | null;
 
   /** 新增伤势 */
   injuriesAdded?: Injury[];
@@ -80,6 +87,10 @@ export interface WorldOutcome {
   location?: LocationRef;
   /** 参与者差量 */
   entityDeltas: EntityDelta[];
+  /** Phase 3：与实体差量同一原子提交的空间差量。 */
+  spatialDelta?: SpatialDelta;
+  /** 与事实和实体差量同一提交的相遇状态变更。 */
+  encounterChanges?: WorldEncounterChange[];
   /** 产生的事实记录 */
   facts?: Fact[];
   /** 附带的世界标志变更 */

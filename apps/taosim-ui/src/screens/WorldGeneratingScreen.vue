@@ -18,6 +18,11 @@ onMounted(async () => {
     npcScale: gameFlow.worldConfig.npcScale,
     preEvolveYears: gameFlow.worldConfig.preEvolveYears,
     difficulty: gameFlow.worldConfig.difficulty,
+    entryMode: gameFlow.worldConfig.entryMode,
+    worldSeed: gameFlow.worldConfig.worldSeed,
+    childhoodChoice: gameFlow.worldConfig.childhoodChoice,
+    startAge: gameFlow.worldConfig.startAge,
+    background: gameFlow.worldConfig.background,
   }, (pct, text) => {
     progress.value = pct;
     stage.value = text;

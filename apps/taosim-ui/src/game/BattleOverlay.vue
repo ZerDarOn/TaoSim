@@ -12,7 +12,13 @@ import BattleLog from '@/components/BattleLog.vue';
 import BattleCommandBar from '@/components/BattleCommandBar.vue';
 import type { Character } from '@taosim/contracts';
 import type { WorldOutcome, EntityDelta } from '@taosim/contracts';
-import { MapGenerator, resolveBattleOutcome, commitOutcome, createNpcBattleEntityDelta } from '@taosim/engine';
+import {
+  MapGenerator,
+  resolveBattleOutcome,
+  commitOutcome,
+  createNpcBattleEntityDelta,
+  prepareRoadEncounterBattleCompletion,
+} from '@taosim/engine';
 import type { BattleOutcome } from '@taosim/engine';
 import { useAppStore } from '@/stores/app';
 import { formatRealm, formatSpiritRootGrade, formatSpiritElement } from '@/utils/i18n-game';
@@ -185,6 +191,13 @@ function applyOutcome(outcome: BattleOutcome) {
     const worldState = appStore.currentWorldState;
     if (worldState) {
       const enemyNpcId = battleConfig.value.enemyNpcId;
+      const encounterCompletion = battleConfig.value.worldEncounterId
+        ? prepareRoadEncounterBattleCompletion(
+            worldState,
+            playerStore.character!,
+            battleConfig.value.worldEncounterId,
+          )
+        : null;
 
       const enemyAfter = state.characters[enemy.value.id];
       const enemyDelta: EntityDelta = enemyAfter
@@ -203,6 +216,18 @@ function applyOutcome(outcome: BattleOutcome) {
 
         // NPC 的伤势/死亡已由统一差量函数按实际战后状态生成。
       }
+      if (encounterCompletion) {
+        const encounter = worldState.activeEncounters?.[battleConfig.value.worldEncounterId!];
+        if (enemyDelta.killed) {
+          enemyDelta.travelChanged = null;
+          enemyDelta.spatialAddressChanged = {
+            nodeId: encounter?.location.nodeId ?? enemyNpcId,
+            occupancy: 'scene',
+          };
+        } else {
+          enemyDelta.travelChanged = encounterCompletion.npcTravel;
+        }
+      }
       // 玩家失败不转移奖励；NPC 若在交战中受伤，仍按真实战后状态回写。
 
       // 战斗状态、世界结算和事实共用同一个场景 ID，保证一战一事实、可幂等重放。
@@ -212,6 +237,7 @@ function applyOutcome(outcome: BattleOutcome) {
         baseRevision: worldState.worldRevision ?? 0,
         source: battleConfig.value.type === 'duel' ? 'duel' : 'encounter',
         entityDeltas: [enemyDelta],
+        encounterChanges: encounterCompletion ? [encounterCompletion.encounterChange] : undefined,
         facts: [{
           factId: `fact_${sceneId}`,
           outcomeId: sceneId,
@@ -228,6 +254,17 @@ function applyOutcome(outcome: BattleOutcome) {
       };
 
       const result = commitOutcome(worldState, worldOutcome);
+      if ((result.status === 'success' || result.status === 'already_applied') && encounterCompletion) {
+        playerStore.setPlayer(outcome.shouldGameOver
+          ? {
+              ...encounterCompletion.updatedPlayer,
+              travel: undefined,
+              spatialAddress: playerStore.character?.spatialAddress
+                ? { ...playerStore.character.spatialAddress, occupancy: 'scene' }
+                : encounterCompletion.updatedPlayer.spatialAddress,
+            }
+          : encounterCompletion.updatedPlayer);
+      }
       if (result.status === 'version_conflict') {
         // eslint-disable-next-line no-console
         console.warn('[BattleOverlay] WorldOutcome 版本冲突', result);
@@ -260,14 +297,50 @@ function onEndTurn() {
 function onFlee() {
   const r = ui.fleeCmd(battleConfig.value.type);
   if (r === 'success') {
+    settleRoadEncounterEscape();
     closeBattle();
   } else if (r === 'escape-hit') {
     later(() => {
       checkBattleEnd();              // 防一击致死漏结算
-      if (!showResult.value) closeBattle();
+      if (!showResult.value) {
+        settleRoadEncounterEscape();
+        closeBattle();
+      }
     }, 200);
   } else {
     later(checkBattleEnd, 100);      // hit/caught 免费攻击后可能致死
+  }
+}
+
+function settleRoadEncounterEscape() {
+  const encounterId = battleConfig.value.worldEncounterId;
+  const world = useAppStore().currentWorldState;
+  const currentPlayer = playerStore.character;
+  if (!encounterId || !world || !currentPlayer) return;
+  const completion = prepareRoadEncounterBattleCompletion(world, currentPlayer, encounterId);
+  if (!completion) return;
+  const result = commitOutcome(world, {
+    outcomeId: `OUTCOME_ESCAPE_${encounterId}`,
+    baseRevision: world.worldRevision ?? 0,
+    source: 'road_encounter_escape',
+    entityDeltas: [{ entityId: battleConfig.value.enemyNpcId!, travelChanged: completion.npcTravel }],
+    encounterChanges: [completion.encounterChange],
+    facts: [{
+      factId: `FACT_ESCAPE_${encounterId}`,
+      type: 'custom',
+      at: { year: world.currentYear, month: world.currentMonth },
+      participants: [
+        { entityId: currentPlayer.id, role: 'traveler' },
+        { entityId: battleConfig.value.enemyNpcId!, role: 'pursuer' },
+      ],
+      title: `${currentPlayer.name}脱离途中战斗`,
+      description: `脱离与${enemy.value.name}的交锋，双方恢复各自行程。`,
+      visibility: 'local',
+      metadata: { encounterId, choice: 'flee' },
+    }],
+  });
+  if (result.status === 'success' || result.status === 'already_applied') {
+    playerStore.setPlayer(completion.updatedPlayer);
   }
 }
 
@@ -294,6 +367,12 @@ onUnmounted(() => {
 function pauseBattle() {
   setPaused(true);
 }
+
+// NPC 可以在同一 tick 内完成行动并结束战斗，currentTurn 前后均为 null。
+// 单独监听终局状态，避免逃跑/投降后没有结果弹窗。
+watch(() => state.battlePhase, (phase) => {
+  if (phase === 'BattleEnd') checkBattleEnd();
+});
 
 // NPC 回合后也检查
 watch(() => state.currentTurn, (newTurn) => {

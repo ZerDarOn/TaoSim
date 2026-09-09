@@ -19,6 +19,7 @@ import type {
   NpcRecord,
   PersistentCondition,
 } from '@taosim/contracts';
+import { applySpatialDelta } from '../overworld/spatial-delta.js';
 
 /**
  * 将 WorldOutcome 原子提交到 WorldState。
@@ -46,6 +47,29 @@ export function commitOutcome(worldState: WorldState, outcome: WorldOutcome): Co
 
   const validationError = validateOutcome(worldState, outcome);
   if (validationError) return { status: 'validation_failed', reason: validationError };
+
+  // 空间差量先完整应用到副本；只有验证成功才发布到世界状态。
+  // 后续实体差量只执行已完成校验的不可失败写入，因此不会留下半个地图变化。
+  if (outcome.spatialDelta) {
+    if (!worldState.spatialState) return { status: 'validation_failed', reason: 'spatial_state_missing' };
+    const nowMinutes = worldState.elapsedMinutes
+      ?? ((worldState.currentYear - 1) * 12 + (worldState.currentMonth - 1)) * 43_200;
+    const spatialResult = applySpatialDelta(worldState.spatialState, outcome.spatialDelta, nowMinutes);
+    if (!spatialResult.ok) return { status: 'validation_failed', reason: `spatial_${spatialResult.reason}` };
+    worldState.spatialState = spatialResult.state;
+  }
+
+  // 相遇状态与 NPC 旅行/事实使用同一 outcome 提交，避免出现“弹窗已显示但世界未停下”。
+  if (outcome.encounterChanges) {
+    worldState.activeEncounters ??= {};
+    for (const change of outcome.encounterChanges) {
+      if (change.type === 'upsert') {
+        worldState.activeEncounters[change.encounter.encounterId] = change.encounter;
+      } else {
+        delete worldState.activeEncounters[change.encounterId];
+      }
+    }
+  }
 
   // ── 应用所有 EntityDelta ──
   for (const delta of outcome.entityDeltas) {
@@ -85,6 +109,24 @@ function validateOutcome(worldState: WorldState, outcome: WorldOutcome): string 
   if (new Set(factIds).size !== factIds.length) return 'duplicate_fact_id';
   const existingFactIds = new Set((worldState.facts ?? []).map((fact) => fact.factId));
   if (factIds.some((factId) => !factId || existingFactIds.has(factId))) return 'fact_id_conflict';
+  const encounterIds = outcome.encounterChanges?.map((change) =>
+    change.type === 'upsert' ? change.encounter.encounterId : change.encounterId) ?? [];
+  if (new Set(encounterIds).size !== encounterIds.length) return 'duplicate_encounter_change';
+  for (const change of outcome.encounterChanges ?? []) {
+    if (change.type === 'remove') {
+      if (!change.encounterId) return 'missing_encounter_id';
+      continue;
+    }
+    const encounter = change.encounter;
+    if (!encounter.encounterId || !encounter.initiatorNpcId || !encounter.playerId
+      || encounter.participantIds.length < 2
+      || encounter.location.progress < 0 || encounter.location.progress > 1) {
+      return `invalid_encounter:${encounter.encounterId}`;
+    }
+    if (!worldState.npcs[encounter.initiatorNpcId]) {
+      return `encounter_npc_missing:${encounter.initiatorNpcId}`;
+    }
+  }
 
   const consumed = new Set<string>();
   const gained = new Set<string>();
@@ -204,6 +246,12 @@ function applyNpcDelta(worldState: WorldState, npc: NpcRecord, delta: EntityDelt
   }
 
   // 位置变更
+  if (delta.spatialAddressChanged !== undefined) {
+    npc.spatialAddress = delta.spatialAddressChanged;
+  }
+  if (delta.travelChanged !== undefined) {
+    npc.travel = delta.travelChanged === null ? undefined : delta.travelChanged;
+  }
   if (delta.locationChanged !== undefined) {
     const loc = delta.locationChanged;
     if (loc.nodeId) npc.locationId = loc.nodeId;

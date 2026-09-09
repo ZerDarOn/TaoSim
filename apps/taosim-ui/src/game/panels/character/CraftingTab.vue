@@ -7,7 +7,16 @@ import { ref, computed } from 'vue';
 import { usePlayerStore } from '@/stores/player';
 import { RecipeRegistry, AlchemyEngine, ForgeEngine, UpgradeEngine } from '@taosim/engine';
 import type { Item, ItemQuality } from '@taosim/contracts';
-import { formatQuality, formatItemId, formatAttributes } from '@/utils/i18n-game';
+import {
+  formatQuality,
+  formatItemId,
+  formatItemName,
+  formatAttributes,
+  formatRecipeName,
+  formatSpecialEffect,
+  formatTier,
+  formatCraftingMessage,
+} from '@/utils/i18n-game';
 
 const playerStore = usePlayerStore();
 
@@ -17,6 +26,12 @@ const subView = ref<'craft' | 'upgrade'>('craft');
 // ---- 炼制子视图状态 ----
 const activeTab = ref<'pill' | 'forge'>('pill');
 const result = ref<string | null>(null);
+const resultTone = ref<'success' | 'error' | 'info'>('info');
+
+function showResult(message: string, tone: 'success' | 'error' | 'info' = 'info') {
+  result.value = message;
+  resultTone.value = tone;
+}
 
 const unlockedIds = computed(() => playerStore.character?.unlockedRecipes ?? ['RECIPE_QI_PILL']);
 const unlockedRecipes = computed(() => RecipeRegistry.getUnlockedRecipes(unlockedIds.value));
@@ -31,40 +46,57 @@ const lockedForgeRecipes = computed(() =>
   RecipeRegistry.listForgeRecipes().filter(r => !unlockedIds.value.includes(r.id) && !r.unlockedByDefault)
 );
 
-function craftPill(recipeName: string) {
-  if (!playerStore.character) return;
-  if (!playerStore.consumeAp(1)) {
-    result.value = '行动点不足（次月恢复）';
+function craftPill(recipeId: string) {
+  const player = playerStore.character;
+  if (!player) return;
+  if (player.monthlyActionPoints.current < 1) {
+    showResult('行动点不足（次月恢复）', 'error');
     return;
   }
-  const r = AlchemyEngine.craftPill(playerStore.character, recipeName);
-  result.value = r.success
-    ? `炼制成功：${r.pill!.name}（${r.pill!.tier} 阶 · ${formatQuality(r.pill!.quality)}品质）`
-    : `炼制失败：${r.reason}`;
+  const r = AlchemyEngine.craftPill(player, recipeId);
+  if (r.attempted) playerStore.consumeAp(1);
+  if (r.success && r.pill) {
+    playerStore.addItem(r.pill);
+    showResult(`炼制成功：${formatItemName(r.pill)}（${formatTier(r.pill.tier)} · ${formatQuality(r.pill.quality)}）`, 'success');
+  } else {
+    showResult(`炼制失败：${formatCraftingMessage(r.reason ?? '未知原因')}`, 'error');
+  }
 }
 
-function forgeEquipment(recipeName: string) {
-  if (!playerStore.character) return;
-  if (!playerStore.consumeAp(1)) {
-    result.value = '行动点不足（次月恢复）';
+function forgeEquipment(recipeId: string) {
+  const player = playerStore.character;
+  if (!player) return;
+  if (player.monthlyActionPoints.current < 1) {
+    showResult('行动点不足（次月恢复）', 'error');
     return;
   }
-  const r = ForgeEngine.craft(playerStore.character, recipeName);
-  result.value = r.success
-    ? `炼制成功：${r.equipment!.name}（${r.equipment!.tier} 阶 · ${formatQuality(r.equipment!.quality)}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
-    : `炼制失败：${r.reason}`;
+  const r = ForgeEngine.craft(player, recipeId);
+  if (r.attempted) playerStore.consumeAp(1);
+  if (r.success && r.equipment) {
+    playerStore.addItem(r.equipment);
+    const effect = r.equipment.specialEffect ? ` · 特效：${formatSpecialEffect(r.equipment.specialEffect)}` : '';
+    showResult(`锻造成功：${formatItemName(r.equipment)}（${formatTier(r.equipment.tier)} · ${formatQuality(r.equipment.quality)}${effect}）`, 'success');
+  } else {
+    showResult(`锻造失败：${formatCraftingMessage(r.reason ?? '未知原因')}`, 'error');
+  }
 }
 
-function forgeMaster(recipeName: string) {
-  if (!playerStore.character) return;
-  if (!playerStore.consumeAp(1)) {
-    result.value = '行动点不足（次月恢复）';
+function forgeMaster(recipeId: string) {
+  const player = playerStore.character;
+  if (!player) return;
+  if (player.monthlyActionPoints.current < 1) {
+    showResult('行动点不足（次月恢复）', 'error');
     return;
   }
-  const r = ForgeEngine.craftMaster(playerStore.character, recipeName);
-  result.value = r.success
-    ? `大师锻造成功：${r.equipment!.name}（${formatQuality(r.equipment!.quality)}品质${r.equipment!.specialEffect ? ' · 特效 ' + r.equipment!.specialEffect : ''}）`
-    : `大师锻造失败：${r.reason}`;
+  const r = ForgeEngine.craftMaster(player, recipeId);
+  if (r.attempted) playerStore.consumeAp(1);
+  if (r.success && r.equipment) {
+    playerStore.addItem(r.equipment);
+    const effect = r.equipment.specialEffect ? ` · 特效：${formatSpecialEffect(r.equipment.specialEffect)}` : '';
+    showResult(`大师锻造成功：${formatItemName(r.equipment)}（${formatTier(r.equipment.tier)} · ${formatQuality(r.equipment.quality)}${effect}）`, 'success');
+  } else {
+    showResult(`大师锻造失败：${formatCraftingMessage(r.message ?? r.reason ?? '未知原因')}`, 'error');
+  }
 }
 
 // ---- 升品子视图状态 ----
@@ -91,24 +123,25 @@ function handleUpgrade() {
   if (!playerStore.character || !selectedItem.value) return;
   const target = getNextQuality(selectedItem.value);
   if (!target) {
-    result.value = '已达最高品质';
+    showResult('已达最高品质', 'info');
     return;
   }
 
-  if (!playerStore.consumeAp(1)) {
-    result.value = '行动点不足（次月恢复）';
+  if (playerStore.character.monthlyActionPoints.current < 1) {
+    showResult('行动点不足（次月恢复）', 'error');
     return;
   }
 
   // 找到背包中的实际物品引用
   const stack = playerStore.character.inventory.find(s => s.item.id === selectedItem.value!.id);
   if (!stack) {
-    result.value = '背包中找不到该物品';
+    showResult('背包中找不到该物品', 'error');
     return;
   }
 
   const r = UpgradeEngine.enhance(stack.item, target, playerStore.character);
-  result.value = r.message;
+  if (r.attempted) playerStore.consumeAp(1);
+  showResult(formatCraftingMessage(r.message), r.success ? 'success' : 'error');
 
   if (r.resultItem) {
     // 无论成功还是失败，resultItem 都反映装备最新状态
@@ -157,7 +190,8 @@ function qualityColor(quality?: string): string {
     <!-- 结果提示（两个子视图共享） -->
     <div v-if="result"
       :class="['p-3 rounded text-sm',
-        result.includes('成功') ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300']">
+        resultTone === 'success' ? 'bg-green-900/50 text-green-300' :
+        resultTone === 'error' ? 'bg-red-900/50 text-red-300' : 'bg-slate-700/70 text-slate-300']">
       {{ result }}
     </div>
 
@@ -190,12 +224,12 @@ function qualityColor(quality?: string): string {
         <div v-for="recipe in pillRecipes" :key="recipe.id"
           class="p-3 bg-slate-800 rounded space-y-2">
           <div class="flex items-baseline justify-between">
-            <span class="font-semibold text-slate-100">{{ recipe.name }}</span>
-            <span class="text-xs text-slate-500">{{ recipe.tier }}阶</span>
+            <span class="font-semibold text-slate-100">{{ formatRecipeName(recipe.id, recipe.name) }}</span>
+            <span class="text-xs text-slate-500">{{ formatTier(recipe.tier) }}</span>
           </div>
           <div class="text-xs text-slate-400">材料：{{ recipe.requiredMaterials.map(formatItemId).join('、') }}</div>
           <div class="text-xs text-slate-500">成功率：{{ Math.round(recipe.baseSuccessRate * 100) }}%</div>
-          <button @click="craftPill(recipe.name)"
+          <button @click="craftPill(recipe.id)"
             class="w-full px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold">
             炼制
           </button>
@@ -219,16 +253,16 @@ function qualityColor(quality?: string): string {
         <div v-for="recipe in forgeRecipes" :key="recipe.id"
           class="p-3 bg-slate-800 rounded space-y-2">
           <div class="flex items-baseline justify-between">
-            <span class="font-semibold text-slate-100">{{ recipe.name }}</span>
-            <span class="text-xs text-slate-500">{{ recipe.tier }}阶</span>
+            <span class="font-semibold text-slate-100">{{ formatRecipeName(recipe.id, recipe.name) }}</span>
+            <span class="text-xs text-slate-500">{{ formatTier(recipe.tier) }}</span>
           </div>
           <div class="text-xs text-slate-400">主材：{{ formatItemId(recipe.mainMaterialId) }}</div>
           <div class="text-xs text-slate-500">辅材：{{ recipe.optionalAuxMaterials.map(formatItemId).join('、') || '无' }}</div>
-          <button @click="forgeEquipment(recipe.name)"
+          <button @click="forgeEquipment(recipe.id)"
             class="w-full px-3 py-1.5 bg-amber-700 hover:bg-amber-600 text-white rounded text-xs font-semibold">
             普通锻造
           </button>
-          <button @click="forgeMaster(recipe.name)"
+          <button @click="forgeMaster(recipe.id)"
             class="w-full px-3 py-1.5 bg-purple-700 hover:bg-purple-600 text-white rounded text-xs font-semibold">
             大师锻造
           </button>
@@ -260,11 +294,11 @@ function qualityColor(quality?: string): string {
             @click="selectItem(s.item)"
             :class="['text-left p-2 bg-slate-800 rounded space-y-1 hover:ring-1 hover:ring-amber-500',
               selectedItem?.id === s.item.id ? 'ring-1 ring-amber-500' : '']">
-            <div class="text-sm font-medium text-slate-100">{{ s.item.name }}</div>
+            <div class="text-sm font-medium text-slate-100">{{ formatItemName(s.item) }}</div>
             <div class="text-xs" :class="qualityColor(s.item.quality)">
-              {{ formatQuality(s.item.quality) }}品质 · Tier {{ s.item.tier }}
+              {{ formatQuality(s.item.quality) }} · {{ formatTier(s.item.tier) }}
             </div>
-            <div v-if="s.item.specialEffect" class="text-xs text-amber-300">特效: {{ s.item.specialEffect }}</div>
+            <div v-if="s.item.specialEffect" class="text-xs text-amber-300">特效：{{ formatSpecialEffect(s.item.specialEffect) }}</div>
           </button>
         </div>
       </section>
@@ -272,7 +306,7 @@ function qualityColor(quality?: string): string {
       <!-- 升品详情 -->
       <section v-if="selectedItem" class="p-4 bg-slate-800 rounded space-y-3">
         <div class="flex justify-between items-center">
-          <span class="font-medium text-slate-100">{{ selectedItem.name }}</span>
+          <span class="font-medium text-slate-100">{{ formatItemName(selectedItem) }}</span>
           <span :class="qualityColor(selectedItem.quality)">{{ formatQuality(selectedItem.quality) }}</span>
         </div>
         <div class="text-xs text-slate-500">

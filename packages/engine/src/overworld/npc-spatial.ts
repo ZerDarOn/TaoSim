@@ -30,7 +30,10 @@ export function npcSpatialIndex(
   const index = new Map<string, NpcRecord[]>();
   for (const npc of Object.values(npcs)) {
     if (npc.soulState !== 'Active') continue;
-    const pos = npc.hexPos ?? npcHexPos(npc.locationId, grid);
+    const coordinate = npc.spatialAddress?.coordinate;
+    const pos = coordinate && 'q' in coordinate && 'r' in coordinate
+      ? coordinate
+      : npc.hexPos ?? npcHexPos(npc.locationId, grid);
     if (!pos) continue;
     const key = `${pos.q},${pos.r}`;
     const list = index.get(key) ?? [];

@@ -145,10 +145,9 @@ export function tryWonder(rec: NpcRecord, rng: Rng, boost = 1): WonderResult {
 
 /**
  * 云游判定：基础 2%/月；chance 可被行为槽抬高（逍遥/扬名者主动云游，
- * 常年在路上，比例远高于被动偶遇）。locationId 置为云游中，待接入真实节点。
+ * 常年在路上，比例远高于被动偶遇）。这里只返回行动意图；位置由空间旅行服务提交。
  */
 export function tryWander(rec: NpcRecord, rng: Rng, chance = 0.02): boolean {
   if (rng() >= chance) return false;
-  rec.locationId = undefined;
   return true;
 }

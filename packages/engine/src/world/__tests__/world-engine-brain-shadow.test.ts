@@ -208,7 +208,7 @@ describe('WorldEngine NB2 brain shadow integration', () => {
     });
   });
 
-  it('NB3 探索者依据本地认知建立三步计划、预留行动槽并到达真实场所', () => {
+  it('NB3 探索者依据本地认知建立三步计划、预留行动槽并沿连续旅行到达真实场所', () => {
     const explorer = npc('npc_explorer', 'wander');
     explorer.locationId = 'VENUE_TIANJI_TAVERN';
     const engine = new WorldEngine(world([explorer]), {
@@ -220,14 +220,17 @@ describe('WorldEngine NB2 brain shadow integration', () => {
     const record = state.npcs.npc_explorer!;
     const plan = record.brain?.currentPlan;
 
-    expect(record.locationId).not.toBe('VENUE_TIANJI_TAVERN');
-    expect(record.locationId).toMatch(/^VENUE_TIANJI_/);
+    // Brain 行动只提交旅行意图；同一月度 tick 不允许把人物瞬移到目的地。
+    expect(record.locationId).toBe('VENUE_TIANJI_TAVERN');
+    expect(record.travel?.status).toBe('in_transit');
+    expect(record.travel?.destination.nodeId).not.toBe('VENUE_TIANJI_TAVERN');
+    expect(record.travel?.destination.nodeId).toMatch(/^VENUE_TIANJI_/);
     expect(plan?.steps.map((step) => step.capabilityId)).toEqual([
       'observe_local_area', 'reserve_primary_action', 'wander',
     ]);
     expect(plan?.status).toBe('completed');
     expect(record.brain?.currentAction?.targets).toEqual([
-      { kind: 'location', entityId: record.locationId },
+      { kind: 'location', entityId: record.travel?.destination.nodeId },
     ]);
     const reservationId = record.brain?.currentAction?.reservationIds[0]!;
     expect(state.resourceReservations?.[reservationId]?.status).toBe('consumed');
@@ -235,6 +238,13 @@ describe('WorldEngine NB2 brain shadow integration', () => {
       plansPreparedCount: 1,
       committedCounts: { wander: 1 },
     });
+
+    const arrivalAt = record.travel!.estimatedArrivalAtMinutes;
+    engine.setElapsedMinutes(arrivalAt);
+    engine.processScheduledWakesAt(arrivalAt);
+    const arrived = engine.getState().npcs.npc_explorer!;
+    expect(arrived.travel).toBeUndefined();
+    expect(arrived.locationId).toBe(record.brain?.currentAction?.targets[0]?.entityId);
   });
 
   it('只有实际产生的 normal+ 事件才在月末形成结构化事实', () => {

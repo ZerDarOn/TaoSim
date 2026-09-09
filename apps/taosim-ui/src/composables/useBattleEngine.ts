@@ -6,6 +6,7 @@
 // ============================================================
 
 import { reactive, onScopeDispose } from 'vue';
+import { createGameSnapshot } from '../utils/game-snapshot';
 import type { Character, HexBattleMap, Skill, BattleSceneConfig, BattleState } from '@taosim/contracts';
 import { hexKey } from '@taosim/contracts';
 import {
@@ -19,6 +20,7 @@ interface V2CombatState {
   map: HexBattleMap;
   characters: Record<string, Character>;
   currentTurn: string | null;
+  battlePhase: BattleState['phase'];
   selectedSkill: Skill | null;
   phase: 'idle' | 'moving' | 'targeting' | 'executing';
   log: string[];
@@ -53,7 +55,12 @@ export function useBattleEngine(
 ) {
   // 新 BattleEngine 是自包含状态机，state 内部维护
   const engine = new BattleEngine(runtimeOptions.seed ?? Date.now() % 2147483647, runtimeOptions.battleId);
-  const startResult = engine.start(map, [player], enemies, sceneConfig);
+  const startResult = engine.start(
+    createGameSnapshot(map),
+    createGameSnapshot([player]),
+    createGameSnapshot(enemies),
+    createGameSnapshot(sceneConfig),
+  );
   if (startResult.error) {
     // 不期望失败（start 只在 map 为空时失败）；若失败抛错让 UI 显式处理
     throw new Error(`useBattleEngine: engine.start failed: ${startResult.error}`);
@@ -65,6 +72,7 @@ export function useBattleEngine(
     map: engine.getState().map,
     characters: engine.getState().characters,
     currentTurn: engine.getState().currentTurnId,
+    battlePhase: engine.getState().phase,
     selectedSkill: null,
     phase: 'idle',
     log: [],
@@ -107,6 +115,7 @@ export function useBattleEngine(
     state.map = engineState.map;
     state.characters = engineState.characters;
     state.currentTurn = engineState.currentTurnId;
+    state.battlePhase = engineState.phase;
     state.turnNumber = engineState.turnNumber;
     syncAtbMirror();
     const p = engineState.units[playerId];

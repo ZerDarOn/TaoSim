@@ -1,6 +1,9 @@
 // apps/taosim-ui/src/stores/game-flow.ts
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import type { ChildhoodChoiceId, PlayerEntryMode } from '@taosim/contracts';
+
+export type NewGameEntryMode = Exclude<PlayerEntryMode, 'legacy'>;
 
 /**
  * 游戏阶段状态机
@@ -22,6 +25,16 @@ export interface WorldInitConfig {
   preEvolveYears: number;
   /** 难力 */
   difficulty: 'easy' | 'normal' | 'hard';
+  /** 玩家如何接入同一个权威世界。 */
+  entryMode: NewGameEntryMode;
+  /** 可复现的世界前史随机种子。 */
+  worldSeed: number;
+  /** 降生模式的童年关键选择。 */
+  childhoodChoice: ChildhoodChoiceId;
+  /** 穿越模式接入时年龄。 */
+  startAge: number;
+  /** 降生家庭/环境的社会背景。 */
+  background: 'orphan' | 'small-clan' | 'ancient-clan';
 }
 
 export const useGameFlowStore = defineStore('game-flow', () => {
@@ -31,6 +44,11 @@ export const useGameFlowStore = defineStore('game-flow', () => {
     npcScale: 'medium',
     preEvolveYears: 50,
     difficulty: 'normal',
+    entryMode: 'birth',
+    worldSeed: 20260906,
+    childhoodChoice: 'follow_family',
+    startAge: 20,
+    background: 'orphan',
   });
 
   /** 世界生成进度（0-100），供 WorldGeneratingScreen 使用 */

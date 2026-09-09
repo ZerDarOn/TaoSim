@@ -24,8 +24,37 @@ function sameTime(a: BrainTime | undefined, b: BrainTime): boolean {
   return a?.year === b.year && a.month === b.month;
 }
 
-function cloneNpc(npc: NpcRecord): NpcRecord {
-  return JSON.parse(JSON.stringify(npc)) as NpcRecord;
+/**
+ * 能力执行器只会修改下列数值/投影字段。不要在每个 NPC、每个月对整个档案
+ * JSON round-trip：Brain/relations 等稳定引用不属于本次能力差量，保留共享引用
+ * 也不会被执行器写入；会被写入的嵌套对象单独复制以维持失败时无半提交。
+ */
+function cloneNpcForCapability(npc: NpcRecord): NpcRecord {
+  return {
+    ...npc,
+    cultivation: { ...npc.cultivation },
+    lifespan: { ...npc.lifespan },
+    biography: {
+      ...npc.biography,
+      milestones: npc.biography.milestones.map((milestone) => ({ ...milestone })),
+    },
+    spatialAddress: npc.spatialAddress
+      ? {
+          ...npc.spatialAddress,
+          coordinate: npc.spatialAddress.coordinate ? { ...npc.spatialAddress.coordinate } : undefined,
+        }
+      : undefined,
+    travel: npc.travel
+      ? {
+          ...npc.travel,
+          origin: { ...npc.travel.origin },
+          destination: { ...npc.travel.destination },
+          route: npc.travel.route.map((segment) => ({ ...segment })),
+          interruptionReasons: [...npc.travel.interruptionReasons],
+          encounteredFactIds: [...npc.travel.encounteredFactIds],
+        }
+      : undefined,
+  };
 }
 
 /** 只提交首批能力可能改变的权威字段，禁止用场景投影整体覆盖 NpcRecord。 */
@@ -35,6 +64,8 @@ function applyCapabilityDelta(target: NpcRecord, staged: NpcRecord): void {
   target.lifespan = staged.lifespan;
   target.locationId = staged.locationId;
   target.moveState = staged.moveState;
+  target.spatialAddress = staged.spatialAddress;
+  target.travel = staged.travel;
   target.lastUpdate = staged.lastUpdate;
   target.biography = staged.biography;
 }
@@ -145,7 +176,7 @@ export function commitNpcBrainAction(
         now,
       );
   const elapsedBefore = canContinue ? Math.round(action.progress * duration) : 0;
-  const stagedNpc = cloneNpc(npc);
+  const stagedNpc = cloneNpcForCapability(npc);
   const resolution = resolveNpcCapabilityAction(stagedNpc, capabilityId, elapsedBefore, now, options);
   if (!resolution) throw new Error(`NPC Brain 能力没有结算结果: ${capabilityId}`);
 

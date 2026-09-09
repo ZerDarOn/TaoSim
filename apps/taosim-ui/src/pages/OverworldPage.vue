@@ -3,10 +3,14 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePlayerStore } from '@/stores/player';
 import { formatNodeType } from '@/utils/i18n-game';
-import { OverworldEngine, PRESET_MAP, getNeighbors, getEdge } from '@taosim/engine';
+import { PRESET_MAP, getNeighbors, getEdge, planSpatialTravel } from '@taosim/engine';
 import type { OverworldNode } from '@taosim/contracts';
+import { useAppStore } from '@/stores/app';
+import { useWorld } from '@/composables/useWorld';
 
 const playerStore = usePlayerStore();
+const appStore = useAppStore();
+const { travelAdvanceDays } = useWorld();
 const router = useRouter();
 const currentNodeId = ref('NODE_SECT_QINGYUN');
 const message = ref<string | null>(null);
@@ -24,24 +28,40 @@ const neighborNodes = computed(() =>
   neighborIds.value.map(id => continent.value?.nodes[id]).filter(Boolean) as OverworldNode[],
 );
 
-function handleTravel(targetNodeId: string) {
+async function handleTravel(targetNodeId: string) {
   if (!playerStore.character) return;
   const edge = getEdge(currentNodeId.value, targetNodeId);
   const distance = edge?.distanceDays ?? '?';
 
-  const result = OverworldEngine.travel(
-    playerStore.character,
-    currentNodeId.value,
-    targetNodeId,
-    PRESET_MAP,
-  );
-
-  if (result.success) {
-    currentNodeId.value = result.currentNodeId ?? currentNodeId.value;
-    travelEvents.value = result.events;
+  const world = appStore.currentWorldState;
+  const spatial = world?.spatialState;
+  if (!world || !spatial) {
+    message.value = '世界空间尚未准备好，无法旅行';
+    return;
+  }
+  const origin = playerStore.character.spatialAddress ?? {
+    nodeId: currentNodeId.value,
+    occupancy: 'stationary' as const,
+  };
+  const plan = planSpatialTravel(spatial, {
+    travelId: `player:${playerStore.character.id}:${world.elapsedMinutes ?? 0}:${targetNodeId}`,
+    entityId: playerStore.character.id,
+    origin,
+    destination: { nodeId: targetNodeId, occupancy: 'stationary' },
+    movementMode: playerStore.character.canFly ? 'fly' : 'walk',
+    speed: { baseDistancePerDay: 1 },
+    nowMinutes: world.elapsedMinutes ?? 0,
+  });
+  if (plan.ok) {
+    playerStore.character.spatialAddress = plan.travel.origin;
+    playerStore.character.travel = plan.travel;
+    const timeResult = await travelAdvanceDays(plan.travel.totalDistance);
+    if (timeResult.died) return;
+    currentNodeId.value = targetNodeId;
+    travelEvents.value = [];
     message.value = `抵达 ${continent.value?.nodes[targetNodeId]?.name}（耗时 ${distance} 天）`;
   } else {
-    message.value = result.reason ?? '旅行失败';
+    message.value = `旅行失败：${plan.reason}`;
   }
 }
 

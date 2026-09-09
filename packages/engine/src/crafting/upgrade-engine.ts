@@ -77,18 +77,19 @@ export class UpgradeEngine {
     player: Character
   ): {
     success: boolean;
+    attempted: boolean;
     resultItem?: Item;
     penaltyTriggered?: UpgradeFailPenalty;
     message: string;
   } {
     const rule = this.getUpgradeRule(item.tier, item.quality ?? 'Common', targetQuality);
     if (!rule) {
-      return { success: false, message: `无法从 ${item.quality} 升至 ${targetQuality}（品阶天花板或路径不存在）` };
+      return { success: false, attempted: false, message: `无法从 ${item.quality} 升至 ${targetQuality}（品阶天花板或路径不存在）` };
     }
 
     // 检查灵石
     if (player.spiritStones < rule.spiritStones) {
-      return { success: false, message: `灵石不足，需要 ${rule.spiritStones}` };
+      return { success: false, attempted: false, message: `灵石不足，需要 ${rule.spiritStones}` };
     }
 
     // 检查材料
@@ -97,7 +98,7 @@ export class UpgradeEngine {
         s => s.item.templateId === mat.templateId || s.item.id === mat.templateId
       );
       if (!stack || stack.count < mat.count) {
-        return { success: false, message: `材料不足：${mat.templateId}` };
+        return { success: false, attempted: false, message: `材料不足：${mat.templateId}` };
       }
     }
 
@@ -116,6 +117,7 @@ export class UpgradeEngine {
       const updatedItem = this.applyQualityToItem(item, targetQuality);
       return {
         success: true,
+        attempted: true,
         resultItem: updatedItem,
         message: `升品成功！${item.name} 已升至 ${targetQuality}`,
       };
@@ -125,6 +127,7 @@ export class UpgradeEngine {
     const penalizedItem = this.applyFailPenalty(item, rule.failPenalty);
     return {
       success: false,
+      attempted: true,
       resultItem: penalizedItem,
       penaltyTriggered: rule.failPenalty,
       message: this.getFailMessage(rule.failPenalty),

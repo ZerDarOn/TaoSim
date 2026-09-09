@@ -113,6 +113,7 @@ describe('UpgradeEngine', () => {
     const item = makeEquipment({ quality: 'Common' });
     const result = UpgradeEngine.enhance(item, 'Rare', player);
     expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.message).toContain('灵石');
   });
 
@@ -121,6 +122,7 @@ describe('UpgradeEngine', () => {
     const item = makeEquipment({ quality: 'Common' });
     const result = UpgradeEngine.enhance(item, 'Rare', player);
     expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.message).toContain('材料');
   });
 });

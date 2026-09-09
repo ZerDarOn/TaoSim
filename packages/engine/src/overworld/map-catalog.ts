@@ -265,7 +265,18 @@ export function createInitialMapState(): PlayerMapState {
     activeCosmosId: 'COSMOS_TAIYANG',
     activeContinentId: 'CONT_EAST',
     activeVenueId: null,
+    focusedSpatialNodeId: null,
     exploredHexes: {},
     hexPos: { q: 10, r: 10 },
+    observationPreferences: {
+      npcRoutes: 'focused',
+      npcNames: 'aggregate',
+      people: true,
+      roads: true,
+      spiritQi: false,
+      factions: false,
+      dangers: true,
+    },
+    viewports: {},
   };
 }

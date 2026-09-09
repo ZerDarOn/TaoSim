@@ -5,7 +5,7 @@
  * - 当前层级（Cosmos / Continent / Region / Venue）
  * - 当前所在大陆/星系/场所
  * - 已探索六边形坐标的按大陆分片缓存
- * - 玩家在六边形网格上的位置
+ * - 玩家权威位置在六边形视图中的缓存投影
  *
  * 缓存策略：session 级（Pinia + localStorage 兜底）。
  * 切换 tab / 组件卸载不丢失已探索状态。
@@ -13,7 +13,14 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { MapLayer, PlayerMapState } from '@taosim/contracts';
+import type {
+  MapLayer,
+  MapObservationPreferences,
+  MapViewportState,
+  NpcNameDisplayMode,
+  NpcRouteDisplayMode,
+  PlayerMapState,
+} from '@taosim/contracts';
 import { createInitialMapState, getContinent } from '@taosim/engine';
 
 const STORAGE_KEY = 'taosim_map_state_v1';
@@ -36,10 +43,26 @@ function saveToStorage(state: PlayerMapState): void {
   }
 }
 
+function normalizeMapState(saved?: PlayerMapState | null): PlayerMapState {
+  const defaults = createInitialMapState();
+  if (!saved) return defaults;
+  return {
+    ...defaults,
+    ...saved,
+    exploredHexes: saved.exploredHexes ?? {},
+    hexPos: saved.hexPos ?? defaults.hexPos,
+    observationPreferences: {
+      ...defaults.observationPreferences!,
+      ...(saved.observationPreferences ?? {}),
+    },
+    viewports: { ...(saved.viewports ?? {}) },
+  };
+}
+
 export const useMapStore = defineStore('map', () => {
   // 初始化：优先 localStorage，否则默认
   const persisted = loadFromStorage();
-  const state = ref<PlayerMapState>(persisted ?? createInitialMapState());
+  const state = ref<PlayerMapState>(normalizeMapState(persisted));
 
   // ---- 持久化 ----
   function persist() {
@@ -51,7 +74,9 @@ export const useMapStore = defineStore('map', () => {
   const activeCosmosId = computed(() => state.value.activeCosmosId);
   const activeContinentId = computed(() => state.value.activeContinentId);
   const activeVenueId = computed(() => state.value.activeVenueId);
+  const focusedSpatialNodeId = computed(() => state.value.focusedSpatialNodeId ?? null);
   const hexPos = computed(() => state.value.hexPos);
+  const observationPreferences = computed(() => state.value.observationPreferences!);
 
   const exploredHexesForActiveContinent = computed(() => {
     const arr = state.value.exploredHexes[state.value.activeContinentId] ?? [];
@@ -68,6 +93,21 @@ export const useMapStore = defineStore('map', () => {
   /** 切换当前查看的层级（不影响玩家实际位置） */
   function setActiveLayer(layer: MapLayer) {
     state.value.activeLayer = layer;
+    persist();
+  }
+
+  /** 进入真实空间子图仅改变观察焦点，不修改人物地址或世界时间。 */
+  function enterSpatialDetail(nodeId: string, layer: MapLayer = 'Settlement') {
+    state.value.focusedSpatialNodeId = nodeId;
+    state.value.activeLayer = layer;
+    state.value.activeVenueId = null;
+    persist();
+  }
+
+  function leaveSpatialDetail() {
+    state.value.activeLayer = 'Region';
+    state.value.activeVenueId = null;
+    state.value.focusedSpatialNodeId = null;
     persist();
   }
 
@@ -97,9 +137,49 @@ export const useMapStore = defineStore('map', () => {
     persist();
   }
 
-  /** 更新玩家在当前大陆网格上的位置 */
+  /** 更新权威空间地址在当前地图上的缓存投影；不得作为移动事实来源 */
   function setHexPos(pos: { q: number; r: number }) {
     state.value.hexPos = pos;
+    persist();
+  }
+
+  function setNpcRouteDisplayMode(mode: NpcRouteDisplayMode) {
+    state.value.observationPreferences = {
+      ...state.value.observationPreferences!,
+      npcRoutes: mode,
+    };
+    persist();
+  }
+
+  function setNpcNameDisplayMode(mode: NpcNameDisplayMode) {
+    state.value.observationPreferences = {
+      ...state.value.observationPreferences!,
+      npcNames: mode,
+    };
+    persist();
+  }
+
+  function setObservationLayer(
+    layer: keyof Pick<MapObservationPreferences, 'people' | 'roads' | 'spiritQi' | 'factions' | 'dangers'>,
+    enabled: boolean,
+  ) {
+    state.value.observationPreferences = {
+      ...state.value.observationPreferences!,
+      [layer]: enabled,
+    };
+    persist();
+  }
+
+  function getViewport(continentId: string): MapViewportState | undefined {
+    const viewport = state.value.viewports?.[continentId];
+    return viewport ? { zoom: viewport.zoom, pan: { ...viewport.pan } } : undefined;
+  }
+
+  function setViewport(continentId: string, viewport: MapViewportState) {
+    state.value.viewports = {
+      ...(state.value.viewports ?? {}),
+      [continentId]: { zoom: viewport.zoom, pan: { ...viewport.pan } },
+    };
     persist();
   }
 
@@ -111,6 +191,7 @@ export const useMapStore = defineStore('map', () => {
     state.value.hexPos = newPos ?? { q: 10, r: 10 };
     state.value.activeLayer = 'Region';
     state.value.activeVenueId = null;
+    state.value.focusedSpatialNodeId = null;
     persist();
   }
 
@@ -124,20 +205,20 @@ export const useMapStore = defineStore('map', () => {
   /** 离开场所，回到区域层级 */
   function leaveVenue() {
     state.value.activeVenueId = null;
-    state.value.activeLayer = 'Region';
+    state.value.activeLayer = state.value.focusedSpatialNodeId ? 'Settlement' : 'Region';
     persist();
   }
 
   /** 离开具体场所但保持城镇内部视图（显示场所列表） */
   function backToVenueList() {
     state.value.activeVenueId = null;
-    state.value.activeLayer = 'Venue';
+    state.value.activeLayer = state.value.focusedSpatialNodeId ? 'Settlement' : 'Region';
     persist();
   }
 
   /** 重置（新游戏） */
   function reset() {
-    state.value = createInitialMapState();
+    state.value = normalizeMapState(createInitialMapState());
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   }
 
@@ -146,7 +227,7 @@ export const useMapStore = defineStore('map', () => {
    * 覆盖当前 state 并同步写入 localStorage，使后续组件挂载读到正确数据。
    */
   function hydrateFromSave(saved: PlayerMapState) {
-    state.value = saved;
+    state.value = normalizeMapState(saved);
     persist();
   }
 
@@ -158,15 +239,24 @@ export const useMapStore = defineStore('map', () => {
     activeCosmosId,
     activeContinentId,
     activeVenueId,
+    focusedSpatialNodeId,
     hexPos,
+    observationPreferences,
     exploredHexesForActiveContinent,
     // read
     getExploredHexes,
     // write
     setActiveLayer,
+    enterSpatialDetail,
+    leaveSpatialDetail,
     markExplored,
     syncExploredFromGrid,
     setHexPos,
+    setNpcRouteDisplayMode,
+    setNpcNameDisplayMode,
+    setObservationLayer,
+    getViewport,
+    setViewport,
     switchContinent,
     enterVenue,
     leaveVenue,

@@ -279,6 +279,8 @@ export interface NpcActionResolution {
   severity: 'minor' | 'normal' | 'major';
   /** 更新后的 NPC（直接修改传入引用） */
   npc: NpcRecord;
+  /** 行动需要前往的真实空间节点；由 WorldEngine 负责验证并登记旅行。 */
+  travelTargetLocationId?: string;
 }
 
 // 多步行动所需月数
@@ -411,13 +413,13 @@ export function resolveNpcCapabilityAction(
     }
 
     case 'wander': {
-      // 有计划目的地时真实到达；旧链无目的地时保持云游并由 WorldEngine 下月落脚。
+      // 行动解析只产出旅行意图，不直接改写 locationId；WorldEngine 会把意图
+      // 验证为连续 TravelState，抵达后才投影旧字段。
       const oldLocId = npc.locationId;
-      npc.locationId = options.targetLocationId;
-      npc.moveState = options.targetLocationId ? 'resident' : 'wandering';
+      npc.moveState = 'wandering';
       fact = options.targetLocationId
         ? `${npc.name}从${oldLocId ?? '无名之地'}前往${options.targetLocationId}`
-        : oldLocId
+          : oldLocId
           ? `${npc.name}离开${oldLocId}，外出云游`
           : `${npc.name}云游四方`;
       severity = 'minor';
@@ -465,6 +467,7 @@ export function resolveNpcCapabilityAction(
     fact,
     severity,
     npc,
+    travelTargetLocationId: actionType === 'wander' ? options.targetLocationId : undefined,
   };
 }
 

@@ -8,6 +8,7 @@
 import type { RealmFullPath, SoulState, SpiritRoot, Gender } from './character.js';
 import type { SkillElement } from './skill.js';
 import type { BrainState } from './npc-brain.js';
+import type { SpatialAddress, TravelState } from './spatial.js';
 
 /** 先天出身（因）：决定出生起点——只塑造面板与初始条件，不提供任何概率加成（机制特权禁止） */
 export type BornOrigin = 'mortal' | 'fortune' | 'reincarnated' | 'inherited';
@@ -166,6 +167,12 @@ export interface NpcRecord {
   secludeMonths?: number;
   /** 兼容性种子（道缘/魔缘基底；出生时生成 [0,1)，与任意 NPC 的兼容性确定可算） */
   affinityMatrixSeed?: number;
+
+  // ── 动态空间世界 Phase 1：统一空间语义（迁移期可选）──
+  /** 当前权威空间地址；locationId/hexPos 只在迁移期作为兼容读取。 */
+  spatialAddress?: SpatialAddress;
+  /** 连续旅行状态；Phase 2 接管旧 moveTarget 的正式写入。 */
+  travel?: TravelState;
 
   // ── P4：NPC Mind（持久化心智状态）──
   /** 心智状态（意愿/目标/计划/下一步行动）；旧 NPC 迁移时从 aspiration 推导 */

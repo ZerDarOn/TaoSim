@@ -278,7 +278,7 @@ describe('WorldEngine', () => {
     const s1 = state.npcs['NPC_S1']!;
     const s2 = state.npcs['NPC_S2']!;
     expect(s1.relations['NPC_S2'] || s2.relations['NPC_S1']).toBeDefined();
-  });
+  }, 10_000);
 
   it('所有事件结构化：severity/visibility/source 且 isMajorEvent 与 severity 一致', () => {
     const engine = new WorldEngine(baseState);

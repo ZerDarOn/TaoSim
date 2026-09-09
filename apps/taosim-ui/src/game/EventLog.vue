@@ -23,6 +23,7 @@ type Perspective = 'immersive' | 'rumor' | 'chronicle';
 const perspective = ref<Perspective>('immersive');
 const onlyMine = ref(false);
 const selectedNpcId = ref<string | null>(null);
+const isGodObserver = computed(() => playerStore.character?.entryProfile?.knowledgeScope === 'omniscient');
 
 // 分类元数据
 const CATEGORY_META: Record<EventCategory, { label: string; icon: string; color: string; bg: string }> = {
@@ -46,7 +47,8 @@ const player = computed(() => playerStore.character);
 // §6.3 空间维度：玩家所处场所（同场所/同节点的 local 事件可感知）
 const playerLocationId = computed(() => mapStore.activeVenueId ?? undefined);
 const immersiveEvents = computed(() => {
-  if (!onlyMine.value || !player.value) return logStore.filteredEvents;
+  if (!player.value) return [];
+  if (isGodObserver.value && !onlyMine.value) return logStore.filteredEvents;
   return logStore.filteredEvents.filter(e => visibleToPlayer(e, player.value!, playerLocationId.value));
 });
 
@@ -148,6 +150,7 @@ const selectedNpcKinship = computed(() => {
             @click="perspective = 'rumor'"
           >传闻</button>
           <button
+            v-if="isGodObserver"
             class="px-2 py-0.5 transition"
             :class="perspective === 'chronicle' ? 'bg-amber-600 text-white' : 'bg-slate-700/40 text-slate-400 hover:bg-slate-700'"
             @click="perspective = 'chronicle'"
@@ -161,6 +164,7 @@ const selectedNpcKinship = computed(() => {
       <!-- 与我相关 -->
       <div class="px-2 py-1.5 border-b border-slate-700">
         <button
+          v-if="isGodObserver"
           class="w-full text-left px-2 py-1 rounded text-[10px] font-medium transition border"
           :class="onlyMine
             ? 'border-transparent bg-slate-900 text-amber-400'
@@ -169,6 +173,9 @@ const selectedNpcKinship = computed(() => {
         >
           {{ onlyMine ? '★ 仅看我所能知晓的事件' : '☆ 全部事件（含传闻与全知信息）' }}
         </button>
+        <div v-else class="w-full px-2 py-1 rounded text-[10px] font-medium border border-slate-600 bg-slate-900 text-amber-400">
+          角色视角 · 仅显示亲历或可感知事件
+        </div>
       </div>
 
       <!-- 分类过滤 -->
